@@ -1,0 +1,342 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #000;
+  color: #eee;
+  overflow: hidden;
+  user-select: none;
+}
+
+.screen {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* -- титульный экран -- */
+
+.title-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.title-logo {
+  font-size: clamp(2rem, 6vw, 4rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 0 30px rgba(126, 200, 227, 0.5);
+}
+
+.title-sub {
+  color: #8a93b5;
+  margin-bottom: 24px;
+}
+
+.title-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(320px, 80vw);
+}
+
+.menu-btn {
+  padding: 12px 20px;
+  font-size: 1.05rem;
+  background: rgba(20, 26, 48, 0.85);
+  color: #dfe6ff;
+  border: 1px solid rgba(126, 200, 227, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.menu-btn:hover:not(:disabled) {
+  background: rgba(44, 58, 99, 0.95);
+  transform: translateY(-1px);
+}
+
+.menu-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* -- сцена -- */
+
+.stage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sprite {
+  position: absolute;
+  bottom: 0;
+  width: clamp(180px, 24vw, 320px);
+  height: 72%;
+  background: var(--sprite-color, #888);
+  opacity: 0.9;
+  clip-path: polygon(50% 0%, 66% 7%, 70% 18%, 66% 26%, 78% 34%, 86% 50%, 88% 100%, 12% 100%, 14% 50%, 22% 34%, 34% 26%, 30% 18%, 34% 7%);
+  filter: drop-shadow(0 0 24px rgba(0, 0, 0, 0.6)) saturate(0.6) brightness(0.8);
+}
+
+.sprite-left { left: 8%; }
+.sprite-center { left: 50%; transform: translateX(-50%); }
+.sprite-right { right: 8%; }
+
+/* -- быстрое меню -- */
+
+.quickbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  z-index: 5;
+}
+
+.quick-btn {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.55);
+  color: #b9c2e0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.quick-btn:hover {
+  background: rgba(30, 40, 70, 0.8);
+  color: #fff;
+}
+
+/* -- текстбокс -- */
+
+.textbox {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 20px;
+  width: min(920px, 94vw);
+  min-height: 140px;
+  padding: 18px 26px 30px;
+  background: rgba(8, 10, 22, 0.88);
+  border: 1px solid rgba(126, 200, 227, 0.25);
+  border-radius: 12px;
+  cursor: pointer;
+  z-index: 4;
+}
+
+.name-plate {
+  font-weight: 600;
+  font-size: 1.02rem;
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+}
+
+.line-text {
+  font-size: 1.12rem;
+  line-height: 1.55;
+  color: #f1f3ff;
+}
+
+.advance-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  font-size: 0.8rem;
+  color: #7ec8e3;
+  animation: bounce 1.2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.9; }
+  50% { transform: translateY(4px); opacity: 0.5; }
+}
+
+/* -- выборы -- */
+
+.choices {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 6;
+}
+
+.choice-prompt {
+  color: #cfd6f5;
+  font-size: 1.1rem;
+  margin-bottom: 10px;
+}
+
+.choice-btn {
+  width: min(560px, 88vw);
+  padding: 13px 22px;
+  font-size: 1.02rem;
+  background: rgba(16, 22, 44, 0.92);
+  color: #eef1ff;
+  border: 1px solid rgba(126, 200, 227, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.choice-btn:hover {
+  background: rgba(44, 58, 99, 0.95);
+  border-color: #7ec8e3;
+}
+
+/* -- концовка -- */
+
+.ending {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 6;
+}
+
+.ending-label {
+  font-size: 2.4rem;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+}
+
+.ending-id {
+  color: #9aa3c7;
+  margin-bottom: 12px;
+}
+
+/* -- оверлеи -- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 10;
+}
+
+.modal {
+  width: min(640px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: #10152a;
+  border: 1px solid rgba(126, 200, 227, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-title {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #8a93b5;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slot-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.slot-title { font-weight: 600; }
+
+.slot-caption {
+  color: #9aa3c7;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot-actions { display: flex; gap: 6px; }
+
+.slot-btn {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: rgba(126, 200, 227, 0.15);
+  color: #cfe8f5;
+  border: 1px solid rgba(126, 200, 227, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.slot-btn.danger {
+  background: rgba(227, 126, 126, 0.12);
+  border-color: rgba(227, 126, 126, 0.4);
+  color: #f0c5c5;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  user-select: text;
+}
+
+.history-row {
+  line-height: 1.45;
+  color: #d5daf0;
+}
+
+.history-who {
+  font-weight: 600;
+  color: #7ec8e3;
+}
