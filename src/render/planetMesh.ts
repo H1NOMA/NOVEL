@@ -77,11 +77,12 @@ precision highp float;
 uniform vec3 uLand; uniform vec3 uSea; uniform vec3 uAtmo;
 uniform vec3 uTint; uniform float uWater; uniform float uRough;
 uniform float uClouds; uniform float uTime; uniform float uSeed;
+uniform float uFreq;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
 void main(){
   vec3 n = normalize(vObj);
-  vec3 sp = n * (1.8 + uRough) + vec3(uSeed);
+  vec3 sp = n * (uFreq + uRough) + vec3(uSeed);
   float h = fbm(sp);
   float land = smoothstep(uWater - 0.06, uWater + 0.06, h * 0.5 + 0.5);
   vec3 surf = mix(uSea, uLand, land);
@@ -94,18 +95,17 @@ void main(){
   float c = fbm(sp * 1.7 + vec3(uTime * 0.03, 0.0, 0.0));
   c = smoothstep(0.35, 0.75, c * 0.5 + 0.5) * uClouds;
   surf = mix(surf, vec3(1.0), c * 0.55);
-  // faction tint
-  surf = mix(surf, surf * 0.55 + uTint * 0.75, 0.22);
   // lighting
   vec3 nrm = normalize(vNormal);
   vec3 sun = normalize(vec3(0.55, 0.35, 0.75));
   float diff = clamp(dot(nrm, sun), 0.0, 1.0);
-  vec3 col = surf * (0.28 + 0.95 * diff);
-  // atmosphere rim
+  vec3 col = surf * (0.3 + 0.95 * diff);
+  // owner-coloured rim light: the ONLY colour-coding on the sphere itself,
+  // so the map reads as exactly four faction colours.
   vec3 vd = normalize(vView);
   float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 3.0);
-  col += uAtmo * fres * 1.1;
-  col += uTint * fres * 0.35;
+  col += uTint * fres * 1.15;
+  col += uAtmo * fres * 0.15;
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -126,7 +126,7 @@ void main(){
   vec3 nrm = normalize(vNormal);
   vec3 vd = normalize(vView);
   float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 2.5);
-  gl_FragColor = vec4(uColor, fres * 0.9);
+  gl_FragColor = vec4(uColor, fres * 0.75);
 }
 `;
 
@@ -146,38 +146,59 @@ export interface PlanetVisual {
   setSelected(on: boolean): void;
 }
 
-function hexToVec3(hex: string): THREE.Color {
-  return new THREE.Color(hex);
+/** Deterministic 0..1 stream from a planet seed — drives per-planet variety. */
+function seededStream(seed: number): () => number {
+  let s = (seed * 2654435761) >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual {
   const biome = BIOMES[planet.biome];
   const baseRadius = 0.42 * planet.scale * scale;
+  const rand = seededStream(planet.seed);
+
+  // Every planet gets its own surface: jittered colours, water level,
+  // terrain frequency, spin and axial tilt — all derived from planet.seed.
+  const land = new THREE.Color(biome.land).offsetHSL(rand() * 0.08 - 0.04, rand() * 0.2 - 0.1, rand() * 0.16 - 0.08);
+  const sea = new THREE.Color(biome.sea).offsetHSL(rand() * 0.06 - 0.03, rand() * 0.2 - 0.1, rand() * 0.12 - 0.06);
+  const water = Math.min(0.95, Math.max(0.02, biome.water + rand() * 0.2 - 0.1));
+  const freq = 1.3 + rand() * 1.6;
+  const clouds = Math.min(1, Math.max(0, biome.clouds + rand() * 0.25 - 0.12));
+  const spinSpeed = (0.0012 + rand() * 0.003) * (rand() < 0.15 ? -1 : 1);
+  const tilt = (rand() * 2 - 1) * 0.35;
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
     uniforms: {
-      uLand: { value: hexToVec3(biome.land) },
-      uSea: { value: hexToVec3(biome.sea) },
-      uAtmo: { value: hexToVec3(biome.atmo) },
-      uTint: { value: hexToVec3(FACTIONS[planet.owner].color) },
-      uWater: { value: biome.water },
+      uLand: { value: land },
+      uSea: { value: sea },
+      uAtmo: { value: new THREE.Color(biome.atmo) },
+      uTint: { value: new THREE.Color(FACTIONS[planet.owner].color) },
+      uWater: { value: water },
       uRough: { value: biome.rough },
-      uClouds: { value: biome.clouds },
+      uClouds: { value: clouds },
       uTime: { value: 0 },
-      uSeed: { value: (planet.id.length * 13 + planet.name.length * 7) % 97 },
+      uSeed: { value: (planet.seed % 8933) * 0.017 },
+      uFreq: { value: freq },
     },
   });
 
   const surface = new THREE.Mesh(SPHERE_GEO, material);
   surface.scale.setScalar(baseRadius);
+  surface.rotation.z = tilt;
   surface.userData.planetId = planet.id;
 
+  // Faction-coloured halo — ownership is always read from this one colour.
   const atmoMat = new THREE.ShaderMaterial({
     vertexShader: ATMO_VERT,
     fragmentShader: ATMO_FRAG,
-    uniforms: { uColor: { value: hexToVec3(biome.atmo) } },
+    uniforms: { uColor: { value: new THREE.Color(FACTIONS[planet.owner].color) } },
     transparent: true,
     side: THREE.BackSide,
     depthWrite: false,
@@ -187,7 +208,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   atmo.scale.setScalar(baseRadius * 1.22);
 
   const ringMat = new THREE.MeshBasicMaterial({
-    color: hexToVec3(FACTIONS[planet.owner].color),
+    color: new THREE.Color(FACTIONS[planet.owner].color),
     transparent: true,
     opacity: 0.85,
     side: THREE.DoubleSide,
@@ -201,7 +222,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   group.add(surface, atmo, ring);
   group.userData.planetId = planet.id;
 
-  let spin = 0;
+  let spin = rand() * Math.PI * 2;
   return {
     group,
     surface,
@@ -212,11 +233,12 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     baseRadius,
     update(t: number) {
       material.uniforms.uTime.value = t;
-      spin += 0.0025;
+      spin += spinSpeed;
       surface.rotation.y = spin;
     },
     setOwner(hex: string) {
       material.uniforms.uTint.value.set(hex);
+      (atmoMat.uniforms.uColor.value as THREE.Color).set(hex);
       ringMat.color.set(hex);
     },
     setSelected(on: boolean) {

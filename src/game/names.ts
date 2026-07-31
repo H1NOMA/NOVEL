@@ -1,24 +1,24 @@
-// Lore-flavoured planet name generation for the galaxy map.
+// Генерация названий планет и секторов в духе Helldivers.
 
 const PREFIX = [
-  'Malevelon', 'Draupnir', 'Estanu', 'Fenrir', 'Hellmire', 'Vernen', 'Angel',
-  'Ubanea', 'Choohe', 'Penta', 'Meridia', 'Tien', 'Erata', 'Mort', 'Vandalon',
-  'Oshaune', 'Kelvin', 'Widow', 'Turing', 'Marfark', 'Wasat', 'Bekvam', 'Duma',
-  'Achernar', 'Bore', 'Charon', 'Crimsica', 'Gacrux', 'Heeth',
-  'Ingmar', 'Kharst', 'Lesath', 'Mantes', 'Nublaria', 'Omicron', 'Pandion',
-  'Skat', 'Troost', 'Ustotu', 'Veil', 'Zosma', 'Acamar', 'Borea', 'Deneb',
+  'Малевелон', 'Драупнир', 'Эстану', 'Фенрир', 'Хеллмайр', 'Вернен', 'Ангел',
+  'Убанея', 'Чухе', 'Пента', 'Меридия', 'Тьен', 'Эрата', 'Морт', 'Вандалон',
+  'Ошон', 'Кельвин', 'Видоу', 'Тьюринг', 'Марфарк', 'Васат', 'Беквам', 'Дума',
+  'Ахернар', 'Бор', 'Харон', 'Кримсика', 'Гакрукс', 'Хит',
+  'Ингмар', 'Харст', 'Лесат', 'Мантес', 'Нублария', 'Омикрон', 'Пандион',
+  'Скат', 'Труст', 'Устоту', 'Вейл', 'Зосма', 'Акамар', 'Борея', 'Денеб',
 ];
 
 const SUFFIX = [
-  'Prime', 'Creek', 'Secundus', 'III', 'IX', 'Reach', 'Station', 'Belt',
-  'Expanse', 'Rift', 'Verge', 'Deep', 'Gate', 'Cradle', 'Nadir', 'Zenith',
-  'Waystation', 'Hollow', 'Redoubt', 'March', 'Fields', 'Sink', 'Hold',
+  'Прайм', 'Крик', 'Секундус', 'III', 'IX', 'Предел', 'Станция', 'Пояс',
+  'Простор', 'Разлом', 'Рубеж', 'Глубь', 'Врата', 'Колыбель', 'Надир', 'Зенит',
+  'Форпост', 'Лощина', 'Редут', 'Марш', 'Поля', 'Провал', 'Оплот',
 ];
 
 const SECTOR_NAMES = [
-  'Severin', 'Idun', 'Umlaut', 'Andromeda', 'Falstaff', 'Gothmar', 'Jin Xi',
-  'Korpus', 'Lacaille', 'Mirin', 'Orion', 'Quintus', 'Rictus', 'Sagan',
-  'Talus', 'Ursa', 'Valdis', 'Xzar', 'Ymir', 'Zurga', 'Barnard', 'Cantolus',
+  'Северин', 'Идун', 'Умлаут', 'Андромеда', 'Фальстаф', 'Готмар', 'Цзинь-Си',
+  'Корпус', 'Лакайль', 'Мирин', 'Орион', 'Квинтус', 'Риктус', 'Саган',
+  'Талус', 'Урса', 'Вальдис', 'Ксар', 'Имир', 'Зурга', 'Барнард', 'Кантолус',
 ];
 
 export function planetName(rng: { int(a: number, b: number): number; pick<T>(a: readonly T[]): T; chance(p: number): boolean }, used: Set<string>): string {
@@ -35,6 +35,15 @@ export function planetName(rng: { int(a: number, b: number): number; pick<T>(a: 
   return fallback;
 }
 
+const usedSectors = new Set<string>();
+
 export function sectorName(rng: { pick<T>(a: readonly T[]): T; int(a: number, b: number): number }): string {
-  return `${rng.pick(SECTOR_NAMES)} Sector`;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const n = `Сектор ${rng.pick(SECTOR_NAMES)}`;
+    if (!usedSectors.has(n)) {
+      usedSectors.add(n);
+      return n;
+    }
+  }
+  return `Сектор ${rng.pick(SECTOR_NAMES)}-${rng.int(2, 99)}`;
 }

@@ -85,7 +85,7 @@ export function createGame(seed: number): GameState {
   }
 
   pushLog(state, {
-    text: 'Galactic uplink established. The Second Galactic War has begun. For Super Earth!',
+    text: 'Галактическая связь установлена. Вторая Галактическая война началась. За Супер-Землю!',
     tone: 'alert',
   });
   return state;

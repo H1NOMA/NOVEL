@@ -8,6 +8,15 @@ import { FleetLayer } from './fleets';
 
 export const GALAXY_SCALE = 0.03;
 
+const NEUTRAL_SECTOR = new THREE.Color('#33415e');
+
+interface SectorVisual {
+  fill: THREE.Mesh;
+  fillMat: THREE.MeshBasicMaterial;
+  border: THREE.LineLoop;
+  borderMat: THREE.LineBasicMaterial;
+}
+
 export class GalaxyScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -16,16 +25,16 @@ export class GalaxyScene {
   private planets = new Map<string, PlanetVisual>();
   private surfaces: THREE.Mesh[] = [];
   private fleets: FleetLayer;
-  private supply!: THREE.LineSegments;
   private supplyColors!: THREE.BufferAttribute;
+  private sectorVisuals = new Map<string, SectorVisual>();
 
   // camera controller
   private target = new THREE.Vector3(0, 0, 0);
-  private distance = 22;
+  private distance = 26;
   private yaw = 0;
   private pitch = 0.95;
   private readonly minDist = 3.5;
-  private readonly maxDist = 46;
+  private readonly maxDist = 62;
 
   private raycaster = new THREE.Raycaster();
   private clock = new THREE.Clock();
@@ -41,6 +50,7 @@ export class GalaxyScene {
     this.fleets = new FleetLayer(GALAXY_SCALE);
 
     this.buildBackground();
+    this.buildSectors();
     this.buildSupplyLines();
     this.buildPlanets();
     this.scene.add(this.fleets.group);
@@ -53,24 +63,84 @@ export class GalaxyScene {
   // --- construction --------------------------------------------------------
 
   private buildBackground(): void {
-    this.scene.add(createStarfield());
+    this.scene.add(createStarfield(3200, this.radiusWorld * 16));
     this.scene.add(createNebulaDisc(this.radiusWorld));
     const amb = new THREE.AmbientLight(0x8899bb, 0.6);
     const key = new THREE.DirectionalLight(0xffffff, 1.1);
     key.position.set(6, 10, 8);
     this.scene.add(amb, key);
     // Central Super Earth glow.
-    const glow = new THREE.PointLight(0x7fc4ff, 2.2, 30);
+    const glow = new THREE.PointLight(0x7fc4ff, 1.3, 22);
     glow.position.set(0, 1, 0);
     this.scene.add(glow);
+  }
+
+  /** Flat annulus-sector plates + borders under the planets, one per sector. */
+  private buildSectors(): void {
+    const s = GALAXY_SCALE;
+    const GAP = 0.018; // radians shaved off each side for visual separation
+    for (const sector of this.state.galaxy.sectors.values()) {
+      const a0 = sector.a0 + (sector.a1 - sector.a0 > 6 ? 0 : GAP);
+      const a1 = sector.a1 - (sector.a1 - sector.a0 > 6 ? 0 : GAP);
+      const r0 = sector.r0 * s;
+      const r1 = sector.r1 * s;
+
+      const shape = new THREE.Shape();
+      if (r0 <= 0.001) {
+        shape.absarc(0, 0, r1, 0, Math.PI * 2, false);
+      } else {
+        shape.absarc(0, 0, r1, a0, a1, false);
+        shape.absarc(0, 0, r0, a1, a0, true);
+      }
+      const geo = new THREE.ShapeGeometry(shape, 28);
+      const fillMat = new THREE.MeshBasicMaterial({
+        color: NEUTRAL_SECTOR.clone(),
+        transparent: true,
+        opacity: 0.03,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const fill = new THREE.Mesh(geo, fillMat);
+      fill.rotation.x = Math.PI / 2; // XY shape → XZ galactic plane (matches planet angles)
+      fill.position.y = -0.42;
+
+      // Border as an explicit line loop in world space.
+      const pts: THREE.Vector3[] = [];
+      const SEG = 26;
+      const y = -0.4;
+      if (r0 <= 0.001) {
+        for (let i = 0; i < SEG * 2; i++) {
+          const a = (Math.PI * 2 * i) / (SEG * 2);
+          pts.push(new THREE.Vector3(Math.cos(a) * r1, y, Math.sin(a) * r1));
+        }
+      } else {
+        for (let i = 0; i <= SEG; i++) {
+          const a = a0 + ((a1 - a0) * i) / SEG;
+          pts.push(new THREE.Vector3(Math.cos(a) * r1, y, Math.sin(a) * r1));
+        }
+        for (let i = SEG; i >= 0; i--) {
+          const a = a0 + ((a1 - a0) * i) / SEG;
+          pts.push(new THREE.Vector3(Math.cos(a) * r0, y, Math.sin(a) * r0));
+        }
+      }
+      const borderGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const borderMat = new THREE.LineBasicMaterial({
+        color: NEUTRAL_SECTOR.clone(),
+        transparent: true,
+        opacity: 0.22,
+      });
+      const border = new THREE.LineLoop(borderGeo, borderMat);
+
+      this.scene.add(fill, border);
+      this.sectorVisuals.set(sector.id, { fill, fillMat, border, borderMat });
+    }
   }
 
   private buildSupplyLines(): void {
     const lines = this.state.galaxy.lines;
     const positions = new Float32Array(lines.length * 6);
     const colors = new Float32Array(lines.length * 6);
-    let i = 0;
-    lines.forEach((ln, li) => {
+    lines.forEach((ln, i) => {
       const a = this.state.galaxy.planets.get(ln.a)!;
       const b = this.state.galaxy.planets.get(ln.b)!;
       positions[i * 6] = a.pos.x * GALAXY_SCALE;
@@ -79,9 +149,7 @@ export class GalaxyScene {
       positions[i * 6 + 3] = b.pos.x * GALAXY_SCALE;
       positions[i * 6 + 4] = 0;
       positions[i * 6 + 5] = b.pos.y * GALAXY_SCALE;
-      void li;
       for (let k = 0; k < 6; k++) colors[i * 6 + k] = 0.28;
-      i++;
     });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -94,8 +162,7 @@ export class GalaxyScene {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    this.supply = new THREE.LineSegments(geo, mat);
-    this.scene.add(this.supply);
+    this.scene.add(new THREE.LineSegments(geo, mat));
   }
 
   private buildPlanets(): void {
@@ -125,12 +192,34 @@ export class GalaxyScene {
     this.supplyColors.needsUpdate = true;
   }
 
+  /** A fully-conquered sector lights up in its owner's colour. */
+  private refreshSectors(): void {
+    for (const sector of this.state.galaxy.sectors.values()) {
+      const vis = this.sectorVisuals.get(sector.id);
+      if (!vis) continue;
+      const owners = new Set(sector.planets.map((pid) => this.state.galaxy.planets.get(pid)!.owner));
+      if (owners.size === 1) {
+        const color = FACTIONS[[...owners][0]!].color;
+        vis.fillMat.color.set(color);
+        vis.fillMat.opacity = 0.09;
+        vis.borderMat.color.set(color);
+        vis.borderMat.opacity = 0.6;
+      } else {
+        vis.fillMat.color.copy(NEUTRAL_SECTOR);
+        vis.fillMat.opacity = 0.03;
+        vis.borderMat.color.copy(NEUTRAL_SECTOR);
+        vis.borderMat.opacity = 0.22;
+      }
+    }
+  }
+
   refreshOwners(): void {
     for (const id of this.state.galaxy.order) {
       const p = this.state.galaxy.planets.get(id)!;
       this.planets.get(id)?.setOwner(FACTIONS[p.owner].color);
     }
     this.refreshSupplyColors();
+    this.refreshSectors();
   }
 
   // --- selection -----------------------------------------------------------
@@ -184,11 +273,12 @@ export class GalaxyScene {
         this.yaw -= dx * 0.005;
         this.pitch = Math.max(0.35, Math.min(1.45, this.pitch - dy * 0.004));
       } else {
+        // Camera follows the drag: mouse right → camera right (map slides left).
         const k = this.distance * 0.0016;
         const cos = Math.cos(this.yaw);
         const sin = Math.sin(this.yaw);
-        this.target.x -= (dx * cos - dy * sin) * k;
-        this.target.z -= (dx * sin + dy * cos) * k;
+        this.target.x += (dx * cos - dy * sin) * k;
+        this.target.z += (dx * sin + dy * cos) * k;
         this.clampTarget();
       }
     });

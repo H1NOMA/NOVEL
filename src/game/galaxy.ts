@@ -9,6 +9,11 @@ export interface Sector {
   ring: number;
   bucket: number;
   planets: string[];
+  /** Annulus-sector geometry for map rendering (world units / radians). */
+  r0: number;
+  r1: number;
+  a0: number;
+  a1: number;
 }
 
 export interface Galaxy {
@@ -19,9 +24,9 @@ export interface Galaxy {
   radiusMax: number;
 }
 
-const RING_COUNT = 5;
+const RING_COUNT = 6;
 const RING_SPACING = 95;
-const PLANETS_PER_RING = [7, 11, 14, 16, 18];
+const PLANETS_PER_RING = [8, 12, 16, 20, 24, 28];
 // Angular home wedges (radians). Center is Super Earth; enemies own outer wedges.
 const WEDGES: { faction: FactionId; from: number; to: number }[] = [
   { faction: 'automatons', from: deg(105), to: deg(165) },
@@ -71,13 +76,14 @@ export function generateGalaxy(seed: number): Galaxy {
   // --- Center: Super Earth capital ---
   addPlanet({
     id: 'p_super_earth',
-    name: 'Super Earth',
+    name: 'Супер-Земля',
     biome: 'terran',
-    sector: 'Sol Sector',
+    sector: 'Сектор Сол',
     radius: 0,
     angle: 0,
     pos: { x: 0, y: 0 },
     scale: 1.6,
+    seed: rng.int(0, 999_999),
     owner: 'superEarth',
     origin: 'superEarth',
     isCapital: true,
@@ -86,16 +92,25 @@ export function generateGalaxy(seed: number): Galaxy {
     fortification: 5,
     value: 10,
   });
-  sectors.set('sector_core', { id: 'sector_core', name: 'Sol Sector', ring: 0, bucket: 0, planets: ['p_super_earth'] });
-  planets.get('p_super_earth')!.sector = 'Sol Sector';
+  sectors.set('sector_core', {
+    id: 'sector_core',
+    name: 'Сектор Сол',
+    ring: 0,
+    bucket: 0,
+    planets: ['p_super_earth'],
+    r0: 0,
+    r1: RING_SPACING * 0.55,
+    a0: 0,
+    a1: Math.PI * 2,
+  });
 
   // --- Rings ---
   for (let ring = 1; ring <= RING_COUNT; ring++) {
     const count = PLANETS_PER_RING[ring - 1]!;
     const baseR = ring * RING_SPACING;
-    const buckets = Math.max(3, Math.round(count / 2));
+    const buckets = Math.max(3, Math.round(count / 3));
     for (let j = 0; j < count; j++) {
-      const angle = (Math.PI * 2 * j) / count + rng.range(-0.12, 0.12);
+      const angle = (Math.PI * 2 * j) / count + rng.range(-0.1, 0.1);
       const r = baseR + rng.range(-18, 18);
       const pos: Vec2 = { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
 
@@ -109,18 +124,25 @@ export function generateGalaxy(seed: number): Galaxy {
           }
         }
       }
-      // The deep frontier (outer ring) belongs firmly to the enemy wedges;
-      // a slice of neutral-ish Super Earth space remains between them.
 
-      const bucket = Math.floor((norm(angle) / (Math.PI * 2)) * buckets);
+      const bucket = Math.min(buckets - 1, Math.floor((norm(angle) / (Math.PI * 2)) * buckets));
       const sectorId = `sector_${ring}_${bucket}`;
       if (!sectors.has(sectorId)) {
-        sectors.set(sectorId, { id: sectorId, name: sectorName(rng), ring, bucket, planets: [] });
+        sectors.set(sectorId, {
+          id: sectorId,
+          name: sectorName(rng),
+          ring,
+          bucket,
+          planets: [],
+          r0: baseR - RING_SPACING / 2 + 8,
+          r1: baseR + RING_SPACING / 2 - 8,
+          a0: (Math.PI * 2 * bucket) / buckets,
+          a1: (Math.PI * 2 * (bucket + 1)) / buckets,
+        });
       }
       const sector = sectors.get(sectorId)!;
 
       const id = `p_${idCounter++}`;
-      const isCap = false;
       addPlanet({
         id,
         name: planetName(rng, used),
@@ -130,9 +152,10 @@ export function generateGalaxy(seed: number): Galaxy {
         angle,
         pos,
         scale: rng.range(0.7, 1.25),
+        seed: rng.int(0, 999_999),
         owner,
         origin: owner,
-        isCapital: isCap,
+        isCapital: false,
         links: [],
         garrison: owner === 'superEarth' ? rng.int(15, 35) : rng.int(25, 55),
         fortification: rng.int(0, 2),
@@ -149,8 +172,8 @@ export function generateGalaxy(seed: number): Galaxy {
   // Prime is merely the strongest hive, and the swarm must be exterminated
   // world by world.
   const capitalNames: Partial<Record<FactionId, string>> = {
-    automatons: 'Cyberstan',
-    illuminate: "Squ'bai Shrine",
+    automatons: 'Киберстан',
+    illuminate: "Святилище Скв'бай",
   };
   for (const w of WEDGES) {
     const candidates = order
@@ -160,7 +183,7 @@ export function generateGalaxy(seed: number): Galaxy {
     const strongest = candidates.reduce((a, b) => (b.radius > a.radius ? b : a));
     if (w.faction === 'terminids') {
       // Hive heart — powerful, but NOT a capital. No head to cut off.
-      strongest.name = 'Kepler Prime';
+      strongest.name = 'Кеплер Прайм';
       strongest.scale = 1.3;
       strongest.garrison = 90;
       strongest.fortification = 4;
@@ -175,7 +198,7 @@ export function generateGalaxy(seed: number): Galaxy {
     }
   }
 
-  // --- Supply lines: connect neighbours (k-nearest + radial spokes) ---
+  // --- Supply lines: relative neighbourhood graph (true neighbours only) ---
   buildSupplyLines(planets, order);
 
   const radiusMax = RING_COUNT * RING_SPACING + 30;
@@ -188,61 +211,32 @@ function dist2(a: Vec2, b: Vec2): number {
   return dx * dx + dy * dy;
 }
 
+/**
+ * Relative neighbourhood graph: planets A and B are linked only when no third
+ * planet C sits "between" them (closer to both than they are to each other).
+ * This removes exactly the A—C shortcut when B lies on the way, so every line
+ * connects true neighbours. The RNG always contains the minimum spanning tree,
+ * so the map stays fully connected by construction.
+ */
 function buildSupplyLines(planets: Map<string, Planet>, order: string[]): void {
   const arr = order.map((id) => planets.get(id)!);
-  const K = 3;
-  for (const p of arr) {
-    const others = arr
-      .filter((o) => o.id !== p.id)
-      .map((o) => ({ o, d: dist2(p.pos, o.pos) }))
-      .sort((a, b) => a.d - b.d);
-    let linked = 0;
-    for (const { o } of others) {
-      if (linked >= K) break;
-      if (!p.links.includes(o.id)) {
-        p.links.push(o.id);
-        if (!o.links.includes(p.id)) o.links.push(p.id);
-        linked++;
+  for (let i = 0; i < arr.length; i++) {
+    for (let j = i + 1; j < arr.length; j++) {
+      const a = arr[i]!;
+      const b = arr[j]!;
+      const dab = dist2(a.pos, b.pos);
+      let blocked = false;
+      for (let k = 0; k < arr.length; k++) {
+        if (k === i || k === j) continue;
+        const c = arr[k]!;
+        if (dist2(a.pos, c.pos) < dab && dist2(b.pos, c.pos) < dab) {
+          blocked = true;
+          break;
+        }
       }
-    }
-  }
-  // Ensure the graph is connected via a simple BFS + bridge pass.
-  ensureConnected(planets, order);
-}
-
-function ensureConnected(planets: Map<string, Planet>, order: string[]): void {
-  const seen = new Set<string>();
-  const stack = [order[0]!];
-  while (stack.length) {
-    const id = stack.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    for (const l of planets.get(id)!.links) stack.push(l);
-  }
-  // Any unreached planet gets bridged to its nearest reached planet.
-  for (const id of order) {
-    if (seen.has(id)) continue;
-    const p = planets.get(id)!;
-    let best: Planet | null = null;
-    let bestD = Infinity;
-    for (const rid of seen) {
-      const r = planets.get(rid)!;
-      const d = dist2(p.pos, r.pos);
-      if (d < bestD) {
-        bestD = d;
-        best = r;
-      }
-    }
-    if (best) {
-      p.links.push(best.id);
-      best.links.push(p.id);
-      // re-run reachability from this newly attached node
-      const st = [id];
-      while (st.length) {
-        const n = st.pop()!;
-        if (seen.has(n)) continue;
-        seen.add(n);
-        for (const l of planets.get(n)!.links) st.push(l);
+      if (!blocked) {
+        a.links.push(b.id);
+        b.links.push(a.id);
       }
     }
   }

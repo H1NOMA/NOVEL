@@ -63,6 +63,8 @@ export interface Planet {
   pos: Vec2;
   /** Relative planet size 0.6..1.6. */
   scale: number;
+  /** Unique seed driving this planet's procedural surface. */
+  seed: number;
   owner: FactionId;
   /** Faction that originally owned the planet (for lore / recapture). */
   origin: FactionId;

@@ -1,5 +1,5 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
-import { areHostile, SPECIALS } from '../data/factions';
+import { areHostile, FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
 import { fleetsAt, pushLog, removeFleet, type GameState } from './state';
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, p
       if (f.special) {
         pushLog(state, {
           faction: f.faction,
-          text: `${SPECIALS[f.faction].name} destroyed in orbit over ${planet.name}!`,
+          text: `${SPECIALS[f.faction].name} — уничтожен(а) на орбите ${planet.name}!`,
           tone: f.faction === state.player ? 'bad' : 'good',
         });
       }
@@ -117,7 +117,7 @@ export function resolveGround(state: GameState): void {
       if (planet.battle.days === 0) {
         pushLog(state, {
           faction: lead,
-          text: `${factionName(lead)} forces land on ${planet.name}! Battle for the planet begins.`,
+          text: `Силы ${FACTION_GEN[lead]} высаживаются на ${planet.name}! Начинается битва за планету.`,
           tone: planet.owner === state.player ? 'alert' : lead === state.player ? 'good' : 'info',
         });
       }
@@ -161,7 +161,7 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   planet.fortification = Math.max(0, planet.fortification - 2);
   pushLog(state, {
     faction: attacker,
-    text: `${planet.name} has fallen to ${factionName(attacker)}${planet.isCapital ? ' — a CAPITAL WORLD lost!' : ''}.`,
+    text: `${planet.name} — планета захвачена силами ${FACTION_GEN[attacker]}${planet.isCapital ? '. Пала СТОЛИЦА!' : '.'}`,
     tone: prev === state.player ? 'bad' : attacker === state.player ? 'good' : 'info',
   });
   // Capitals are the head of the state: cut it off and the faction capitulates.
@@ -193,7 +193,7 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
   }
   pushLog(state, {
     faction: loser,
-    text: `The capital has fallen — ${factionName(loser)} CAPITULATES! ${flipped} worlds submit to ${factionName(victor)}.`,
+    text: `Столица пала — фракция «${FACTIONS[loser].name}» КАПИТУЛИРУЕТ! Миров перешло под контроль ${FACTION_GEN[victor]}: ${flipped}.`,
     tone: loser === state.player ? 'bad' : 'alert',
   });
 }
@@ -207,15 +207,4 @@ function regrowGarrison(state: GameState, planet: Planet): void {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
-}
-
-function factionName(id: FactionId): string {
-  const map: Record<FactionId, string> = {
-    superEarth: 'Super Earth',
-    automatons: 'Automaton',
-    illuminate: 'Illuminate',
-    terminids: 'Terminid',
-    superFederation: 'Super Federation',
-  };
-  return map[id];
 }

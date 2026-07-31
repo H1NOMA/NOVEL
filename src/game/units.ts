@@ -83,7 +83,7 @@ export function garrisonReinforce(state: GameState, fleet: Fleet): void {
     planet.garrison += fleet.infantry;
     pushLog(state, {
       faction: fleet.faction,
-      text: `Reinforcements landed on ${planet.name}: +${fleet.infantry} garrison.`,
+      text: `Подкрепление высадилось на ${planet.name}: гарнизон +${fleet.infantry.toFixed(0)}.`,
       tone: fleet.faction === state.player ? 'good' : 'info',
     });
     fleet.infantry = 0;

@@ -56,7 +56,7 @@ function eliminate(state: GameState, faction: FactionId): void {
   for (const f of fleetsOf(state, faction)) f.order = { kind: 'idle' };
   pushLog(state, {
     faction,
-    text: `${FACTIONS[faction].name} has been driven from the galaxy!`,
+    text: `Фракция «${FACTIONS[faction].name}» повержена и изгнана из галактики!`,
     tone: faction === state.player ? 'bad' : 'good',
   });
 }

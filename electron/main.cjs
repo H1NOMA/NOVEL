@@ -20,7 +20,7 @@ function createWindow() {
     show: false,
     backgroundColor: '#05070f',
     autoHideMenuBar: true,
-    title: 'The Second Galactic War',
+    title: 'Вторая Галактическая война',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

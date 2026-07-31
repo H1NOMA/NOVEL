@@ -3,81 +3,81 @@ import type { FactionDef, FactionId, SpecialUnitDef } from '../core/types';
 export const FACTIONS: Record<FactionId, FactionDef> = {
   superEarth: {
     id: 'superEarth',
-    name: 'Super Earth',
-    short: 'SE',
+    name: 'Супер-Земля',
+    short: 'СЗ',
     color: '#3fa9f5',
     accent: '#ffe14d',
     blurb:
-      'Prosperity, liberty, Managed Democracy — the centrepiece of progress for 100 years after the First Galactic War. Prove you have the strength and courage to be free.',
-    capital: 'Super Earth',
+      'Процветание, свобода, Управляемая Демократия — оплот прогресса на протяжении ста лет после Первой Галактической войны. Докажи, что у тебя хватит силы и мужества быть свободным.',
+    capital: 'Супер-Земля',
     aggression: 1.0,
-    specialName: 'Democracy Space Station',
+    specialName: 'Космическая станция «Демократия»',
     specialBlurb:
-      'A mobile orbital fortress. Wherever it anchors, orbital bombardment shatters enemy garrisons and rallies the Helldivers.',
+      'Мобильная орбитальная крепость. Где она встаёт на якорь — орбитальные бомбардировки сокрушают гарнизоны врага и воодушевляют Хеллдайверов.',
     homeBiomes: ['terran', 'ocean', 'jungle'],
     playable: true,
   },
   automatons: {
     id: 'automatons',
-    name: 'The Automatons',
-    short: 'AUT',
+    name: 'Автоматоны',
+    short: 'АВТ',
     color: '#e0342b',
     accent: '#ff8a3d',
     blurb:
-      'The socialist machines under the thumb of their traitorous Cyborg makers. They destroy all that Super Earth stands for. Major Battle: Malevelon Creek.',
-    capital: 'Cyberstan',
+      'Социалистические машины, порождение предателей-киборгов. Они уничтожают всё, за что стоит Супер-Земля. Главная битва: Малевелон-Крик.',
+    capital: 'Киберстан',
     aggression: 1.15,
-    specialName: 'Automaton Star Destroyer',
+    specialName: 'Звёздный разрушитель автоматонов',
     specialBlurb:
-      'A moon-sized battle station bristling with cannon. A slow, inexorable engine of conquest that flattens whole sectors.',
+      'Боевая станция размером с луну, ощетинившаяся орудиями. Медленный и неумолимый двигатель завоевания, стирающий целые сектора.',
     homeBiomes: ['volcanic', 'barren', 'toxic'],
     playable: true,
   },
   illuminate: {
     id: 'illuminate',
-    name: 'The Illuminate',
-    short: 'ILL',
+    name: 'Иллюминаты',
+    short: 'ИЛЛ',
     color: '#8b5bd8',
     accent: '#c39bff',
     blurb:
-      'The squids were driven off the galaxy after our victory. Once thought extinct, they have returned to spread their anarchy. Capital: Squ’bai Shrine.',
-    capital: "Squ'bai Shrine",
+      'После нашей победы кальмары были изгнаны из галактики. Их считали вымершими — но они вернулись сеять свою анархию. Столица: Святилище Скв\'бай.',
+    capital: "Святилище Скв'бай",
     aggression: 1.1,
-    specialName: 'The Great Host Monolith',
+    specialName: 'Монолит Великого Воинства',
     specialBlurb:
-      'A drifting obelisk of alien technology. Its phase-fields cloak Illuminate fleets and unmake reality around contested worlds.',
+      'Дрейфующий обелиск чужой технологии. Его фазовые поля скрывают флоты иллюминатов и расплетают реальность вокруг спорных миров.',
     homeBiomes: ['gas', 'ice', 'ocean'],
     playable: true,
   },
   terminids: {
     id: 'terminids',
-    name: 'The Terminids',
-    short: 'TERM',
+    name: 'Терминиды',
+    short: 'ТРМ',
     color: '#e8b830',
     accent: '#f6e27a',
     blurb:
-      'The disgusting bugs, primary producers of Element 710, have escaped containment. For Super Earth’s continued existence they must be contained — especially The Gloom. Major Battle: Oshaune.',
-    capital: 'Kepler Prime',
+      'Омерзительные жуки, главный источник Элемента-710, вырвались из изоляции. Ради существования Супер-Земли их необходимо сдерживать — особенно Мрак. Главная битва: Ошон.',
+    capital: 'Кеплер Прайм',
     aggression: 1.05,
-    specialName: 'Terminid Super Colony',
+    specialName: 'Суперколония терминидов',
     specialBlurb:
-      'A living hive-world that spews endless swarms. Left unchecked it metastasises across supply lines like The Gloom itself.',
+      'Живой мир-улей, извергающий бесконечные рои. Оставленный без присмотра, он расползается по линиям снабжения, как сам Мрак.',
     homeBiomes: ['gloom', 'desert', 'toxic'],
     playable: true,
   },
   superFederation: {
     id: 'superFederation',
-    name: 'The Super Federation',
-    short: 'FED',
+    name: 'Супер-Федерация',
+    short: 'ФЕД',
     color: '#ff8c1a',
     accent: '#ffd18a',
     blurb:
-      'Born from the collapse of Managed Democracy. When stability falls and the Path to Federation is walked, disillusioned colonies secede — and turn their guns on Super Earth itself.',
-    capital: 'New Concord',
+      'Рождена из краха Управляемой Демократии. Когда стабильность падает и пройден Путь к Федерации, разочарованные колонии отделяются — и направляют оружие против самой Супер-Земли.',
+    capital: 'Новый Конкорд',
     aggression: 1.2,
-    specialName: 'Federation Dreadnought',
+    specialName: 'Дредноут Федерации',
     specialBlurb:
-      'Ex-Super Earth capital ships crewed by defectors who know every SE tactic — and every weakness.',
+      'Бывшие линкоры Супер-Земли с экипажами из перебежчиков, знающих каждую тактику СЗ — и каждую её слабость.',
     homeBiomes: ['terran', 'desert', 'barren'],
     playable: false,
     hidden: true,
@@ -91,11 +91,20 @@ export const FACTION_IDS: FactionId[] = [
   'terminids',
 ];
 
+/** Названия фракций в родительном падеже — для строк журнала событий. */
+export const FACTION_GEN: Record<FactionId, string> = {
+  superEarth: 'Супер-Земли',
+  automatons: 'Автоматонов',
+  illuminate: 'Иллюминатов',
+  terminids: 'Терминидов',
+  superFederation: 'Супер-Федерации',
+};
+
 export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   superEarth: {
     id: 'dss',
     faction: 'superEarth',
-    name: 'Democracy Space Station',
+    name: 'Космическая станция «Демократия»',
     blurb: FACTIONS.superEarth.specialBlurb,
     power: 2.4,
     auraRange: 1,
@@ -103,7 +112,7 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   automatons: {
     id: 'starDestroyer',
     faction: 'automatons',
-    name: 'Automaton Star Destroyer',
+    name: 'Звёздный разрушитель автоматонов',
     blurb: FACTIONS.automatons.specialBlurb,
     power: 2.8,
     auraRange: 1,
@@ -111,7 +120,7 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   illuminate: {
     id: 'monolith',
     faction: 'illuminate',
-    name: 'The Great Host Monolith',
+    name: 'Монолит Великого Воинства',
     blurb: FACTIONS.illuminate.specialBlurb,
     power: 2.5,
     auraRange: 2,
@@ -119,7 +128,7 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   terminids: {
     id: 'superColony',
     faction: 'terminids',
-    name: 'Terminid Super Colony',
+    name: 'Суперколония терминидов',
     blurb: FACTIONS.terminids.specialBlurb,
     power: 2.6,
     auraRange: 2,
@@ -127,7 +136,7 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   superFederation: {
     id: 'dreadnought',
     faction: 'superFederation',
-    name: 'Federation Dreadnought',
+    name: 'Дредноут Федерации',
     blurb: FACTIONS.superFederation.specialBlurb,
     power: 2.7,
     auraRange: 1,

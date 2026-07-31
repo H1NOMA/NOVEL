@@ -27,7 +27,7 @@ function boot(): void {
   const loading = document.getElementById('loading');
   setTimeout(() => {
     loading?.classList.add('hidden');
-    ui.toast('SPREAD MANAGED DEMOCRACY · Press 1× / 2× / 3× to begin', 3200);
+    ui.toast('НЕСИ УПРАВЛЯЕМУЮ ДЕМОКРАТИЮ · Нажмите 1× / 2× / 3×, чтобы начать', 3200);
   }, 700);
 }
 

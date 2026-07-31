@@ -53,12 +53,12 @@ function checkVictory(state: GameState): void {
   if (planetsOf(state, state.player).length === 0 && fleetsOf(state, state.player).length === 0) {
     state.winner = withLand[0] ?? 'automatons';
     state.speed = 0;
-    pushLog(state, { text: 'Super Earth has fallen. Democracy dies in darkness.', tone: 'bad' });
+    pushLog(state, { text: 'Супер-Земля пала. Демократия умирает во тьме.', tone: 'bad' });
     return;
   }
   if (withLand.length === 1 && withLand[0] === state.player) {
     state.winner = state.player;
     state.speed = 0;
-    pushLog(state, { text: 'The galaxy is liberated! Super Earth reigns supreme. Sweet Liberty!', tone: 'good' });
+    pushLog(state, { text: 'Галактика освобождена! Супер-Земля торжествует. Сладкая Свобода!', tone: 'good' });
   }
 }

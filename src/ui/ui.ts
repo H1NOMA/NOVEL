@@ -1,6 +1,6 @@
 import type { FactionId, Planet } from '../core/types';
 import { bus } from '../core/emitter';
-import { FACTIONS, FACTION_IDS, SPECIALS, areHostile } from '../data/factions';
+import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, areHostile } from '../data/factions';
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, selectFocus } from '../game/focus';
@@ -15,11 +15,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
   if (html !== undefined) e.innerHTML = html;
   return e;
 }
-
-const FAC_VAR: Record<FactionId, string> = {
-  superEarth: 'var(--se)', automatons: 'var(--aut)', illuminate: 'var(--ill)',
-  terminids: 'var(--term)', superFederation: 'var(--fed)',
-};
 
 export class UI {
   private root: HTMLElement;
@@ -47,12 +42,12 @@ export class UI {
     this.logEl = el('div'); this.logEl.id = 'log';
     this.toastEl = el('div'); this.toastEl.id = 'toast';
     const help = el('div', undefined, `
-      <b>CONTROLS</b><br>
-      Drag to pan · Wheel to zoom · Right-drag to orbit<br>
-      Click a planet to inspect · Select a fleet then click a target to move/invade<br>
-      <b>F</b> Focus tree · <b>Space</b> pause · <b>1/2/3</b> speed<br>
-      <b>★ Capitals:</b> capture one and its faction capitulates.
-      The Terminids have none — exterminate every hive.`);
+      <b>УПРАВЛЕНИЕ</b><br>
+      ЛКМ-перетаскивание — камера · Колесо — зум · ПКМ-перетаскивание — наклон<br>
+      Клик по планете — сведения · Выберите флот и кликните цель для перелёта/вторжения<br>
+      <b>F</b> — древо фокусов · <b>Пробел</b> — пауза · <b>1/2/3</b> — скорость<br>
+      <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
+      У терминидов её нет — выжигайте каждый улей.`);
     help.id = 'help';
     this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.logEl, this.toastEl, help);
   }
@@ -63,7 +58,7 @@ export class UI {
     bus.on('tick', () => this.renderClock());
     bus.on('superFederationRose', () => {
       this.scene.refreshOwners();
-      this.toast('THE SUPER FEDERATION HAS RISEN', 4000);
+      this.toast('СУПЕР-ФЕДЕРАЦИЯ ВОССТАЛА', 4000);
       this.renderAll();
     });
     bus.on('focusCompleted', () => this.renderAll());
@@ -111,7 +106,7 @@ export class UI {
       }).join('');
 
     this.hud.innerHTML = `
-      <div class="hud-title">SECOND GALACTIC WAR<small>SUPER EARTH HIGH COMMAND</small></div>
+      <div class="hud-title">ВТОРАЯ ГАЛАКТИЧЕСКАЯ ВОЙНА<small>ВЕРХОВНОЕ КОМАНДОВАНИЕ СУПЕР-ЗЕМЛИ</small></div>
       <div class="hud-clock">
         <div class="speed-btns" id="speed">
           <button class="speed-btn" data-s="0">II</button>
@@ -119,9 +114,9 @@ export class UI {
           <button class="speed-btn" data-s="2">2×</button>
           <button class="speed-btn" data-s="3">3×</button>
         </div>
-        <div class="hud-day">DAY ${s.day}</div>
+        <div class="hud-day">ДЕНЬ ${s.day}</div>
       </div>
-      <button class="hud-btn" id="focus-btn">◈ FOCUS TREE</button>
+      <button class="hud-btn" id="focus-btn">◈ ДРЕВО ФОКУСОВ</button>
       <div class="hud-factions">${chips}</div>`;
 
     this.hud.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
@@ -133,7 +128,7 @@ export class UI {
 
   private renderClock(): void {
     const day = this.hud.querySelector('.hud-day');
-    if (day) day.textContent = `DAY ${this.state.day}`;
+    if (day) day.textContent = `ДЕНЬ ${this.state.day}`;
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
       b.classList.toggle('active', Number(b.dataset.s) === this.state.speed);
     });
@@ -147,15 +142,15 @@ export class UI {
     const col = se.stability > 60 ? '#6fe39a' : se.stability > 35 ? 'var(--gold)' : 'var(--fed)';
     this.stability.innerHTML = `
       <div style="display:flex;justify-content:space-between">
-        <b style="color:var(--se)">SUPER EARTH</b>
-        <span>Stability ${se.stability.toFixed(0)}%</span>
+        <b style="color:var(--se)">СУПЕР-ЗЕМЛЯ</b>
+        <span>Стабильность ${se.stability.toFixed(0)}%</span>
       </div>
       <div class="bar"><span style="width:${se.stability}%;background:${col}"></span></div>
-      <div class="bar-row"><span>War Support</span><span>${se.warSupport.toFixed(0)}%</span></div>
+      <div class="bar-row"><span>Поддержка войны</span><span>${se.warSupport.toFixed(0)}%</span></div>
       <div class="bar"><span style="width:${se.warSupport}%;background:var(--se)"></span></div>
-      <div class="bar-row"><span>Industry ${se.industry.toFixed(0)}</span><span>Manpower ${se.manpower.toFixed(0)}</span></div>
-      ${low && !this.state.superFederationRisen ? '<div class="warn">⚠ Dissent spreads — the Path to Federation is open.</div>' : ''}
-      ${this.state.superFederationRisen ? '<div class="warn">⚑ Super Federation active.</div>' : ''}`;
+      <div class="bar-row"><span>Промышленность ${se.industry.toFixed(0)}</span><span>Резервы ${se.manpower.toFixed(0)}</span></div>
+      ${low && !this.state.superFederationRisen ? '<div class="warn">⚠ Растёт недовольство — открыт Путь к Федерации.</div>' : ''}
+      ${this.state.superFederationRisen ? '<div class="warn">⚑ Супер-Федерация активна.</div>' : ''}`;
   }
 
   // ---------------- Planet panel ----------------
@@ -168,7 +163,7 @@ export class UI {
         const dest = s.galaxy.planets.get(id)!;
         const invade = areHostile(s.player, dest.owner) && dest.owner !== s.player;
         const ok = orderFleetTo(s, sel, id, invade);
-        this.toast(ok ? `${invade ? 'INVASION' : 'MOVE'} ORDER · ${dest.name}` : 'NO SUPPLY ROUTE');
+        this.toast(ok ? `ПРИКАЗ: ${invade ? 'ВТОРЖЕНИЕ' : 'ПЕРЕЛЁТ'} · ${dest.name}` : 'НЕТ МАРШРУТА СНАБЖЕНИЯ');
         s.selectedFleet = null;
       }
     }
@@ -191,47 +186,47 @@ export class UI {
 
     let html = `
       <div class="pp-name">${p.name}${p.isCapital ? ' ★' : ''}</div>
-      <div class="pp-sub">${p.isCapital ? 'CAPITAL WORLD · ' : ''}${p.sector} · ${BIOMES[p.biome].label}</div>
+      <div class="pp-sub">${p.isCapital ? 'СТОЛИЧНЫЙ МИР · ' : ''}${p.sector} · ${BIOMES[p.biome].label}</div>
       <div class="pp-owner"><span class="fac-dot" style="background:${FACTIONS[p.owner].color}"></span>${FACTIONS[p.owner].name}</div>
-      <div class="pp-stat"><span>Garrison</span><b>${p.garrison.toFixed(0)}</b></div>
-      <div class="pp-stat"><span>Fortification</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
-      <div class="pp-stat"><span>Strategic value</span><b>${p.value}</b></div>
-      <div class="pp-stat"><span>Supply links</span><b>${p.links.length}</b></div>`;
+      <div class="pp-stat"><span>Гарнизон</span><b>${p.garrison.toFixed(0)}</b></div>
+      <div class="pp-stat"><span>Укрепления</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
+      <div class="pp-stat"><span>Стратегическая ценность</span><b>${p.value}</b></div>
+      <div class="pp-stat"><span>Линии снабжения</span><b>${p.links.length}</b></div>`;
 
     if (p.battle) {
       const b = p.battle;
       html += `<div class="battle-box">
-        <b style="color:var(--fed)">⚔ BATTLE · Day ${b.days}</b>
-        <div class="pp-stat"><span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} assault</span>
-          <span style="color:${FACTIONS[b.defender].color}">${FACTIONS[b.defender].short} defence</span></div>
+        <b style="color:var(--fed)">⚔ БИТВА · День ${b.days}</b>
+        <div class="pp-stat"><span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} — штурм</span>
+          <span style="color:${FACTIONS[b.defender].color}">${FACTIONS[b.defender].short} — оборона</span></div>
         <div class="bar"><span style="width:${b.liberation}%;background:${FACTIONS[b.attacker].color}"></span></div>
-        <div style="text-align:center;font-size:11px;margin-top:3px">Liberation ${b.liberation.toFixed(0)}%</div>
+        <div style="text-align:center;font-size:11px;margin-top:3px">Освобождение ${b.liberation.toFixed(0)}%</div>
       </div>`;
     }
 
-    html += `<div class="pp-section">Your forces here</div>`;
-    if (playerFleets.length === 0) html += `<div class="hint">No Super Earth fleets in orbit.</div>`;
+    html += `<div class="pp-section">Ваши силы здесь</div>`;
+    if (playerFleets.length === 0) html += `<div class="hint">Флотов Супер-Земли на орбите нет.</div>`;
     playerFleets.forEach((f) => {
       const selCls = s.selectedFleet === f.id ? 'sel' : '';
-      const badge = f.special ? `<span style="color:var(--gold)">◆ ${SPECIALS[f.faction].name}</span>` : '🚀 Super Destroyer';
+      const badge = f.special ? `<span style="color:var(--gold)">◆ ${SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}</div>
-          <div style="color:var(--muted);font-size:11px">Ships ${f.ships.toFixed(0)} · Troops ${f.infantry.toFixed(0)}</div></div>
-        <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ SEL' : 'SELECT'}</button>
-        ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">DEPLOY</button>` : ''}
+          <div style="color:var(--muted);font-size:11px">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div>
+        <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
+        ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
       </div>`;
     });
 
     if (enemyFleets.length) {
-      html += `<div class="pp-section">Hostiles in orbit</div>`;
+      html += `<div class="pp-section">Противник на орбите</div>`;
       enemyFleets.forEach((f) => {
         html += `<div class="fleet-row"><div class="grow"><div style="color:${FACTIONS[f.faction].color}">
-          ${f.special ? '◆ ' + SPECIALS[f.faction].name : FACTIONS[f.faction].short + ' fleet'}</div>
-          <div style="color:var(--muted);font-size:11px">Ships ${f.ships.toFixed(0)} · Troops ${f.infantry.toFixed(0)}</div></div></div>`;
+          ${f.special ? '◆ ' + SPECIALS[f.faction].name : 'Флот ' + FACTION_GEN[f.faction]}</div>
+          <div style="color:var(--muted);font-size:11px">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div></div>`;
       });
     }
 
-    html += `<div class="hint">${s.selectedFleet ? 'Fleet selected — click a destination planet.' : 'Select a fleet, then click a target planet to move or invade.'}</div>`;
+    html += `<div class="hint">${s.selectedFleet ? 'Флот выбран — кликните планету назначения.' : 'Выберите флот, затем кликните целевую планету для перелёта или вторжения.'}</div>`;
 
     this.panel.innerHTML = html;
     this.panel.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((btn) => {
@@ -288,9 +283,9 @@ export class UI {
     svg += `</svg>`;
 
     let html = `<div class="focus-head">
-      <h2>◈ NATIONAL FOCUS</h2>
+      <h2>◈ НАЦИОНАЛЬНЫЙ ФОКУС</h2>
       <div class="focus-tabs">${tabs}</div>
-      <button class="hud-btn" id="focus-close" style="margin-left:auto">✕ CLOSE</button>
+      <button class="hud-btn" id="focus-close" style="margin-left:auto">✕ ЗАКРЫТЬ</button>
     </div><div class="focus-scroll"><div class="focus-canvas" style="width:${cw}px;height:${ch}px">${svg}`;
 
     for (const n of nodes) {
@@ -304,11 +299,11 @@ export class UI {
       else if (selectable) cls += ' available';
       else cls += ' locked';
       const left = n.x * W + 20, top = n.y * H + 20;
-      const remain = active ? ` · ${Math.ceil(fs.activeFocus!.remaining)}d` : '';
+      const remain = active ? ` · ${Math.ceil(fs.activeFocus!.remaining)} дн` : '';
       html += `<div class="${cls}" data-focus="${n.id}" style="left:${left}px;top:${top}px">
         <div class="fn-title">${n.title}</div>
         <div style="color:var(--muted)">${n.desc}</div>
-        <div class="fn-cost">${done ? '✓' : n.cost + 'd' + remain}</div>
+        <div class="fn-cost">${done ? '✓' : n.cost + ' дн' + remain}</div>
       </div>`;
     }
     html += `</div></div>`;
@@ -320,7 +315,7 @@ export class UI {
     this.focusOverlay.querySelectorAll<HTMLElement>('.focus-node.available').forEach((node) =>
       node.addEventListener('click', () => {
         if (selectFocus(this.state, this.state.player, node.dataset.focus!)) {
-          this.toast('FOCUS ASSIGNED');
+          this.toast('ФОКУС НАЗНАЧЕН');
           this.renderFocus();
           this.renderStability();
         }
@@ -346,7 +341,7 @@ export class UI {
     if (this.toastEl.dataset.final) return;
     this.toastEl.dataset.final = '1';
     const w = this.state.winner!;
-    this.toast(w === this.state.player ? 'VICTORY · THE GALAXY IS FREE' : `DEFEAT · ${FACTIONS[w].name.toUpperCase()} PREVAILS`, 999999);
+    this.toast(w === this.state.player ? 'ПОБЕДА · ГАЛАКТИКА СВОБОДНА' : `ПОРАЖЕНИЕ · ВЕРХ ОДЕРЖИВАЕТ ФРАКЦИЯ «${FACTIONS[w].name.toUpperCase()}»`, 999999);
   }
 }
 

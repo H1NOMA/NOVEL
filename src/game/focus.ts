@@ -47,7 +47,7 @@ function completeFocus(state: GameState, faction: FactionId, id: string): void {
 
   pushLog(state, {
     faction,
-    text: `${FACTIONS[faction].short} completes focus “${node.title}”.`,
+    text: `${FACTIONS[faction].short}: фокус «${node.title}» завершён.`,
     tone: faction === state.player ? 'good' : 'info',
   });
   bus.emit('focusCompleted', { faction, id });
@@ -116,7 +116,7 @@ function unlockSpecial(state: GameState, faction: FactionId): void {
   spawnFleet(state, faction, home.id, { ships: 14, infantry: 40, special: spec.id });
   pushLog(state, {
     faction,
-    text: `${spec.name} enters service over ${home.name}!`,
+    text: `${spec.name} — вступает в строй над ${home.name}!`,
     tone: faction === state.player ? 'good' : 'alert',
   });
 }
@@ -148,7 +148,7 @@ export function riseSuperFederation(state: GameState): void {
   if (bases.length) {
     const cap = bases.reduce((a, b) => (b.value + b.garrison > a.value + a.garrison ? b : a));
     cap.isCapital = true;
-    cap.name = 'New Concord';
+    cap.name = 'Новый Конкорд';
     cap.scale = Math.max(cap.scale, 1.35);
     cap.garrison = Math.max(cap.garrison, 90);
     cap.fortification = 4;
@@ -164,7 +164,7 @@ export function riseSuperFederation(state: GameState): void {
   state.factions.superEarth.stability = clamp(state.factions.superEarth.stability - 20, 0, 100);
 
   pushLog(state, {
-    text: `SECESSION! ${flipped.length} worlds raise the orange banner of the SUPER FEDERATION. They now war against Super Earth and all others.`,
+    text: `РАСКОЛ! Миров подняло оранжевое знамя СУПЕР-ФЕДЕРАЦИИ: ${flipped.length}. Отныне она воюет против Супер-Земли и всех остальных.`,
     tone: 'alert',
   });
   bus.emit('superFederationRose', undefined);
