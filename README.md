@@ -27,9 +27,10 @@ The Windows build is fully portable — zip the folder, unzip anywhere, run
 fullscreen. The app allows a software-rendering fallback on machines with
 broken GPU drivers.
 
-Ready-made builds: the **Desktop builds** GitHub Actions workflow packages
-Windows and Linux zips on every push (and on demand via *Run workflow*).
-Download them from the workflow run's **Artifacts** section.
+**Ready-made builds** are published on the repository's
+[**Releases**](../../releases) page — download the zip for your OS, unzip, play.
+Pushing a `v*` tag builds and publishes a new release automatically; every
+ordinary push also uploads the zips as workflow artifacts.
 
 ## Run in a browser (dev)
 
