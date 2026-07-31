@@ -1,13 +1,21 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E" />
-    <title>Демо-полигон — прототип визуальной новеллы</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A6%85%3C/text%3E%3C/svg%3E" />
+    <title>The Second Galactic War</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <div id="ui"></div>
+      <div id="loading">
+        <div class="loading-eagle">🦅</div>
+        <div class="loading-text">SUPER EARTH HIGH COMMAND</div>
+        <div class="loading-sub">Establishing galactic uplink…</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
