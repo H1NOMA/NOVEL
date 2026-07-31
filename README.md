@@ -9,7 +9,25 @@ focus tree — including Super Earth's descent into civil war and the rise of th
 Built with **Vite + TypeScript + Three.js**. No backend, no assets to download —
 every planet is generated procedurally in a GLSL shader.
 
-## Run
+## Desktop app (primary target)
+
+The game ships as a native desktop application (Electron shell around the
+Three.js game). Build a distributable for your OS:
+
+```bash
+npm install
+npm run app        # build & launch the desktop app locally
+npm run app:win    # portable Windows x64 build → release/SecondGalacticWar-win32-x64/
+npm run app:linux  # Linux x64 build          → release/SecondGalacticWar-linux-x64/
+npm run app:mac    # macOS arm64 build        → release/SecondGalacticWar-darwin-arm64/
+```
+
+The Windows build is fully portable — zip the folder, unzip anywhere, run
+`SecondGalacticWar.exe`. No installer, no dependencies. **F11** toggles
+fullscreen. The app allows a software-rendering fallback on machines with
+broken GPU drivers.
+
+## Run in a browser (dev)
 
 ```bash
 npm install
