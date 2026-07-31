@@ -79,8 +79,8 @@ function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, p
 export function resolveGround(state: GameState): void {
   for (const id of state.galaxy.order) {
     const planet = state.galaxy.planets.get(id)!;
-    const here = fleetsAt(state, id).filter((f) => f.faction !== planet.owner && areHostile(f.faction, planet.owner));
-    const attackers = here.filter((f) => !f.transit);
+    // fleetsAt already excludes fleets still in transit.
+    const attackers = fleetsAt(state, id).filter((f) => areHostile(f.faction, planet.owner));
 
     if (attackers.length === 0) {
       // No invaders — decay any stale battle and slowly regrow garrison.
@@ -163,6 +163,38 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     faction: attacker,
     text: `${planet.name} has fallen to ${factionName(attacker)}${planet.isCapital ? ' — a CAPITAL WORLD lost!' : ''}.`,
     tone: prev === state.player ? 'bad' : attacker === state.player ? 'good' : 'info',
+  });
+  // Capitals are the head of the state: cut it off and the faction capitulates.
+  // The Terminids have no capital — the swarm must be exterminated entirely.
+  if (planet.isCapital && prev !== 'terminids') {
+    surrenderFaction(state, prev, attacker);
+  }
+}
+
+/** Total collapse: every remaining world submits to the victor, fleets scatter. */
+function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId): void {
+  const fs = state.factions[loser];
+  if (!fs.alive) return;
+  fs.alive = false;
+  fs.activeFocus = undefined;
+  let flipped = 0;
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.owner === loser) {
+      p.owner = victor;
+      p.garrison = Math.max(5, p.garrison * 0.5);
+      p.battle = undefined;
+      flipped++;
+    }
+  }
+  for (const fid of [...state.fleetOrder]) {
+    const f = state.fleets.get(fid);
+    if (f && f.faction === loser) removeFleet(state, fid);
+  }
+  pushLog(state, {
+    faction: loser,
+    text: `The capital has fallen — ${factionName(loser)} CAPITULATES! ${flipped} worlds submit to ${factionName(victor)}.`,
+    tone: loser === state.player ? 'bad' : 'alert',
   });
 }
 

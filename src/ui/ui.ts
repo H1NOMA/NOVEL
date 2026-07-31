@@ -50,7 +50,9 @@ export class UI {
       <b>CONTROLS</b><br>
       Drag to pan · Wheel to zoom · Right-drag to orbit<br>
       Click a planet to inspect · Select a fleet then click a target to move/invade<br>
-      <b>F</b> Focus tree · <b>Space</b> pause · <b>1/2/3</b> speed`);
+      <b>F</b> Focus tree · <b>Space</b> pause · <b>1/2/3</b> speed<br>
+      <b>★ Capitals:</b> capture one and its faction capitulates.
+      The Terminids have none — exterminate every hive.`);
     help.id = 'help';
     this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.logEl, this.toastEl, help);
   }
@@ -189,7 +191,7 @@ export class UI {
 
     let html = `
       <div class="pp-name">${p.name}${p.isCapital ? ' ★' : ''}</div>
-      <div class="pp-sub">${p.sector} · ${BIOMES[p.biome].label}</div>
+      <div class="pp-sub">${p.isCapital ? 'CAPITAL WORLD · ' : ''}${p.sector} · ${BIOMES[p.biome].label}</div>
       <div class="pp-owner"><span class="fac-dot" style="background:${FACTIONS[p.owner].color}"></span>${FACTIONS[p.owner].name}</div>
       <div class="pp-stat"><span>Garrison</span><b>${p.garrison.toFixed(0)}</b></div>
       <div class="pp-stat"><span>Fortification</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
@@ -348,6 +350,3 @@ export class UI {
   }
 }
 
-export function planetLabel(p: Planet): string {
-  return `${p.name} (${FACTIONS[p.owner].short})`;
-}

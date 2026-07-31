@@ -1,5 +1,5 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
-import { areHostile } from '../data/factions';
+import { areHostile, FACTIONS } from '../data/factions';
 import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 
@@ -17,7 +17,9 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   if (!fs.alive) return;
   const worlds = planetsOf(state, faction);
   if (worlds.length === 0) {
-    if (fs.alive && faction !== 'superFederation') eliminate(state, faction);
+    // runEconomy is only invoked for active factions, so the Super Federation
+    // reaches this path only after it has actually risen.
+    eliminate(state, faction);
     return;
   }
 
@@ -48,11 +50,13 @@ export function runEconomy(state: GameState, faction: FactionId): void {
 
 function eliminate(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
+  if (!fs.alive) return;
   fs.alive = false;
+  fs.activeFocus = undefined;
   for (const f of fleetsOf(state, faction)) f.order = { kind: 'idle' };
   pushLog(state, {
     faction,
-    text: `${faction} has been driven from the galaxy!`,
+    text: `${FACTIONS[faction].name} has been driven from the galaxy!`,
     tone: faction === state.player ? 'bad' : 'good',
   });
 }

@@ -202,6 +202,10 @@ export class GalaxyScene {
     };
     this.canvas.addEventListener('pointerup', end);
     this.canvas.addEventListener('pointercancel', () => (dragging = false));
+    this.canvas.addEventListener('dblclick', (e) => {
+      const id = this.pick(e.clientX, e.clientY);
+      if (id) this.focusOn(id);
+    });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();

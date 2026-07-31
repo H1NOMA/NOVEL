@@ -152,6 +152,8 @@ export type FocusEffect =
   | { kind: 'combat'; amount: number }
   | { kind: 'fortify'; amount: number }
   | { kind: 'stability'; amount: number }
+  | { kind: 'manpower'; amount: number }
+  | { kind: 'fleet'; ships: number; infantry: number }
   | { kind: 'unlockSpecial' }
   | { kind: 'spawnSuperFederation' }
   | { kind: 'custom'; note: string };

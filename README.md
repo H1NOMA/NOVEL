@@ -43,16 +43,21 @@ npm run preview    # preview the production build
   Fleets can only travel along these lines, and only through friendly territory.
 - Free zoom and pan, with a faction-coloured ownership halo on every world.
 
-### Factions
+### Factions & capitals
 Four playable powers from the Second Galactic War, plus a hidden fifth:
 
 | Faction | Colour | Capital | Special unit |
 |---|---|---|---|
-| **Super Earth** | Blue | Super Earth | Democracy Space Station |
-| **The Automatons** | Red | Cyberstan | Automaton Star Destroyer |
-| **The Illuminate** | Purple | Squ'bai Shrine | Great Host Monolith |
-| **The Terminids** | Gold | Kepler Prime | Terminid Super Colony |
-| **The Super Federation** | Orange | *(secession)* | Federation Dreadnought |
+| **Super Earth** | Blue | Super Earth *(galactic centre)* | Democracy Space Station |
+| **The Automatons** | Red | Cyberstan *(far outer sectors)* | Automaton Star Destroyer |
+| **The Illuminate** | Purple | Squ'bai Shrine *(far outer sectors)* | Great Host Monolith |
+| **The Terminids** | Gold | **none** — Kepler Prime is just the strongest hive | Terminid Super Colony |
+| **The Super Federation** | Orange | New Concord *(strongest seceded world)* | Federation Dreadnought |
+
+**Capitals matter.** Capture a faction's capital (★) and it **capitulates** —
+every remaining world submits to the victor and its fleets scatter. The
+Terminids have no capital: the swarm has no head to cut off and must be
+**exterminated planet by planet**.
 
 ### Three troop types (per faction)
 1. **Ships** — fleets that move between planets along supply lines and carry troops.
@@ -68,11 +73,19 @@ Four playable powers from the Second Galactic War, plus a hidden fifth:
   At 100% (or when the garrison breaks) the planet flips owner.
 
 ### Focus trees
-- A full, branching **national focus tree** for each faction (military, home
-  front / industry, and expansion branches), loosely faithful to Helldivers lore.
+- A large, branching **national focus tree** for each faction — 100+ focuses in
+  total, loosely faithful to Helldivers lore. Every faction has several distinct
+  branches:
+  - **Military** (ground forces: Helldivers / Devastators / Harvesters / Bile Titans…)
+  - **Navy / mobility** (Super Destroyers, Dropship Armadas, Warp Fleets, Shrieker Flights)
+  - **Politics / ideology** (Ministry of Truth, The Directive, The Great
+    Awakening, Emergent Hivemind)
+  - **Economy / industry** (War Economy, Self-Replication, Essence Harvest, E-710 Bloom)
+  - **Expansion campaigns** (Reclaim the Creek, Drive on the Core, Raid Super
+    Earth, Consume the Core)
 - Focuses complete over in-game days and grant war support, recruitment,
-  industry, ship cap, combat, fortification and stability bonuses, or unlock the
-  faction's special unit.
+  industry, ship cap, combat, fortification, stability and manpower bonuses,
+  spawn reinforcement fleets, or unlock the faction's special unit.
 
 ### Super Earth stability & the Super Federation
 - Super Earth has a **stability** modifier. Some focuses (conscription, dissent)

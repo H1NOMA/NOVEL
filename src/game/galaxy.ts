@@ -142,24 +142,36 @@ export function generateGalaxy(seed: number): Galaxy {
     }
   }
 
-  // --- Faction capitals: promote an outer-ring planet in each wedge ---
+  // --- Faction capitals ---
+  // Super Earth sits at the galactic centre. Automatons (Cyberstan) and the
+  // Illuminate (Squ'bai Shrine) hold true capitals in their FAR outer sectors —
+  // capturing one breaks the faction. The Terminids have no capital: Kepler
+  // Prime is merely the strongest hive, and the swarm must be exterminated
+  // world by world.
   const capitalNames: Partial<Record<FactionId, string>> = {
     automatons: 'Cyberstan',
-    terminids: 'Kepler Prime',
     illuminate: "Squ'bai Shrine",
   };
   for (const w of WEDGES) {
     const candidates = order
       .map((id) => planets.get(id)!)
       .filter((p) => p.owner === w.faction && p.radius > RING_SPACING * 2.5);
-    if (candidates.length) {
-      const cap = candidates.reduce((a, b) => (b.radius > a.radius ? b : a));
-      cap.isCapital = true;
-      cap.name = capitalNames[w.faction] ?? cap.name;
-      cap.scale = 1.4;
-      cap.garrison = 100;
-      cap.fortification = 5;
-      cap.value = 10;
+    if (!candidates.length) continue;
+    const strongest = candidates.reduce((a, b) => (b.radius > a.radius ? b : a));
+    if (w.faction === 'terminids') {
+      // Hive heart — powerful, but NOT a capital. No head to cut off.
+      strongest.name = 'Kepler Prime';
+      strongest.scale = 1.3;
+      strongest.garrison = 90;
+      strongest.fortification = 4;
+      strongest.value = 8;
+    } else {
+      strongest.isCapital = true;
+      strongest.name = capitalNames[w.faction] ?? strongest.name;
+      strongest.scale = 1.4;
+      strongest.garrison = 100;
+      strongest.fortification = 5;
+      strongest.value = 10;
     }
   }
 

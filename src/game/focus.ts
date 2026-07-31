@@ -85,6 +85,15 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
     case 'stability':
       fs.stability = clamp(fs.stability + eff.amount, 0, 100);
       break;
+    case 'manpower':
+      fs.manpower = Math.min(500, fs.manpower + eff.amount);
+      break;
+    case 'fleet': {
+      const worlds = planetsOf(state, faction);
+      const home = worlds.find((p) => p.isCapital) ?? worlds[0];
+      if (home) spawnFleet(state, faction, home.id, { ships: eff.ships, infantry: eff.infantry });
+      break;
+    }
     case 'unlockSpecial':
       unlockSpecial(state, faction);
       break;
@@ -134,8 +143,18 @@ export function riseSuperFederation(state: GameState): void {
       }
     }
   }
-  // Give the Federation a starting navy from the seceded worlds.
+  // The strongest seceded world becomes the Federation capital, New Concord.
   const bases = flipped.map((id) => state.galaxy.planets.get(id)!);
+  if (bases.length) {
+    const cap = bases.reduce((a, b) => (b.value + b.garrison > a.value + a.garrison ? b : a));
+    cap.isCapital = true;
+    cap.name = 'New Concord';
+    cap.scale = Math.max(cap.scale, 1.35);
+    cap.garrison = Math.max(cap.garrison, 90);
+    cap.fortification = 4;
+    cap.value = 8;
+  }
+  // Give the Federation a starting navy from the seceded worlds.
   for (let i = 0; i < Math.min(3, bases.length); i++) {
     const base = bases[i]!;
     base.garrison = Math.max(base.garrison, 60);
@@ -173,6 +192,7 @@ function weight(n: FocusNode): number {
   for (const e of n.effects) {
     if (e.kind === 'unlockSpecial') w += 3;
     if (e.kind === 'combat') w += 2;
+    if (e.kind === 'fleet') w += 2;
     if (e.kind === 'recruitment') w += 1;
     if (e.kind === 'shipCap') w += 1;
   }

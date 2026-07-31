@@ -4,7 +4,7 @@ const PREFIX = [
   'Malevelon', 'Draupnir', 'Estanu', 'Fenrir', 'Hellmire', 'Vernen', 'Angel',
   'Ubanea', 'Choohe', 'Penta', 'Meridia', 'Tien', 'Erata', 'Mort', 'Vandalon',
   'Oshaune', 'Kelvin', 'Widow', 'Turing', 'Marfark', 'Wasat', 'Bekvam', 'Duma',
-  'Achernar', 'Bore', 'Charon', 'Crimsica', 'Cyberstan', 'Gacrux', 'Heeth',
+  'Achernar', 'Bore', 'Charon', 'Crimsica', 'Gacrux', 'Heeth',
   'Ingmar', 'Kharst', 'Lesath', 'Mantes', 'Nublaria', 'Omicron', 'Pandion',
   'Skat', 'Troost', 'Ustotu', 'Veil', 'Zosma', 'Acamar', 'Borea', 'Deneb',
 ];

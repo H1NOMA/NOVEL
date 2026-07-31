@@ -143,10 +143,3 @@ export function fleetsOf(state: GameState, faction: FactionId): Fleet[] {
     .filter((f) => f && f.faction === faction);
 }
 
-/** Recompute cached faction bonuses from completed focuses. Called on focus complete. */
-export function recomputeBonuses(state: GameState, faction: FactionId): void {
-  const fs = state.factions[faction];
-  const b = { combat: 0, recruitment: 0, industry: 0, shipCap: 0, fortify: 0 };
-  // bonuses are applied incrementally in focus.ts; this is a safety reset hook.
-  fs.bonuses = { ...b, ...fs.bonuses };
-}
