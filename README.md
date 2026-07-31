@@ -27,6 +27,10 @@ The Windows build is fully portable — zip the folder, unzip anywhere, run
 fullscreen. The app allows a software-rendering fallback on machines with
 broken GPU drivers.
 
+Ready-made builds: the **Desktop builds** GitHub Actions workflow packages
+Windows and Linux zips on every push (and on demand via *Run workflow*).
+Download them from the workflow run's **Artifacts** section.
+
 ## Run in a browser (dev)
 
 ```bash
