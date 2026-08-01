@@ -130,6 +130,10 @@ export interface Fleet {
   };
   /** Ships in the fleet — its space-combat strength. */
   ships: number;
+  /** Дредноуты (тяжёлый класс, сила ×3 за корпус). */
+  dreadnoughts: number;
+  /** Линкоры-флагманы (сила ×6 за корпус). */
+  battleships: number;
   /** Infantry troops carried aboard, deployable to planets. */
   infantry: number;
   /** If set, this fleet carries the faction's special unit. */
@@ -186,7 +190,7 @@ export type FocusEffect =
   | { kind: 'custom'; note: string };
 
 /** Особые способности, открываемые фокусами-спецпроектами. */
-export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss' | 'e711Mining';
+export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss' | 'e711Mining' | 'termicide';
 
 export interface FocusNode {
   id: string;

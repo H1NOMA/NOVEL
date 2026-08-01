@@ -20,9 +20,19 @@ function combatMult(state: GameState, faction: FactionId): number {
   return 1 + fs.bonuses.combat + (fs.warSupport - 50) / 200 + eliteShare(fs) * 0.25;
 }
 
+/** Суммарная корабельная мощь: эсминцы ×1, дредноуты ×3, линкоры ×6. */
+export function hullPower(f: Fleet): number {
+  return f.ships + f.dreadnoughts * 3 + f.battleships * 6;
+}
+
+/** Общее число корпусов в соединении (для стека на карте). */
+export function hullCount(f: Fleet): number {
+  return f.ships + f.dreadnoughts + f.battleships;
+}
+
 function fleetPower(state: GameState, f: Fleet): number {
-  let p = f.ships;
-  if (f.special) p += f.ships * (SPECIALS[f.faction].power - 1);
+  let p = hullPower(f);
+  if (f.special) p += p * (SPECIALS[f.faction].power - 1);
   return p * combatMult(state, f.faction);
 }
 
@@ -63,12 +73,21 @@ export function resolveOrbital(state: GameState): void {
 }
 
 function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, planet: Planet): void {
-  const totalShips = fleets.reduce((s, f) => s + f.ships, 0);
+  const totalShips = fleets.reduce((s, f) => s + hullCount(f), 0);
   if (totalShips <= 0) return;
   for (const f of fleets) {
-    const share = (f.ships / totalShips) * totalLoss;
-    f.ships = Math.max(0, f.ships - share);
-    if (f.ships < 0.5) {
+    let share = (hullCount(f) / totalShips) * totalLoss;
+    // Первыми гибнут эсминцы, затем дредноуты, линкоры — последними.
+    const eatFrom = (key: 'ships' | 'dreadnoughts' | 'battleships', weight: number) => {
+      if (share <= 0) return;
+      const hulls = Math.min(f[key], share / weight);
+      f[key] = Math.max(0, f[key] - hulls);
+      share -= hulls * weight;
+    };
+    eatFrom('ships', 1);
+    eatFrom('dreadnoughts', 3);
+    eatFrom('battleships', 6);
+    if (hullCount(f) < 0.5) {
       if (f.special) {
         state.factions[f.faction].lostSpecial = true;
         pushLog(state, {
@@ -113,10 +132,23 @@ export function resolveGround(state: GameState): void {
     let leadVal = 0;
     for (const [fac, val] of attackPower) if (val > leadVal) { leadVal = val; lead = fac; }
 
-    const attackerForce = leadVal;
+    let attackerForce = leadVal;
     let defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
     // Планета в окружении (без снабжения) обороняется вполсилы.
     if (!planet.supplied) defBonus *= 0.55;
+    // Мрак — стихия роя: оборона терминидов в споровом дыму сильнее.
+    if (planet.gloom && planet.owner === 'terminids') defBonus *= 1.5;
+    // Тень Бездны: миры иллюминатов рядом с погруженными обороняются упорнее.
+    if (planet.owner === 'illuminate' &&
+        planet.links.some((lid) => state.galaxy.planets.get(lid)!.abyss)) defBonus *= 1.3;
+    // Атакующий без смежной снабжаемой территории воюет с плеча — штраф.
+    const hasSupplyLine = planet.links.some((lid) => {
+      const n = state.galaxy.planets.get(lid)!;
+      return n.owner === lead && n.supplied && !n.shattered;
+    });
+    if (!hasSupplyLine) attackerForce *= 0.8;
+    // Термицид выкашивает атакующий рой.
+    if (lead === 'terminids' && planet.buildings.includes('termicide')) attackerForce *= 0.45;
     const defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
 
     if (!planet.battle || planet.battle.attacker !== lead) {

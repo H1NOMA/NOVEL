@@ -7,7 +7,8 @@ import { canSelectFocus, selectFocus } from '../game/focus';
 import { orderFleetTo, garrisonReinforce } from '../game/units';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
-import { directGloom, enableE711Mining, fireSuperweapon, raiseSpire, rebuildSpecial, SPECIAL_REBUILD_COST, superShotReadyIn } from '../game/decisions';
+import { enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, produceShips, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_REBUILD_COST, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
+import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
 import type { GameClock } from '../game/clock';
@@ -35,6 +36,8 @@ export class UI {
   /** Позиция карточки планеты (сохраняется между открытиями). */
   private cardPos: { x: number; y: number } | null = null;
   private spireMode = false;
+  private gloomMode = false;
+  private termicideMode = false;
 
   constructor(private state: GameState, private scene: GalaxyScene, private clock: GameClock) {
     this.root = document.getElementById('ui')!;
@@ -267,7 +270,7 @@ export class UI {
       <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${enemyFleets.length}</span></b></div>
       ${p.minerals > 0 ? `<div class="pp-stat"><span>Ископаемые</span><b>${'⛏'.repeat(p.minerals)}${p.biome === 'magma' ? ' (магмовый мир)' : ''}</b></div>` : ''}
       ${p.e711Rich ? `<div class="pp-stat"><span>Е-711</span><b style="color:var(--gold)">Богатые залежи</b></div>` : p.origin === 'terminids' && p.owner === 'superEarth' ? `<div class="pp-stat"><span>Е-711</span><b>Следы залежей</b></div>` : ''}
-      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld).join('<br>')}</b></div>` : ''}`;
+      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld === 'termicide' ? '☠ Система термицида' : bld).join('<br>')}</b></div>` : ''}`;
 
     if (p.owner === s.player && !p.depot) {
       const can = s.factions[s.player].production >= DEPOT_COST;
@@ -275,6 +278,12 @@ export class UI {
     }
     if (this.spireMode && p.owner === 'illuminate' && s.player === 'illuminate') {
       html += `<button class="mini-btn wide" data-act="spire">▲ Воздвигнуть экзошпиль</button>`;
+    }
+    if (this.gloomMode && s.player === 'terminids' && p.owner === 'terminids' && !p.gloom && sectorFullyOwned(s, p.id, 'terminids')) {
+      html += `<button class="mini-btn wide" data-act="gloomseed">☁ Заронить зачаток Мрака (60 дн)</button>`;
+    }
+    if (this.termicideMode && s.player === 'superEarth' && p.owner === 'superEarth' && !p.buildings.includes('termicide')) {
+      html += `<button class="mini-btn wide" data-act="termicide">☠ Установить термицид (${TERMICIDE_COST} пр.)</button>`;
     }
     // Планетарный залп: своя станция на орбите чужой планеты.
     const stationHere = playerFleets.some((f) => f.special);
@@ -299,7 +308,7 @@ export class UI {
       const badge = f.special ? `<span style="color:var(--gold)">◆ ${SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}</div>
-          <div style="color:var(--muted);font-size:11px">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div>
+          <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
       </div>`;
@@ -388,6 +397,22 @@ export class UI {
           }
           return;
         }
+        if (act === 'gloomseed') {
+          if (plantGloomSeed(s, p.id)) {
+            this.gloomMode = false;
+            this.toast('ЗАЧАТОК МРАКА ЗАРОНЁН');
+            this.renderPanel();
+          }
+          return;
+        }
+        if (act === 'termicide') {
+          if (installTermicide(s, p.id)) {
+            this.termicideMode = false;
+            this.toast('ТЕРМИЦИД РАЗВЁРНУТ');
+            this.renderPanel();
+          }
+          return;
+        }
         if (act === 'spire') {
           if (raiseSpire(s, p.id)) {
             this.spireMode = false;
@@ -459,16 +484,29 @@ export class UI {
     }
 
     if (fs.flags.gloomSpread) {
-      html += `<div class="dec-item"><b>☁ Направить Мрак</b>
-        <div class="hint">Выберите сектор — споровые тучи начнут окутывать его миры.</div>`;
-      for (const sector of s.galaxy.sectors.values()) {
-        const own = sector.planets.filter((pid) => s.galaxy.planets.get(pid)!.owner === s.player).length;
-        if (!own) continue;
-        const active = s.gloomTarget === sector.id;
-        html += `<button class="mini-btn wide ${active ? 'sel' : ''}" data-gloom="${sector.id}">${active ? '☁ ' : ''}${sector.name} (${own} миров)</button>`;
-      }
-      html += `</div>`;
+      html += `<div class="dec-item"><b>☁ Зачаток Мрака</b>
+        <div class="hint">Ставится через карточку своей планеты — но только в секторе, ПОЛНОСТЬЮ захваченном роем. Мрак зреет 60 дней. Зреет сейчас: ${s.gloomSeeds.length}.</div>
+        <button class="mini-btn wide ${this.gloomMode ? 'sel' : ''}" id="dec-gloom">${this.gloomMode ? '✓ Режим выбора активен' : 'Выбрать планету'}</button></div>`;
     }
+
+    if (fs.flags.termicide) {
+      html += `<div class="dec-item"><b>☠ Система распространения термицида</b>
+        <div class="hint">Ставится на своих планетах (${TERMICIDE_COST} пр.). Атакующий планету рой получает тяжелейшие потери.</div>
+        <button class="mini-btn wide ${this.termicideMode ? 'sel' : ''}" id="dec-termicide">${this.termicideMode ? '✓ Режим выбора активен' : 'Выбрать планету'}</button></div>`;
+    }
+
+    // --- Производство ---
+    html += `<div class="dec-item"><b>⚒ Производство дивизий (${DIVISION_COST} пр. → +${DIVISION_SIZE})</b>`;
+    for (const t of troopsOf(s.player)) {
+      if (t.id === 'greatFleet') continue;
+      html += `<button class="mini-btn wide" data-div="${t.id}">${t.name} · в пуле ${(fs.units[t.id] ?? 0).toFixed(0)}</button>`;
+    }
+    html += `</div><div class="dec-item"><b>⚓ Верфи</b>`;
+    for (const c of SHIP_CLASSES) {
+      const can = fs.production >= c.cost;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-ship="${c.id}" ${can ? '' : 'disabled'}>${c.name} — ${c.cost} пр. · ${c.desc}</button>`;
+    }
+    html += `<div class="hint">Производство: ${fs.production.toFixed(0)}</div></div>`;
 
     if (fs.flags.abyss) {
       html += `<div class="dec-item"><b>▲ Экзошпиль Бездны</b>
@@ -479,9 +517,30 @@ export class UI {
     html += `</div>`;
     this.decisionsEl.innerHTML = html;
     this.decisionsEl.querySelector('#dec-close')?.addEventListener('click', () => this.decisionsEl.classList.add('hidden'));
-    this.decisionsEl.querySelectorAll<HTMLButtonElement>('[data-gloom]').forEach((b) =>
+    this.decisionsEl.querySelector('#dec-gloom')?.addEventListener('click', () => {
+      this.gloomMode = !this.gloomMode;
+      this.renderDecisions();
+      this.renderPanel();
+    });
+    this.decisionsEl.querySelector('#dec-termicide')?.addEventListener('click', () => {
+      this.termicideMode = !this.termicideMode;
+      this.renderDecisions();
+      this.renderPanel();
+    });
+    this.decisionsEl.querySelectorAll<HTMLButtonElement>('[data-div]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (directGloom(this.state, b.dataset.gloom!)) this.renderDecisions();
+        if (produceDivision(this.state, this.state.player, b.dataset.div!)) {
+          this.toast('ДИВИЗИЯ СФОРМИРОВАНА');
+          this.renderDecisions();
+          this.renderStability();
+        } else this.toast('НЕВОЗМОЖНО: НЕТ РЕСУРСОВ ИЛИ УСЛОВИЙ');
+      }));
+    this.decisionsEl.querySelectorAll<HTMLButtonElement>('[data-ship]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (produceShips(this.state, this.state.player, b.dataset.ship as ShipClassId)) {
+          this.toast('КОРАБЛИ СПУЩЕНЫ СО СТАПЕЛЕЙ');
+          this.renderDecisions();
+        }
       }));
     this.decisionsEl.querySelector('#dec-rebuild')?.addEventListener('click', () => {
       if (rebuildSpecial(this.state, this.state.player)) {

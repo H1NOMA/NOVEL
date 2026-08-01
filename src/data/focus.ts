@@ -69,6 +69,7 @@ const superEarth: FocusNode[] = [
   { id: 'se_at_gloomtech', faction: 'superEarth', title: 'Прорыв Мрака', desc: 'СПЕЦПРОЕКТ: фильтры и навигация для полётов сквозь споровые тучи.', cost: 80, x: 6, y: 6, requires: ['se_at_pest'], effects: [{ kind: 'flag', flag: 'gloomTravel' }] },
   { id: 'se_at_e710', faction: 'superEarth', title: 'Жатва Э-710', desc: 'Каждый сожжённый улей — топливо для флота.', cost: 55, x: 7, y: 6, requires: ['se_at_napalm'], effects: [{ kind: 'industry', amount: 4 }] },
   { id: 'se_at_exterm', faction: 'superEarth', title: 'Протокол истребления', desc: 'Не сдерживание. Не контроль. Истребление.', cost: 70, x: 7, y: 7, requires: ['se_at_gloomtech', 'se_at_e710'], effects: [{ kind: 'combat', amount: 0.2 }] },
+  { id: 'se_at_termicide', faction: 'superEarth', title: 'Термицид', desc: 'СПЕЦПРОЕКТ: системы распространения термицида. В «Решениях» их можно устанавливать на своих планетах — атакующий такие миры рой несёт чудовищные потери.', cost: 75, x: 6, y: 7, requires: ['se_at_gloomtech'], effects: [{ kind: 'flag', flag: 'termicide' }] },
 
   // --- Путь к Федерации (скрыт, пока не рухнет стабильность) ---
   { id: 'se_dissent', faction: 'superEarth', title: 'Семена раскола', desc: 'Внешние колонии шепчутся о более свободном союзе. Стабильность тает.', cost: 40, x: 4, y: 5, requires: ['se_root'], gate: 'lowStability', branch: 'federation', effects: [{ kind: 'stability', amount: -10 }, { kind: 'custom', note: 'Открывает Путь к Федерации.' }] },

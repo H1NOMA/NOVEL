@@ -11,12 +11,22 @@ const EXHAUST_GEO = new THREE.ConeGeometry(0.03, 0.16, 6);
 interface FleetMesh {
   group: THREE.Group;
   model: THREE.Group;
+  /** Дополнительные модельки стека (2-й и 3-й кораблик соединения). */
+  extras: THREE.Group[];
   exhaust: THREE.Mesh;
   exhaustMat: THREE.MeshBasicMaterial;
   last: THREE.Vector2;
   yaw: number;
   phase: number;
   special: boolean;
+  stackShown: number;
+}
+
+/** Сколько корабликов показывать: ≤10 корпусов — 1, 11–20 — 2, 21+ — 3. */
+function stackSize(hulls: number): number {
+  if (hulls > 20) return 3;
+  if (hulls > 10) return 2;
+  return 1;
 }
 
 /** Кратчайшая интерполяция угла (через ±π). */
@@ -62,20 +72,43 @@ export class FleetLayer {
     exhaust.position.z = -0.24;
     model.add(exhaust);
 
+    // Стек: до двух уменьшенных копий модели рядом (11–20 и 21+ корпусов).
+    const extras: THREE.Group[] = [];
+    if (!special) {
+      for (const [dx, dz] of [[-0.16, -0.1], [0.16, -0.1]] as const) {
+        const copy = shipModel(fleet.faction, color);
+        copy.scale.setScalar(0.75);
+        copy.position.set(dx, -0.02, dz);
+        copy.visible = false;
+        model.add(copy);
+        extras.push(copy);
+      }
+    }
+
     const g = new THREE.Group();
     g.add(model, glow);
     const fm: FleetMesh = {
       group: g,
       model,
+      extras,
       exhaust,
       exhaustMat,
       last: new THREE.Vector2(),
       yaw: 0,
       phase: Math.random() * Math.PI * 2,
       special,
+      stackShown: 1,
     };
     this.group.add(g);
     return fm;
+  }
+
+  /** Обновить число корабликов в стеке по количеству корпусов соединения. */
+  private syncStack(fm: FleetMesh, fleet: Fleet): void {
+    const want = fm.special ? 1 : stackSize(fleet.ships + fleet.dreadnoughts + fleet.battleships);
+    if (want === fm.stackShown) return;
+    fm.stackShown = want;
+    fm.extras.forEach((ex, i) => (ex.visible = i < want - 1));
   }
 
   update(state: GameState, dt: number): void {
@@ -101,6 +134,7 @@ export class FleetLayer {
         fm = this.make(fleet);
         this.meshes.set(id, fm);
       }
+      this.syncStack(fm, fleet);
 
       const bob = Math.sin(this.t * 2.2 + fm.phase) * 0.012;
 

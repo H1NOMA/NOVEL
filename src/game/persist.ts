@@ -43,6 +43,7 @@ interface SaveBlob {
   winner: FactionId | null;
   spires: { planet: string; daysLeft: number }[];
   gloomTarget: string | null;
+  gloomSeeds?: { planet: string; daysLeft: number }[];
 }
 
 function storage(): Storage | null {
@@ -80,6 +81,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     winner: state.winner,
     spires: state.spires,
     gloomTarget: state.gloomTarget,
+    gloomSeeds: state.gloomSeeds,
   };
   return JSON.stringify(blob);
 }
@@ -90,6 +92,11 @@ export function deserializeState(json: string): GameState {
   rng.restore(b.rngS);
   const planets = new Map(b.planets.map((p) => [p.id, p]));
   const sectors = new Map(b.sectors.map((s) => [s.id, s]));
+  // Старые сейвы могли не знать о классах кораблей.
+  for (const f of b.fleets) {
+    f.dreadnoughts = f.dreadnoughts ?? 0;
+    f.battleships = f.battleships ?? 0;
+  }
   const fleets = new Map(b.fleets.map((f) => [f.id, f]));
   return {
     seed: b.seed,
@@ -109,6 +116,7 @@ export function deserializeState(json: string): GameState {
     winner: b.winner,
     spires: b.spires,
     gloomTarget: b.gloomTarget,
+    gloomSeeds: b.gloomSeeds ?? [],
   };
 }
 

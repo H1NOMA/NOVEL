@@ -1,6 +1,6 @@
 import { fleetsAt, pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
-import { FACTORY_DEFS } from '../data/troops';
+import { DIVISION_COST, DIVISION_SIZE, FACTORY_DEFS, SHIP_CLASSES, troopDef, type ShipClassId } from '../data/troops';
 import { SPECIALS } from '../data/factions';
 import { spawnFleet } from './state';
 import type { FactionId } from '../core/types';
@@ -18,17 +18,35 @@ import { FACTION_GEN } from '../data/factions';
 // ---------------------------------------------------------------------------
 
 const SPIRE_DAYS = 30;
-const GLOOM_DAILY_CHANCE = 0.3;
+export const GLOOM_SEED_DAYS = 60;
 
-/** Назначить сектор целью распространения Мрака. */
-export function directGloom(state: GameState, sectorId: string): boolean {
+/** Сектор планеты полностью принадлежит фракции (обломки не в счёт)? */
+export function sectorFullyOwned(state: GameState, planetId: string, faction: FactionId): boolean {
+  const planet = state.galaxy.planets.get(planetId);
+  if (!planet) return false;
+  const sector = [...state.galaxy.sectors.values()].find((sec) => sec.planets.includes(planetId));
+  if (!sector) return false;
+  return sector.planets
+    .map((id) => state.galaxy.planets.get(id)!)
+    .filter((p) => !p.shattered)
+    .every((p) => p.owner === faction);
+}
+
+/**
+ * Заронить зачаток Мрака на планете терминидов. Требования: изучен фокус
+ * «Споровое облако» и планета лежит в СЕКТОРЕ, ПОЛНОСТЬЮ захваченном роем.
+ * Мрак зреет 60 дней, после чего планета скрывается в споровом дыму.
+ */
+export function plantGloomSeed(state: GameState, planetId: string): boolean {
   if (!state.factions.terminids.flags.gloomSpread) return false;
-  if (!state.galaxy.sectors.has(sectorId)) return false;
-  state.gloomTarget = sectorId;
-  const sector = state.galaxy.sectors.get(sectorId)!;
+  const p = state.galaxy.planets.get(planetId);
+  if (!p || p.owner !== 'terminids' || p.gloom || p.abyss || p.shattered) return false;
+  if (state.gloomSeeds.some((g) => g.planet === planetId)) return false;
+  if (!sectorFullyOwned(state, planetId, 'terminids')) return false;
+  state.gloomSeeds.push({ planet: planetId, daysLeft: GLOOM_SEED_DAYS });
   pushLog(state, {
     faction: 'terminids',
-    text: `Споровые тучи стягиваются к ${sector.name}. Мрак пришёл в движение.`,
+    text: `На ${p.name} заронен зачаток Мрака. Споровые тучи сгустятся через ${GLOOM_SEED_DAYS} дней.`,
     tone: 'alert',
   });
   return true;
@@ -61,50 +79,34 @@ function stepGloom(state: GameState): void {
   const term = state.factions.terminids;
   if (!term.flags.gloomSpread || !term.alive) return;
 
-  // ИИ терминидов сам выбирает цель, если её нет или она исчерпана.
-  if (!state.gloomTarget || sectorFullyGloomed(state, state.gloomTarget)) {
-    const candidate = pickGloomSector(state);
-    if (candidate) directGloom(state, candidate);
-    else state.gloomTarget = null;
-  }
-  if (!state.gloomTarget) return;
-
-  if (state.rng.chance(GLOOM_DAILY_CHANCE)) {
-    const sector = state.galaxy.sectors.get(state.gloomTarget)!;
-    const target = sector.planets
-      .map((id) => state.galaxy.planets.get(id)!)
-      .find((p) => p.owner === 'terminids' && !p.gloom && !p.abyss);
-    if (target) {
-      target.gloom = true;
+  // Зреющие зачатки: планета теряет зачаток вместе с потерей планеты.
+  for (const seed of [...state.gloomSeeds]) {
+    const p = state.galaxy.planets.get(seed.planet);
+    if (!p || p.owner !== 'terminids' || p.shattered) {
+      state.gloomSeeds = state.gloomSeeds.filter((g) => g !== seed);
+      continue;
+    }
+    seed.daysLeft--;
+    if (seed.daysLeft <= 0) {
+      state.gloomSeeds = state.gloomSeeds.filter((g) => g !== seed);
+      p.gloom = true;
       pushLog(state, {
-        text: `Мрак поглощает ${target.name}. Чужие корабли не могут пробиться сквозь споры.`,
+        text: `Мрак поглощает ${p.name}. Планета скрылась в споровом дыму — чужие корабли не могут пробиться.`,
         tone: 'alert',
       });
     }
   }
-}
 
-function sectorFullyGloomed(state: GameState, sectorId: string): boolean {
-  const sector = state.galaxy.sectors.get(sectorId);
-  if (!sector) return true;
-  return !sector.planets
-    .map((id) => state.galaxy.planets.get(id)!)
-    .some((p) => p.owner === 'terminids' && !p.gloom);
-}
-
-function pickGloomSector(state: GameState): string | null {
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const sector of state.galaxy.sectors.values()) {
-    const count = sector.planets
+  // ИИ терминидов сам зарождает Мрак в полностью захваченных секторах.
+  if (state.gloomSeeds.length < 2 && state.day % 15 === 0) {
+    const candidate = state.galaxy.order
       .map((id) => state.galaxy.planets.get(id)!)
-      .filter((p) => p.owner === 'terminids' && !p.gloom).length;
-    if (count > bestCount) {
-      bestCount = count;
-      best = sector.id;
-    }
+      .find((p) =>
+        p.owner === 'terminids' && !p.gloom && !p.abyss && !p.shattered &&
+        !state.gloomSeeds.some((g) => g.planet === p.id) &&
+        sectorFullyOwned(state, p.id, 'terminids'));
+    if (candidate) plantGloomSeed(state, candidate.id);
   }
-  return best;
 }
 
 function stepAbyss(state: GameState): void {
@@ -178,6 +180,80 @@ export function enableE711Mining(state: GameState): boolean {
   pushLog(state, {
     faction: 'superEarth',
     text: 'Развёрнута добыча Е-711 на освобождённых терминидских мирах. Топливо потечёт во флот.',
+    tone: 'good',
+  });
+  return true;
+}
+
+/** Произвести пехотную дивизию (+15 в пул типа) за очки производства. */
+export function produceDivision(state: GameState, faction: FactionId, troopId: string): boolean {
+  const fs = state.factions[faction];
+  const def = troopDef(troopId);
+  if (!def || def.faction !== faction || fs.production < DIVISION_COST) return false;
+  // Особые правила: легионы киборгов требуют Киберстан, отряды АВТ — фабрик,
+  // Великий флот иллюминатов невосполним даже производством.
+  if (troopId === 'greatFleet') return false;
+  if (troopId === 'cyborgLegion') {
+    const hasCyberstan = state.galaxy.order
+      .map((id) => state.galaxy.planets.get(id)!)
+      .some((p) => p.owner === 'automatons' && p.isCapital && p.origin === 'automatons');
+    if (!hasCyberstan) return false;
+  }
+  if (troopId === 'incinerators' || troopId === 'jets') {
+    const need = troopId === 'incinerators' ? 'incinFactory' : 'jetFactory';
+    const has = state.galaxy.order
+      .map((id) => state.galaxy.planets.get(id)!)
+      .some((p) => p.owner === faction && p.buildings.includes(need));
+    if (!has) return false;
+  }
+  fs.production -= DIVISION_COST;
+  fs.units[troopId] = (fs.units[troopId] ?? 0) + DIVISION_SIZE;
+  return true;
+}
+
+/** Построить корабли выбранного класса: пополняют флот у столицы или встают новым. */
+export function produceShips(state: GameState, faction: FactionId, cls: ShipClassId): boolean {
+  const fs = state.factions[faction];
+  const def = SHIP_CLASSES.find((c) => c.id === cls)!;
+  if (fs.production < def.cost) return false;
+  const worlds = state.galaxy.order
+    .map((id) => state.galaxy.planets.get(id)!)
+    .filter((p) => p.owner === faction && !p.shattered && !p.abyss);
+  const yard = worlds.find((p) => p.isCapital) ?? worlds[0];
+  if (!yard) return false;
+  fs.production -= def.cost;
+  const docked = fleetsAt(state, yard.id).find((f) => f.faction === faction && !f.special);
+  const apply = (fl: { ships: number; dreadnoughts: number; battleships: number }) => {
+    if (cls === 'destroyer') fl.ships += def.count;
+    else if (cls === 'dreadnought') fl.dreadnoughts += def.count;
+    else fl.battleships += def.count;
+  };
+  if (docked) apply(docked);
+  else {
+    const fl = spawnFleet(state, faction, yard.id, { ships: 0, infantry: 0 });
+    apply(fl);
+  }
+  pushLog(state, {
+    faction,
+    text: `Верфи ${yard.name}: со стапелей сходит ${def.name.toLowerCase()} (${def.count} корп.).`,
+    tone: faction === state.player ? 'good' : 'info',
+  });
+  return true;
+}
+
+export const TERMICIDE_COST = 60;
+
+/** Установить систему распространения термицида на своей планете (СЗ). */
+export function installTermicide(state: GameState, planetId: string): boolean {
+  const se = state.factions.superEarth;
+  if (!se.flags.termicide || se.production < TERMICIDE_COST) return false;
+  const p = state.galaxy.planets.get(planetId);
+  if (!p || p.owner !== 'superEarth' || p.buildings.includes('termicide')) return false;
+  se.production -= TERMICIDE_COST;
+  p.buildings.push('termicide');
+  pushLog(state, {
+    faction: 'superEarth',
+    text: `На ${p.name} развёрнута система распространения термицида. Рой здесь ждёт смерть.`,
     tone: 'good',
   });
   return true;

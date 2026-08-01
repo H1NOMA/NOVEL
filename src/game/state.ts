@@ -29,8 +29,10 @@ export interface GameState {
   winner: FactionId | null;
   /** Экзошпили иллюминатов: планета → дней до погружения в Бездну. */
   spires: { planet: string; daysLeft: number }[];
-  /** Сектор, выбранный терминидами для распространения Мрака. */
+  /** Сектор, выбранный терминидами для распространения Мрака (устарело). */
   gloomTarget: string | null;
+  /** Зреющие зачатки Мрака: планета → дней до окутывания. */
+  gloomSeeds: { planet: string; daysLeft: number }[];
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -78,6 +80,7 @@ export function createGame(seed: number): GameState {
     winner: null,
     spires: [],
     gloomTarget: null,
+    gloomSeeds: [],
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.
@@ -87,12 +90,13 @@ export function createGame(seed: number): GameState {
       .filter((p) => p.owner === fid);
     const cap = homeworlds.find((p) => p.isCapital) ?? homeworlds[0];
     if (!cap) continue;
-    const fleetCount = fid === 'superEarth' ? 3 : 2;
+    const isEnemy = fid !== 'superEarth';
+    const fleetCount = fid === 'superEarth' ? 3 : 3;
     for (let i = 0; i < fleetCount; i++) {
       const home = homeworlds[(i * 3) % homeworlds.length] ?? cap;
       spawnFleet(state, fid, home.id, {
-        ships: 6 + Math.floor(state.rng.range(0, 4)),
-        infantry: 20 + Math.floor(state.rng.range(0, 15)),
+        ships: (isEnemy ? 9 : 6) + Math.floor(state.rng.range(0, 4)),
+        infantry: (isEnemy ? 32 : 20) + Math.floor(state.rng.range(0, 15)),
       });
     }
   }
@@ -108,7 +112,7 @@ export function spawnFleet(
   state: GameState,
   faction: FactionId,
   at: string,
-  opts: { ships: number; infantry: number; special?: string }
+  opts: { ships: number; infantry: number; special?: string; dreadnoughts?: number; battleships?: number }
 ): Fleet {
   const id = `f_${state.fleetCounter++}`;
   const fleet: Fleet = {
@@ -116,6 +120,8 @@ export function spawnFleet(
     faction,
     at,
     ships: opts.ships,
+    dreadnoughts: opts.dreadnoughts ?? 0,
+    battleships: opts.battleships ?? 0,
     infantry: opts.infantry,
     special: opts.special,
     order: { kind: 'idle' },

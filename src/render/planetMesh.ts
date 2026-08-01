@@ -235,17 +235,28 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   hoverRing.scale.setScalar(baseRadius);
   hoverRing.visible = false;
 
-  // Оболочка Мрака: мутная споровая пелена.
+  // Мрак: плотный клуб спорового дыма, скрывающий планету целиком,
+  // плюс внешняя рваная дымка.
   const gloomMat = new THREE.MeshBasicMaterial({
+    color: 0x8a742c,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  });
+  const gloomShell = new THREE.Mesh(SPHERE_GEO, gloomMat);
+  gloomShell.scale.setScalar(baseRadius * 1.28);
+  gloomShell.visible = false;
+
+  const gloomHazeMat = new THREE.MeshBasicMaterial({
     color: 0xd8b32a,
     transparent: true,
     opacity: 0.22,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const gloomShell = new THREE.Mesh(SPHERE_GEO, gloomMat);
-  gloomShell.scale.setScalar(baseRadius * 1.5);
-  gloomShell.visible = false;
+  const gloomHaze = new THREE.Mesh(SPHERE_GEO, gloomHazeMat);
+  gloomHaze.scale.set(baseRadius * 1.75, baseRadius * 1.45, baseRadius * 1.75);
+  gloomHaze.visible = false;
 
   // Пелена Бездны: почти чёрная воронка на месте исчезнувшей планеты.
   const abyssMat = new THREE.MeshBasicMaterial({
@@ -276,7 +287,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   debris.visible = false;
 
   const group = new THREE.Group();
-  group.add(surface, atmo, hoverRing, gloomShell, abyssShell, debris);
+  group.add(surface, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris);
   group.userData.planetId = planet.id;
 
   let spin = rand() * Math.PI * 2;
@@ -302,7 +313,13 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       spin += spinSpeed;
       surface.rotation.y = spin;
       if (hoverRing.visible) hoverRing.rotation.z += dt * 0.9;
-      if (gloomShell.visible) gloomShell.rotation.y += dt * 0.15;
+      if (gloomShell.visible) {
+        gloomShell.rotation.y += dt * 0.15;
+        gloomHaze.rotation.y -= dt * 0.1;
+        // дым «дышит»
+        const puff = 1 + Math.sin(t * 0.7) * 0.04;
+        gloomShell.scale.setScalar(baseRadius * 1.28 * puff);
+      }
       if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
       if (debris.visible) debris.rotation.y += dt * 0.08;
     },
@@ -320,6 +337,10 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     },
     setGloom(on: boolean) {
       gloomShell.visible = on && !inAbyss;
+      gloomHaze.visible = on && !inAbyss;
+      // Дым скрывает саму планету.
+      surface.visible = !on && !inAbyss;
+      atmo.visible = !on && !inAbyss;
     },
     setAbyss(on: boolean) {
       inAbyss = on;

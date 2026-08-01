@@ -53,6 +53,27 @@ export function advanceDay(state: GameState): void {
 
 function checkVictory(state: GameState): void {
   if (state.winner) return;
+
+  // Потеря или уничтожение самой Супер-Земли — немедленное поражение СЗ.
+  const seCapital = state.galaxy.planets.get('p_super_earth');
+  if (seCapital && (seCapital.shattered || seCapital.owner !== 'superEarth')) {
+    if (state.factions.superEarth.alive) {
+      state.factions.superEarth.alive = false;
+      pushLog(state, {
+        text: seCapital.shattered
+          ? 'СУПЕР-ЗЕМЛЯ УНИЧТОЖЕНА. Сердце Управляемой Демократии обратилось в обломки.'
+          : 'СУПЕР-ЗЕМЛЯ ПАЛА. Колыбель человечества в руках врага.',
+        tone: 'bad',
+      });
+    }
+    if (state.player === 'superEarth') {
+      const foes = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
+        .filter((f) => f !== 'superEarth' && planetsOf(state, f).some((p) => !p.abyss));
+      state.winner = foes[0] ?? 'automatons';
+      state.speed = 0;
+      return;
+    }
+  }
   // Миры, ушедшие в Бездну, вне досягаемости — для победы они не считаются.
   const withLand = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
     .filter((f) => planetsOf(state, f).some((p) => !p.abyss));

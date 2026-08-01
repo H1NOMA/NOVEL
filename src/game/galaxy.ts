@@ -231,6 +231,30 @@ export function generateGalaxy(seed: number): Galaxy {
     }
   }
 
+  // --- Компактный старт врагов: каждой фракции остаётся ТОЛЬКО сектор её
+  // столицы (у терминидов — сектор Кеплер Прайма). Остальное — Супер-Земля,
+  // и войну враги начинают, распространяясь из своего домашнего сектора. ---
+  const homeSectors = new Map<FactionId, string>();
+  for (const w of WEDGES) {
+    const seat = order
+      .map((id) => planets.get(id)!)
+      .find((p) => p.owner === w.faction && (p.isCapital || p.name === 'Кеплер Прайм'));
+    if (seat) homeSectors.set(w.faction, seat.sector);
+  }
+  for (const id of order) {
+    const p = planets.get(id)!;
+    if (p.owner === 'superEarth') continue;
+    if (homeSectors.get(p.owner) === p.sector) {
+      // Домашний сектор — усиленный гарнизон на старте.
+      p.garrison = Math.max(p.garrison, 60);
+      p.fortification = Math.max(p.fortification, 2);
+    } else {
+      p.owner = 'superEarth';
+      p.origin = 'superEarth';
+      p.garrison = Math.min(p.garrison, 30);
+    }
+  }
+
   // --- Supply lines: relative neighbourhood graph (true neighbours only) ---
   buildSupplyLines(planets, order);
 

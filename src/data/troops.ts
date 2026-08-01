@@ -58,3 +58,16 @@ export const FACTORY_DEFS = [
   { id: 'incinFactory', name: 'Фабрика испепеляющего отряда', unlocks: 'incinerators', cost: 80 },
   { id: 'jetFactory', name: 'Фабрика реактивного батальона', unlocks: 'jets', cost: 80 },
 ] as const;
+
+/** Классы кораблей: базовые эсминцы, тяжёлые дредноуты, линкоры-флагманы. */
+export const SHIP_CLASSES = [
+  { id: 'destroyer', name: 'Супер-эсминцы', count: 4, power: 1, cost: 45, desc: '+4 базовых корабля соединению' },
+  { id: 'dreadnought', name: 'Дредноут', count: 1, power: 3, cost: 120, desc: 'Тяжёлый корабль: сила ×3' },
+  { id: 'battleship', name: 'Линкор-флагман', count: 1, power: 6, cost: 250, desc: 'Флагман: сила ×6' },
+] as const;
+
+export type ShipClassId = (typeof SHIP_CLASSES)[number]['id'];
+
+/** Стоимость производства одной пехотной дивизии (+15 в пул типа). */
+export const DIVISION_SIZE = 15;
+export const DIVISION_COST = 35;
