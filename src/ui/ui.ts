@@ -39,6 +39,10 @@ export class UI {
   private spireMode = false;
   private gloomMode = false;
   private termicideMode = false;
+  /** Последняя ненулевая скорость — пауза возвращает именно её. */
+  private lastSpeed: 1 | 2 | 3 = 1;
+  /** Скорость до открытия меню (восстанавливается при закрытии). */
+  private menuPrevSpeed: 0 | 1 | 2 | 3 = 0;
 
   constructor(private state: GameState, private scene: GalaxyScene, private clock: GameClock) {
     this.root = document.getElementById('ui')!;
@@ -80,10 +84,10 @@ export class UI {
     bus.on('focusCompleted', () => this.renderAll());
 
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') { e.preventDefault(); this.clock.setSpeed(this.state.speed === 0 ? 1 : 0); this.renderClock(); }
-      else if (e.key === '1') { this.clock.setSpeed(1); this.renderClock(); }
-      else if (e.key === '2') { this.clock.setSpeed(2); this.renderClock(); }
-      else if (e.key === '3') { this.clock.setSpeed(3); this.renderClock(); }
+      if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
+      else if (e.key === '1') { this.setSpeedRemember(1); }
+      else if (e.key === '2') { this.setSpeedRemember(2); }
+      else if (e.key === '3') { this.setSpeedRemember(3); }
       else if (e.key.toLowerCase() === 'f') this.toggleFocus();
       else if (e.key === 'Escape') {
         if (!this.focusOverlay.classList.contains('hidden')) {
@@ -121,6 +125,24 @@ export class UI {
     if (this.state.winner) this.showWinner();
   }
 
+  /** Установить скорость и запомнить её для возврата из паузы. */
+  private setSpeedRemember(speed: 1 | 2 | 3): void {
+    this.lastSpeed = speed;
+    this.clock.setSpeed(speed);
+    this.renderClock();
+  }
+
+  /** Пауза с памятью: повторное нажатие возвращает прежнюю скорость. */
+  private togglePause(): void {
+    if (this.state.speed === 0) {
+      this.clock.setSpeed(this.lastSpeed);
+    } else {
+      this.lastSpeed = this.state.speed as 1 | 2 | 3;
+      this.clock.setSpeed(0);
+    }
+    this.renderClock();
+  }
+
   // ---------------- HUD ----------------
 
   private renderHud(): void {
@@ -154,7 +176,11 @@ export class UI {
     this.hud.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
     this.hud.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
-      b.addEventListener('click', () => { this.clock.setSpeed(Number(b.dataset.s) as 0 | 1 | 2 | 3); this.renderClock(); });
+      b.addEventListener('click', () => {
+        const v = Number(b.dataset.s) as 0 | 1 | 2 | 3;
+        if (v === 0) this.togglePause();
+        else this.setSpeedRemember(v);
+      });
     });
     this.renderClock();
   }
@@ -669,9 +695,14 @@ export class UI {
     const opening = this.menuEl.classList.contains('hidden');
     this.menuEl.classList.toggle('hidden');
     if (opening) {
+      this.menuPrevSpeed = this.state.speed;
       this.clock.setSpeed(0);
       this.renderClock();
       this.renderMenu();
+    } else if (this.menuPrevSpeed > 0) {
+      // Закрытие меню возвращает скорость, шедшую до его открытия.
+      this.clock.setSpeed(this.menuPrevSpeed);
+      this.renderClock();
     }
   }
 
