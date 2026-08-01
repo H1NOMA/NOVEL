@@ -1,6 +1,8 @@
 import { pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
 import { FACTORY_DEFS } from '../data/troops';
+import { SPECIALS } from '../data/factions';
+import { spawnFleet } from './state';
 import type { FactionId } from '../core/types';
 import { retreatFleets } from './units';
 import { removeFleet } from './state';
@@ -180,8 +182,37 @@ export function enableE711Mining(state: GameState): boolean {
   return true;
 }
 
+export const SPECIAL_REBUILD_COST = 300;
+
+/** Восстановить уничтоженное супероружие — очень дорого. */
+export function rebuildSpecial(state: GameState, faction: FactionId): boolean {
+  const fs = state.factions[faction];
+  if (!fs.specialUnlocked || !fs.lostSpecial || fs.production < SPECIAL_REBUILD_COST) return false;
+  const worlds = state.galaxy.order
+    .map((id) => state.galaxy.planets.get(id)!)
+    .filter((p) => p.owner === faction && !p.abyss);
+  const home = worlds.find((p) => p.isCapital) ?? worlds[0];
+  if (!home) return false;
+  fs.production -= SPECIAL_REBUILD_COST;
+  fs.lostSpecial = false;
+  spawnFleet(state, faction, home.id, { ships: 14, infantry: 30, special: SPECIALS[faction].id });
+  pushLog(state, {
+    faction,
+    text: `${SPECIALS[faction].name} — восстановлен(а) ценой колоссальных ресурсов и вновь на орбите ${home.name}.`,
+    tone: faction === state.player ? 'good' : 'alert',
+  });
+  return true;
+}
+
 /** ИИ-фракции строят точки снабжения на ценных мирах. */
 function aiDecisions(state: GameState): void {
+  // Утраченное супероружие ИИ восстанавливает, как только накопит ресурсы.
+  for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
+    const fs = state.factions[faction];
+    if (fs.alive && fs.lostSpecial && fs.production >= SPECIAL_REBUILD_COST + 60) {
+      rebuildSpecial(state, faction);
+    }
+  }
   // Автоматоны в приоритете строят фабрики особых отрядов.
   const aut = state.factions.automatons;
   if (aut.alive && aut.production >= 120) {

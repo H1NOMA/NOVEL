@@ -27,7 +27,7 @@ const superEarth: FocusNode[] = [
   // --- Флот: супер-эсминцы ---
   { id: 'se_fleet', faction: 'superEarth', title: 'Флот супер-эсминцев', desc: 'Массовое производство супер-эсминцев — возить Хеллдайверов по всей галактике.', cost: 55, x: 2, y: 1, requires: ['se_root'], effects: [{ kind: 'shipCap', amount: 4 }] },
   { id: 'se_battlegroup', faction: 'superEarth', title: 'Командование боевых групп', desc: 'Слаженные боевые группы бьют по приказу Верховного командования как один кулак.', cost: 60, x: 2, y: 2, requires: ['se_fleet'], effects: [{ kind: 'shipCap', amount: 3 }, { kind: 'fleet', ships: 6, infantry: 20 }] },
-  { id: 'se_dss', faction: 'superEarth', title: 'Станция «Демократия»', desc: 'Ввести в строй КСД — мобильную орбитальную крепость для передовой.', cost: 90, x: 2, y: 3, requires: ['se_battlegroup', 'se_orbital'], effects: [{ kind: 'unlockSpecial' }] },
+  { id: 'se_dss', faction: 'superEarth', title: 'Станция DSS', desc: 'Ввести в строй Демократическую космическую станцию — мобильную орбитальную крепость для передовой. Существует в единственном экземпляре.', cost: 90, x: 2, y: 3, requires: ['se_battlegroup', 'se_orbital'], effects: [{ kind: 'unlockSpecial' }] },
   { id: 'se_blockade', faction: 'superEarth', title: 'Орбитальные блокады', desc: 'Дозорные заслоны над каждым приграничным миром замедляют высадки врага.', cost: 55, x: 2, y: 4, requires: ['se_battlegroup'], effects: [{ kind: 'fortify', amount: 1 }, { kind: 'combat', amount: 0.08 }] },
 
   // --- Политика: министерский блок ---
@@ -93,7 +93,7 @@ const automatons: FocusNode[] = [
   // --- Флот ---
   { id: 'aut_gunships', faction: 'automatons', title: 'Фабрикаторы ганшипов', desc: 'Автоматические десантные корабли закрывают солнце над каждым фронтом.', cost: 55, x: 2, y: 1, requires: ['aut_root'], effects: [{ kind: 'shipCap', amount: 4 }] },
   { id: 'aut_dropships', faction: 'automatons', title: 'Армада десантных кораблей', desc: 'Вторжение прибывает без остановки.', cost: 60, x: 2, y: 2, requires: ['aut_gunships'], effects: [{ kind: 'shipCap', amount: 3 }, { kind: 'fleet', ships: 6, infantry: 20 }] },
-  { id: 'aut_stardestroyer', faction: 'automatons', title: 'Звёздный разрушитель', desc: 'Боевая станция размером с луну — кулак Восстания.', cost: 95, x: 2, y: 3, requires: ['aut_dropships'], effects: [{ kind: 'unlockSpecial' }] },
+  { id: 'aut_stardestroyer', faction: 'automatons', title: 'Станция ASS', desc: 'Автоматонская космическая станция — боевая станция размером с луну, кулак Восстания. Существует в единственном экземпляре.', cost: 95, x: 2, y: 3, requires: ['aut_dropships'], effects: [{ kind: 'unlockSpecial' }] },
 
   // --- Идеология ---
   { id: 'aut_directive', faction: 'automatons', title: 'Директива', desc: 'Одна цель, вшитая в каждое ядро: уничтожить Супер-Землю.', cost: 45, x: 4, y: 1, requires: ['aut_root'], effects: [{ kind: 'warSupport', amount: 10 }] },

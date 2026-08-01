@@ -233,6 +233,8 @@ export interface FactionState {
   stability: number;
   /** Whether the special unit has been unlocked. */
   specialUnlocked: boolean;
+  /** Супероружие было уничтожено — восстановление стоит очень дорого. */
+  lostSpecial: boolean;
   /** Открытые спецспособности (Мрак, Бездна и т.п.). */
   flags: Partial<Record<FactionFlag, boolean>>;
   /** Пулы наземных войск по типам (id типа → численность). */

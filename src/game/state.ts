@@ -46,6 +46,7 @@ function initFaction(id: FactionId): FactionState {
     bonuses: { combat: 0, recruitment: 0, industry: 0, shipCap: 0, fortify: 0 },
     stability: id === 'superEarth' ? 62 : 100,
     specialUnlocked: false,
+    lostSpecial: false,
     flags: {},
     units,
     resources: { minerals: 0, e711: 0 },

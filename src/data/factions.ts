@@ -11,7 +11,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Процветание, свобода, Управляемая Демократия — оплот прогресса на протяжении ста лет после Первой Галактической войны. Докажи, что у тебя хватит силы и мужества быть свободным.',
     capital: 'Супер-Земля',
     aggression: 1.0,
-    specialName: 'Космическая станция «Демократия»',
+    specialName: 'Демократическая космическая станция (DSS)',
     specialBlurb:
       'Мобильная орбитальная крепость. Где она встаёт на якорь — орбитальные бомбардировки сокрушают гарнизоны врага и воодушевляют Хеллдайверов.',
     homeBiomes: ['terran', 'ocean', 'jungle'],
@@ -27,7 +27,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Социалистические машины, порождение предателей-киборгов. Они уничтожают всё, за что стоит Супер-Земля. Главная битва: Малевелон-Крик.',
     capital: 'Киберстан',
     aggression: 1.15,
-    specialName: 'Звёздный разрушитель автоматонов',
+    specialName: 'Автоматонская космическая станция (ASS)',
     specialBlurb:
       'Боевая станция размером с луну, ощетинившаяся орудиями. Медленный и неумолимый двигатель завоевания, стирающий целые сектора.',
     homeBiomes: ['magma', 'volcanic', 'barren'],
@@ -104,7 +104,7 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   superEarth: {
     id: 'dss',
     faction: 'superEarth',
-    name: 'Космическая станция «Демократия»',
+    name: 'Демократическая космическая станция (DSS)',
     blurb: FACTIONS.superEarth.specialBlurb,
     power: 2.4,
     auraRange: 1,
@@ -112,7 +112,7 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   automatons: {
     id: 'starDestroyer',
     faction: 'automatons',
-    name: 'Звёздный разрушитель автоматонов',
+    name: 'Автоматонская космическая станция (ASS)',
     blurb: FACTIONS.automatons.specialBlurb,
     power: 2.8,
     auraRange: 1,

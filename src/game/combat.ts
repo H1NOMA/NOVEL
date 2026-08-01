@@ -69,9 +69,10 @@ function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, p
     f.ships = Math.max(0, f.ships - share);
     if (f.ships < 0.5) {
       if (f.special) {
+        state.factions[f.faction].lostSpecial = true;
         pushLog(state, {
           faction: f.faction,
-          text: `${SPECIALS[f.faction].name} — уничтожен(а) на орбите ${planet.name}!`,
+          text: `${SPECIALS[f.faction].name} — уничтожен(а) на орбите ${planet.name}! Восстановление обойдётся очень дорого.`,
           tone: f.faction === state.player ? 'bad' : 'good',
         });
       }
@@ -143,7 +144,10 @@ export function resolveGround(state: GameState): void {
     // Каждый захваченный город укрепляет плацдарм атакующего; массовая
     // пехота (ВССЗ, Рой, Безмозглые массы) быстрее устанавливает контроль.
     const citiesHeld = planet.cities.filter((c) => c.holder === lead).length;
-    const captureRate = 1 + massShare(state.factions[lead]) * 0.3;
+    // Супероружие на орбите (DSS, ASS, Монолит, Суперколония) ломает оборону
+    // с орбиты — планета захватывается заметно быстрее.
+    const hasSuperweapon = attackers.some((f) => f.faction === lead && f.special);
+    const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1);
     b.liberation = clamp(b.liberation + (ratio - 0.5) * 34 * captureRate + citiesHeld * 1.1, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
@@ -203,14 +207,36 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   planet.garrison = Math.max(8, landed);
   planet.fortification = Math.max(0, planet.fortification - 2);
   for (const c of planet.cities) c.holder = attacker;
-  // Флоты прежнего владельца отступают в ближайший свой мир (если не окружены).
-  const retreated = retreatFleets(state, planet.id, prev);
+  // Флоты прежнего владельца отступают в ближайший свой мир — но ТОЛЬКО если
+  // планета была снабжена. Из окружения (без снабжения) не уходит никто.
+  const retreated = planet.supplied ? retreatFleets(state, planet.id, prev) : 0;
   if (retreated > 0) {
     pushLog(state, {
       faction: prev,
       text: `Флоты ${FACTION_GEN[prev]} отступают с орбиты ${planet.name}.`,
       tone: 'info',
     });
+  }
+  // Кто не смог отступить — тот в полном окружении и гибнет вместе с гарнизоном.
+  // Уничтоженное так супероружие придётся восстанавливать за огромную цену.
+  for (const fid of [...state.fleetOrder]) {
+    const f = state.fleets.get(fid);
+    if (!f || f.faction !== prev || f.at !== planet.id || f.transit) continue;
+    if (f.special) {
+      state.factions[prev].lostSpecial = true;
+      pushLog(state, {
+        faction: prev,
+        text: `${SPECIALS[prev].name} — уничтожен(а) в окружении на ${planet.name}! Восстановление обойдётся очень дорого.`,
+        tone: prev === state.player ? 'bad' : 'good',
+      });
+    } else {
+      pushLog(state, {
+        faction: prev,
+        text: `Окружённый флот ${FACTION_GEN[prev]} уничтожен на орбите ${planet.name}.`,
+        tone: prev === state.player ? 'bad' : 'info',
+      });
+    }
+    removeFleet(state, fid);
   }
   pushLog(state, {
     faction: attacker,

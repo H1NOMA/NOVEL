@@ -7,7 +7,7 @@ import { canSelectFocus, selectFocus } from '../game/focus';
 import { orderFleetTo, garrisonReinforce } from '../game/units';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
-import { directGloom, enableE711Mining, raiseSpire } from '../game/decisions';
+import { directGloom, enableE711Mining, raiseSpire, rebuildSpecial, SPECIAL_REBUILD_COST } from '../game/decisions';
 import { troopsOf } from '../data/troops';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
@@ -380,6 +380,13 @@ export class UI {
       <div class="hint">Стройте на своих планетах через карточку планеты (${DEPOT_COST} производства). Точка ускоряет пополнение гарнизона планеты и всех соседних своих миров.</div>
     </div>`;
 
+    if (fs.specialUnlocked && fs.lostSpecial) {
+      const can = fs.production >= SPECIAL_REBUILD_COST;
+      html += `<div class="dec-item"><b style="color:var(--fed)">⚠ ${SPECIALS[s.player].name} — уничтожена</b>
+        <div class="hint">Супероружие существует в единственном экземпляре. Восстановление — колоссальные затраты.</div>
+        <button class="mini-btn wide ${can ? '' : 'off'}" id="dec-rebuild" ${can ? '' : 'disabled'}>Восстановить (${SPECIAL_REBUILD_COST} пр. · есть ${fs.production.toFixed(0)})</button></div>`;
+    }
+
     if (s.player === 'superEarth' && !fs.flags.e711Mining) {
       const hasTermWorlds = s.galaxy.order.some((pid) => {
         const p = s.galaxy.planets.get(pid)!;
@@ -427,6 +434,13 @@ export class UI {
       b.addEventListener('click', () => {
         if (directGloom(this.state, b.dataset.gloom!)) this.renderDecisions();
       }));
+    this.decisionsEl.querySelector('#dec-rebuild')?.addEventListener('click', () => {
+      if (rebuildSpecial(this.state, this.state.player)) {
+        this.toast('СУПЕРОРУЖИЕ ВОССТАНОВЛЕНО');
+        this.renderDecisions();
+        this.renderStability();
+      }
+    });
     this.decisionsEl.querySelector('#dec-e711')?.addEventListener('click', () => {
       if (enableE711Mining(this.state)) {
         this.toast('ДОБЫЧА Е-711 РАЗВЁРНУТА');
