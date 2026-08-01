@@ -241,14 +241,18 @@ export function generateGalaxy(seed: number): Galaxy {
       .find((p) => p.owner === w.faction && (p.isCapital || p.name === 'Кеплер Прайм'));
     if (seat) homeSectors.set(w.faction, seat.sector);
   }
+  const sectorOwner = new Map<string, FactionId>();
+  for (const [fac, sec] of homeSectors) sectorOwner.set(sec, fac);
   for (const id of order) {
     const p = planets.get(id)!;
-    if (p.owner === 'superEarth') continue;
-    if (homeSectors.get(p.owner) === p.sector) {
-      // Домашний сектор — усиленный гарнизон на старте.
+    const homeFaction = sectorOwner.get(p.sector);
+    if (homeFaction) {
+      // Домашний сектор целиком принадлежит фракции — усиленный гарнизон.
+      p.owner = homeFaction;
+      p.origin = homeFaction;
       p.garrison = Math.max(p.garrison, 60);
       p.fortification = Math.max(p.fortification, 2);
-    } else {
+    } else if (p.owner !== 'superEarth') {
       p.owner = 'superEarth';
       p.origin = 'superEarth';
       p.garrison = Math.min(p.garrison, 30);

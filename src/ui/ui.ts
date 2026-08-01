@@ -32,6 +32,7 @@ export class UI {
   private focusTab: FactionId = 'superEarth';
   private toastTimer = 0;
   private decisionsEl!: HTMLElement;
+  private productionEl!: HTMLElement;
   private menuEl!: HTMLElement;
   /** Позиция карточки планеты (сохраняется между открытиями). */
   private cardPos: { x: number; y: number } | null = null;
@@ -54,6 +55,7 @@ export class UI {
     this.logEl = el('div'); this.logEl.id = 'log';
     this.toastEl = el('div'); this.toastEl.id = 'toast';
     this.decisionsEl = el('div'); this.decisionsEl.id = 'decisions'; this.decisionsEl.classList.add('hidden');
+    this.productionEl = el('div'); this.productionEl.id = 'production'; this.productionEl.classList.add('hidden');
     this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
     const help = el('div', undefined, `
       <b>УПРАВЛЕНИЕ</b><br>
@@ -63,7 +65,7 @@ export class UI {
       <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
       У терминидов её нет — выжигайте каждый улей.`);
     help.id = 'help';
-    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.menuEl, this.logEl, this.toastEl, help);
+    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.logEl, this.toastEl, help);
   }
 
   private wire(): void {
@@ -112,6 +114,7 @@ export class UI {
     this.renderPanel();
     this.renderLog();
     if (!this.decisionsEl.classList.contains('hidden')) this.renderDecisions();
+    if (!this.productionEl.classList.contains('hidden')) this.renderProduction();
     // owners may have shifted this day
     this.scene.refreshOwners();
     if (this.state.selectedPlanet) this.scene.setSelected(this.state.selectedPlanet);
@@ -142,12 +145,14 @@ export class UI {
         </div>
         <div class="hud-day">ДЕНЬ ${s.day}</div>
       </div>
-      <button class="hud-btn" id="focus-btn">◈ ДРЕВО ФОКУСОВ</button>
-      <button class="hud-btn" id="decisions-btn">⚙ РЕШЕНИЯ</button>
+      <button class="hud-btn-sq" id="focus-btn" title="Древо фокусов (F)">◈</button>
+      <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
+      <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
       <div class="hud-factions">${chips}</div>`;
 
     this.hud.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
     this.hud.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
+    this.hud.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
       b.addEventListener('click', () => { this.clock.setSpeed(Number(b.dataset.s) as 0 | 1 | 2 | 3); this.renderClock(); });
     });
@@ -495,18 +500,7 @@ export class UI {
         <button class="mini-btn wide ${this.termicideMode ? 'sel' : ''}" id="dec-termicide">${this.termicideMode ? '✓ Режим выбора активен' : 'Выбрать планету'}</button></div>`;
     }
 
-    // --- Производство ---
-    html += `<div class="dec-item"><b>⚒ Производство дивизий (${DIVISION_COST} пр. → +${DIVISION_SIZE})</b>`;
-    for (const t of troopsOf(s.player)) {
-      if (t.id === 'greatFleet') continue;
-      html += `<button class="mini-btn wide" data-div="${t.id}">${t.name} · в пуле ${(fs.units[t.id] ?? 0).toFixed(0)}</button>`;
-    }
-    html += `</div><div class="dec-item"><b>⚓ Верфи</b>`;
-    for (const c of SHIP_CLASSES) {
-      const can = fs.production >= c.cost;
-      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-ship="${c.id}" ${can ? '' : 'disabled'}>${c.name} — ${c.cost} пр. · ${c.desc}</button>`;
-    }
-    html += `<div class="hint">Производство: ${fs.production.toFixed(0)}</div></div>`;
+
 
     if (fs.flags.abyss) {
       html += `<div class="dec-item"><b>▲ Экзошпиль Бездны</b>
@@ -527,21 +521,7 @@ export class UI {
       this.renderDecisions();
       this.renderPanel();
     });
-    this.decisionsEl.querySelectorAll<HTMLButtonElement>('[data-div]').forEach((b) =>
-      b.addEventListener('click', () => {
-        if (produceDivision(this.state, this.state.player, b.dataset.div!)) {
-          this.toast('ДИВИЗИЯ СФОРМИРОВАНА');
-          this.renderDecisions();
-          this.renderStability();
-        } else this.toast('НЕВОЗМОЖНО: НЕТ РЕСУРСОВ ИЛИ УСЛОВИЙ');
-      }));
-    this.decisionsEl.querySelectorAll<HTMLButtonElement>('[data-ship]').forEach((b) =>
-      b.addEventListener('click', () => {
-        if (produceShips(this.state, this.state.player, b.dataset.ship as ShipClassId)) {
-          this.toast('КОРАБЛИ СПУЩЕНЫ СО СТАПЕЛЕЙ');
-          this.renderDecisions();
-        }
-      }));
+
     this.decisionsEl.querySelector('#dec-rebuild')?.addEventListener('click', () => {
       if (rebuildSpecial(this.state, this.state.player)) {
         this.toast('СУПЕРОРУЖИЕ ВОССТАНОВЛЕНО');
@@ -634,6 +614,51 @@ export class UI {
           this.toast('ФОКУС НАЗНАЧЕН');
           this.renderFocus();
           this.renderStability();
+        }
+      }));
+  }
+
+  // ---------------- Производство ----------------
+
+  private toggleProduction(): void {
+    const hidden = this.productionEl.classList.toggle('hidden');
+    if (!hidden) this.renderProduction();
+  }
+
+  private renderProduction(): void {
+    const s = this.state;
+    const fs = s.factions[s.player];
+    let html = `<div class="pc-head"><span class="pc-title">⚒ ПРОИЗВОДСТВО</span>
+      <button class="pc-close" id="prod-close">✕</button></div><div class="pc-body">
+      <div class="hint" style="margin-top:0">Очки производства: <b style="color:var(--gold)">${fs.production.toFixed(0)}</b></div>
+      <div class="dec-item"><b>Пехотные дивизии (${DIVISION_COST} пр. → +${DIVISION_SIZE})</b>`;
+    for (const t of troopsOf(s.player)) {
+      if (t.id === 'greatFleet') continue;
+      const can = fs.production >= DIVISION_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-div="${t.id}" ${can ? '' : 'disabled'}>${t.name} · в пуле ${(fs.units[t.id] ?? 0).toFixed(0)}</button>`;
+    }
+    html += `</div><div class="dec-item"><b>⚓ Верфи</b>`;
+    for (const c of SHIP_CLASSES) {
+      const can = fs.production >= c.cost;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-ship="${c.id}" ${can ? '' : 'disabled'}>${c.name} — ${c.cost} пр. · ${c.desc}</button>`;
+    }
+    html += `</div></div>`;
+    this.productionEl.innerHTML = html;
+
+    this.productionEl.querySelector('#prod-close')?.addEventListener('click', () => this.productionEl.classList.add('hidden'));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-div]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (produceDivision(this.state, this.state.player, b.dataset.div!)) {
+          this.toast('ДИВИЗИЯ СФОРМИРОВАНА');
+          this.renderProduction();
+          this.renderStability();
+        } else this.toast('НЕВОЗМОЖНО: НЕТ РЕСУРСОВ ИЛИ УСЛОВИЙ');
+      }));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-ship]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (produceShips(this.state, this.state.player, b.dataset.ship as ShipClassId)) {
+          this.toast('КОРАБЛИ СПУЩЕНЫ СО СТАПЕЛЕЙ');
+          this.renderProduction();
         }
       }));
   }
