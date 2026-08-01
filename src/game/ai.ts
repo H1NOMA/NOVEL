@@ -3,6 +3,7 @@ import { areHostile, FACTIONS } from '../data/factions';
 import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
+import { drawUnits, mineE711, replenishUnits, totalUnits } from './troops';
 
 const FLEET_COST = 45;
 const INFANTRY_CAP = 45;
@@ -26,27 +27,30 @@ export function runEconomy(state: GameState, faction: FactionId): void {
 
   const income = worlds.reduce((s, p) => s + p.value, 0);
   fs.production += 0.4 * (fs.industry + income * 0.3);
-  fs.manpower = Math.min(500, fs.manpower + 2 + fs.bonuses.recruitment * 0.3);
+
+  // Пополнение пулов войск по правилам фракции + добыча Е-711.
+  replenishUnits(state, faction);
+  if (faction === 'superEarth') mineE711(state);
 
   // Build a new fleet when affordable and under the cap.
   const fleets = fleetsOf(state, faction);
-  if (fs.production >= FLEET_COST && fleets.length < fleetCap(state, faction) && fs.manpower >= 20) {
+  if (fs.production >= FLEET_COST && fleets.length < fleetCap(state, faction) && totalUnits(fs) >= 20) {
     fs.production -= FLEET_COST;
-    fs.manpower -= 20;
+    const crew = drawUnits(fs, 20);
     const yard = worlds.find((p) => p.isCapital) ?? worlds[0]!;
-    spawnFleet(state, faction, yard.id, { ships: 6, infantry: 20 });
+    spawnFleet(state, faction, yard.id, { ships: 6, infantry: crew });
   }
 
-  // Idle fleets sitting on friendly worlds reload infantry from manpower.
+  // Флоты на своих планетах докомплектовывают пехоту из пулов.
   for (const f of fleets) {
     if (f.transit) continue;
     const p = state.galaxy.planets.get(f.at);
-    if (p && p.owner === faction && f.infantry < INFANTRY_CAP && fs.manpower > 0) {
-      const load = Math.min(4, INFANTRY_CAP - f.infantry, fs.manpower);
+    if (p && p.owner === faction && f.infantry < INFANTRY_CAP) {
+      const load = drawUnits(fs, Math.min(4, INFANTRY_CAP - f.infantry));
       f.infantry += load;
-      fs.manpower -= load;
     }
   }
+  fs.manpower = totalUnits(fs);
 }
 
 function eliminate(state: GameState, faction: FactionId): void {

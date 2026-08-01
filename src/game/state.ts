@@ -8,6 +8,7 @@ import type {
 } from '../core/types';
 import { FACTION_IDS, FACTIONS } from '../data/factions';
 import { generateGalaxy, type Galaxy } from './galaxy';
+import { initUnits } from './troops';
 import { RNG } from '../core/rng';
 
 export interface GameState {
@@ -33,10 +34,11 @@ export interface GameState {
 }
 
 function initFaction(id: FactionId): FactionState {
+  const units = initUnits(id);
   return {
     id,
     warSupport: 50,
-    manpower: 100,
+    manpower: Object.values(units).reduce((s, n) => s + n, 0),
     industry: id === 'superEarth' ? 8 : 6,
     production: 0,
     completedFocus: [],
@@ -45,6 +47,8 @@ function initFaction(id: FactionId): FactionState {
     stability: id === 'superEarth' ? 62 : 100,
     specialUnlocked: false,
     flags: {},
+    units,
+    resources: { minerals: 0, e711: 0 },
     alive: true,
   };
 }

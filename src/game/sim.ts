@@ -51,8 +51,9 @@ export function advanceDay(state: GameState): void {
 
 function checkVictory(state: GameState): void {
   if (state.winner) return;
+  // Миры, ушедшие в Бездну, вне досягаемости — для победы они не считаются.
   const withLand = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
-    .filter((f) => planetsOf(state, f).length > 0);
+    .filter((f) => planetsOf(state, f).some((p) => !p.abyss));
 
   if (planetsOf(state, state.player).length === 0 && fleetsOf(state, state.player).length === 0) {
     state.winner = withLand[0] ?? 'automatons';

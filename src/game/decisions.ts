@@ -1,5 +1,7 @@
 import { pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
+import { FACTORY_DEFS } from '../data/troops';
+import type { FactionId } from '../core/types';
 import { retreatFleets } from './units';
 import { removeFleet } from './state';
 import { FACTION_GEN } from '../data/factions';
@@ -147,8 +149,54 @@ function stepAbyss(state: GameState): void {
   }
 }
 
+/** Построить фабрику особого отряда (только автоматоны). */
+export function buildFactory(state: GameState, faction: FactionId, planetId: string, kind: string): boolean {
+  if (faction !== 'automatons') return false;
+  const def = FACTORY_DEFS.find((f) => f.id === kind);
+  const p = state.galaxy.planets.get(planetId);
+  const fs = state.factions[faction];
+  if (!def || !p || p.owner !== faction || p.buildings.includes(kind) || fs.production < def.cost) return false;
+  fs.production -= def.cost;
+  p.buildings.push(kind);
+  pushLog(state, {
+    faction,
+    text: `На ${p.name} построена ${def.name.toLowerCase()}.`,
+    tone: 'info',
+  });
+  return true;
+}
+
+/** Развернуть добычу Е-711 (Супер-Земля, разовое решение). */
+export function enableE711Mining(state: GameState): boolean {
+  const se = state.factions.superEarth;
+  if (se.flags.e711Mining || se.production < 40) return false;
+  se.production -= 40;
+  se.flags.e711Mining = true;
+  pushLog(state, {
+    faction: 'superEarth',
+    text: 'Развёрнута добыча Е-711 на освобождённых терминидских мирах. Топливо потечёт во флот.',
+    tone: 'good',
+  });
+  return true;
+}
+
 /** ИИ-фракции строят точки снабжения на ценных мирах. */
 function aiDecisions(state: GameState): void {
+  // Автоматоны в приоритете строят фабрики особых отрядов.
+  const aut = state.factions.automatons;
+  if (aut.alive && aut.production >= 120) {
+    const own = state.galaxy.order
+      .map((id) => state.galaxy.planets.get(id)!)
+      .filter((p) => p.owner === 'automatons' && p.supplied)
+      .sort((a, b) => b.value - a.value);
+    const built = new Set(own.flatMap((p) => p.buildings));
+    for (const def of FACTORY_DEFS) {
+      if (!built.has(def.id) && own.length) {
+        buildFactory(state, 'automatons', own[0]!.id, def.id);
+        break;
+      }
+    }
+  }
   for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
     const fs = state.factions[faction];
     if (!fs.alive || fs.production < 120) continue;

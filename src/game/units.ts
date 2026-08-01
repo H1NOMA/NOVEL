@@ -70,6 +70,14 @@ export function stepFleets(state: GameState, days: number): Fleet[] {
       const len = Math.max(1, edgeLength(state.galaxy, a, b));
       t.progress += remaining / len;
       if (t.progress >= 1) {
+        // Планета впереди могла стать непроходимой (Мрак, Бездна) уже после
+        // выдачи приказа — флот останавливается перед ней.
+        const next = state.galaxy.planets.get(t.path[t.legIndex + 1]!)!;
+        if (!canEnter(state, fleet.faction, next)) {
+          fleet.transit = undefined;
+          fleet.order = { kind: 'idle' };
+          break;
+        }
         remaining = (t.progress - 1) * len;
         t.progress = 0;
         t.legIndex++;
@@ -78,7 +86,7 @@ export function stepFleets(state: GameState, days: number): Fleet[] {
         remaining = 0;
       }
     }
-    if (t.legIndex >= t.path.length - 1) {
+    if (fleet.transit && t.legIndex >= t.path.length - 1) {
       fleet.at = t.to;
       fleet.transit = undefined;
       arrived.push(fleet);

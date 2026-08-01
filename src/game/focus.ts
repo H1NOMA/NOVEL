@@ -1,6 +1,7 @@
 import type { FactionId, FocusEffect, FocusNode } from '../core/types';
 import { FOCUS_TREES, FEDERATION_BRANCH } from '../data/focus';
 import { FACTIONS, SPECIALS } from '../data/factions';
+import { troopsOf } from '../data/troops';
 import { bus } from '../core/emitter';
 import { pushLog, spawnFleet, planetsOf, type GameState } from './state';
 
@@ -85,9 +86,13 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
     case 'stability':
       fs.stability = clamp(fs.stability + eff.amount, 0, 100);
       break;
-    case 'manpower':
-      fs.manpower = Math.min(500, fs.manpower + eff.amount);
+    case 'manpower': {
+      // Прирост уходит в массовую пехоту фракции.
+      const mass = troopsOf(faction).find((t) => t.role === 'mass');
+      if (mass) fs.units[mass.id] = (fs.units[mass.id] ?? 0) + eff.amount;
+      fs.manpower = Object.values(fs.units).reduce((s, n) => s + n, 0);
       break;
+    }
     case 'flag':
       fs.flags[eff.flag] = true;
       break;
@@ -173,6 +178,27 @@ export function riseSuperFederation(state: GameState): void {
   bus.emit('superFederationRose', undefined);
 }
 
+/** Ключевые спецпроекты, к которым ИИ фракций идёт направленно. */
+const AI_GOALS: Partial<Record<FactionId, string>> = {
+  terminids: 'term_sp_gloomcloud',
+  illuminate: 'ill_sp_abyss',
+};
+
+/** Все предки узла (включая его самого) по графу requires. */
+function ancestorsOf(faction: FactionId, id: string): Set<string> {
+  const tree = FOCUS_TREES[faction];
+  const acc = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (acc.has(cur)) continue;
+    acc.add(cur);
+    const node = tree.find((n) => n.id === cur);
+    if (node) stack.push(...node.requires);
+  }
+  return acc;
+}
+
 /** Simple AI focus selection: pick the cheapest currently-selectable focus. */
 export function autoPickFocus(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
@@ -184,8 +210,11 @@ export function autoPickFocus(state: GameState, faction: FactionId): void {
     return true;
   });
   if (!options.length) return;
-  // Prefer special-unlock and combat focuses, then cheapest.
-  options.sort((a, b) => weight(b) - weight(a) || a.cost - b.cost);
+  // Фракция с ключевым спецпроектом целенаправленно прокладывает путь к нему.
+  const goal = AI_GOALS[faction];
+  const path = goal && !fs.completedFocus.includes(goal) ? ancestorsOf(faction, goal) : null;
+  const bonus = (n: FocusNode) => (path?.has(n.id) ? 10 : 0);
+  options.sort((a, b) => weight(b) + bonus(b) - weight(a) - bonus(a) || a.cost - b.cost);
   const pick = options[0]!;
   fs.activeFocus = { id: pick.id, remaining: pick.cost };
 }
@@ -194,6 +223,7 @@ function weight(n: FocusNode): number {
   let w = 0;
   for (const e of n.effects) {
     if (e.kind === 'unlockSpecial') w += 3;
+    if (e.kind === 'flag') w += 3; // спецпроекты (Мрак, Бездна) — приоритет ИИ
     if (e.kind === 'combat') w += 2;
     if (e.kind === 'fleet') w += 2;
     if (e.kind === 'recruitment') w += 1;

@@ -30,7 +30,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     specialName: 'Звёздный разрушитель автоматонов',
     specialBlurb:
       'Боевая станция размером с луну, ощетинившаяся орудиями. Медленный и неумолимый двигатель завоевания, стирающий целые сектора.',
-    homeBiomes: ['volcanic', 'barren', 'toxic'],
+    homeBiomes: ['magma', 'volcanic', 'barren'],
     playable: true,
   },
   illuminate: {

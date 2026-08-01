@@ -27,6 +27,7 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
   barren: { id: 'barren', label: 'Бесплодный', land: '#8a8378', sea: '#5a534a', atmo: '#c9c2b6', water: 0.02, rough: 0.65, clouds: 0.05 },
   toxic: { id: 'toxic', label: 'Токсичный', land: '#5c6b2a', sea: '#3a5a1e', atmo: '#c6ff4a', water: 0.3, rough: 0.6, clouds: 0.5 },
   gas: { id: 'gas', label: 'Газовый гигант', land: '#8a6bb0', sea: '#5a3f8a', atmo: '#c39bff', water: 0.0, rough: 0.25, clouds: 0.9 },
+  magma: { id: 'magma', label: 'Магмовый', land: '#2b1a16', sea: '#ff5a1a', atmo: '#ff9c3c', water: 0.38, rough: 0.85, clouds: 0.2 },
 };
 
 export const BIOME_LIST = Object.values(BIOMES);

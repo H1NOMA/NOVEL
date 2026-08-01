@@ -7,7 +7,8 @@ import { canSelectFocus, selectFocus } from '../game/focus';
 import { orderFleetTo, garrisonReinforce } from '../game/units';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
-import { directGloom, raiseSpire } from '../game/decisions';
+import { directGloom, enableE711Mining, raiseSpire } from '../game/decisions';
+import { troopsOf } from '../data/troops';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
 
@@ -89,10 +90,16 @@ export class UI {
   }
 
   private renderDynamic(): void {
+    const sel = this.state.selectedPlanet;
+    if (sel && this.state.galaxy.planets.get(sel)?.abyss && this.state.player !== 'illuminate') {
+      this.state.selectedPlanet = null;
+      this.scene.setSelected(null);
+    }
     this.renderHud();
     this.renderStability();
     this.renderPanel();
     this.renderLog();
+    if (!this.decisionsEl.classList.contains('hidden')) this.renderDecisions();
     // owners may have shifted this day
     this.scene.refreshOwners();
     if (this.state.selectedPlanet) this.scene.setSelected(this.state.selectedPlanet);
@@ -158,6 +165,8 @@ export class UI {
       <div class="bar-row"><span>Поддержка войны</span><span>${se.warSupport.toFixed(0)}%</span></div>
       <div class="bar"><span style="width:${se.warSupport}%;background:var(--se)"></span></div>
       <div class="bar-row"><span>Промышленность ${se.industry.toFixed(0)}</span><span>Резервы ${se.manpower.toFixed(0)}</span></div>
+      ${troopsOf('superEarth').map((t) => `<div class="bar-row"><span>${t.name}</span><span>${(se.units[t.id] ?? 0).toFixed(0)}</span></div>`).join('')}
+      ${se.flags.e711Mining ? `<div class="bar-row"><span style="color:var(--gold)">Топливо Е-711</span><span style="color:var(--gold)">${se.resources.e711.toFixed(0)}</span></div>` : ''}
       ${low && !this.state.superFederationRisen ? '<div class="warn">⚠ Растёт недовольство — открыт Путь к Федерации.</div>' : ''}
       ${this.state.superFederationRisen ? '<div class="warn">⚑ Супер-Федерация активна.</div>' : ''}`;
   }
@@ -222,7 +231,10 @@ export class UI {
       <div class="pp-stat"><span>Гарнизон</span><b>${p.garrison.toFixed(0)}</b></div>
       <div class="pp-stat"><span>Укрепления</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
       <div class="pp-stat"><span>Стратегическая ценность</span><b>${p.value}</b></div>
-      <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${enemyFleets.length}</span></b></div>`;
+      <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${enemyFleets.length}</span></b></div>
+      ${p.minerals > 0 ? `<div class="pp-stat"><span>Ископаемые</span><b>${'⛏'.repeat(p.minerals)}${p.biome === 'magma' ? ' (магмовый мир)' : ''}</b></div>` : ''}
+      ${p.e711Rich ? `<div class="pp-stat"><span>Е-711</span><b style="color:var(--gold)">Богатые залежи</b></div>` : p.origin === 'terminids' && p.owner === 'superEarth' ? `<div class="pp-stat"><span>Е-711</span><b>Следы залежей</b></div>` : ''}
+      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld).join('<br>')}</b></div>` : ''}`;
 
     if (p.owner === s.player && !p.depot) {
       const can = s.factions[s.player].production >= DEPOT_COST;
@@ -368,6 +380,23 @@ export class UI {
       <div class="hint">Стройте на своих планетах через карточку планеты (${DEPOT_COST} производства). Точка ускоряет пополнение гарнизона планеты и всех соседних своих миров.</div>
     </div>`;
 
+    if (s.player === 'superEarth' && !fs.flags.e711Mining) {
+      const hasTermWorlds = s.galaxy.order.some((pid) => {
+        const p = s.galaxy.planets.get(pid)!;
+        return p.owner === 'superEarth' && (p.origin === 'terminids' || p.e711Rich);
+      });
+      if (hasTermWorlds) {
+        const can = fs.production >= 40;
+        html += `<div class="dec-item"><b>⛽ Развернуть добычу Е-711</b>
+          <div class="hint">Освобождённые терминидские миры дают топливо для супер-эсминцев — а миры, вышедшие из Мрака, особенно богаты. Ускоряет производство флота.</div>
+          <button class="mini-btn wide ${can ? '' : 'off'}" id="dec-e711" ${can ? '' : 'disabled'}>Развернуть (40 пр. · есть ${fs.production.toFixed(0)})</button></div>`;
+      }
+    }
+    if (fs.flags.e711Mining) {
+      html += `<div class="dec-item"><b>⛽ Добыча Е-711 — активна</b>
+        <div class="hint">Запас: ${fs.resources.e711.toFixed(0)}. Топливо ускоряет производство флота.</div></div>`;
+    }
+
     if (fs.flags.gloomTravel) {
       html += `<div class="dec-item"><b>☁ Прорыв Мрака — активен</b>
         <div class="hint">Флоты фракции могут входить в миры, окутанные Мраком.</div></div>`;
@@ -398,6 +427,13 @@ export class UI {
       b.addEventListener('click', () => {
         if (directGloom(this.state, b.dataset.gloom!)) this.renderDecisions();
       }));
+    this.decisionsEl.querySelector('#dec-e711')?.addEventListener('click', () => {
+      if (enableE711Mining(this.state)) {
+        this.toast('ДОБЫЧА Е-711 РАЗВЁРНУТА');
+        this.renderDecisions();
+        this.renderStability();
+      }
+    });
     this.decisionsEl.querySelector('#dec-spire')?.addEventListener('click', () => {
       this.spireMode = !this.spireMode;
       this.renderDecisions();

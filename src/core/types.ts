@@ -20,7 +20,8 @@ export type BiomeId =
   | 'gloom'
   | 'barren'
   | 'toxic'
-  | 'gas';
+  | 'gas'
+  | 'magma';
 
 export type UnitKind = 'ship' | 'infantry' | 'special';
 
@@ -91,6 +92,12 @@ export interface Planet {
   gloom: boolean;
   /** Планета погружена в Бездну иллюминатов. */
   abyss: boolean;
+  /** Богатство ископаемыми (платина, ценные металлы): 0 — нет, 1 — есть, 2 — богатая. */
+  minerals: number;
+  /** Построенные сооружения (точки снабжения учитываются отдельно флагом depot). */
+  buildings: string[];
+  /** Богатые залежи Е-711 — остаются после освобождения мира из Мрака. */
+  e711Rich: boolean;
 }
 
 export interface City {
@@ -177,7 +184,7 @@ export type FocusEffect =
   | { kind: 'custom'; note: string };
 
 /** Особые способности, открываемые фокусами-спецпроектами. */
-export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss';
+export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss' | 'e711Mining';
 
 export interface FocusNode {
   id: string;
@@ -228,6 +235,10 @@ export interface FactionState {
   specialUnlocked: boolean;
   /** Открытые спецспособности (Мрак, Бездна и т.п.). */
   flags: Partial<Record<FactionFlag, boolean>>;
+  /** Пулы наземных войск по типам (id типа → численность). */
+  units: Record<string, number>;
+  /** Стратегические ресурсы фракции. */
+  resources: { minerals: number; e711: number };
   alive: boolean;
 }
 

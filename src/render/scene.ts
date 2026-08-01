@@ -257,7 +257,11 @@ export class GalaxyScene {
     );
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.surfaces, false);
-    return hits.length ? (hits[0]!.object.userData.planetId as string) : null;
+    if (!hits.length) return null;
+    const id = hits[0]!.object.userData.planetId as string;
+    // Миры в Бездне невидимы и недоступны для выбора.
+    if (this.state.galaxy.planets.get(id)?.abyss) return null;
+    return id;
   }
 
   // --- input ---------------------------------------------------------------

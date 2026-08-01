@@ -3,6 +3,7 @@ import { areHostile, FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
 import { fleetsAt, pushLog, removeFleet, type GameState } from './state';
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
+import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
 
 // ---------------------------------------------------------------------------
 // Combat resolves in two layers each day:
@@ -14,7 +15,9 @@ import { retreatFleets } from './units';
 
 function combatMult(state: GameState, faction: FactionId): number {
   const fs = state.factions[faction];
-  return 1 + fs.bonuses.combat + (fs.warSupport - 50) / 200;
+  // Доля элитных войск (Хеллдайверы, Легионы киборгов, Великий флот…) даёт
+  // бонус к боевой силе фракции.
+  return 1 + fs.bonuses.combat + (fs.warSupport - 50) / 200 + eliteShare(fs) * 0.25;
 }
 
 function fleetPower(state: GameState, f: Fleet): number {
@@ -137,9 +140,11 @@ export function resolveGround(state: GameState): void {
 
     // Attrition: both sides lose strength; the meter shifts toward the winner.
     const ratio = attackerForce / (attackerForce + defenderForce + 0.001);
-    // Каждый захваченный город укрепляет плацдарм атакующего.
+    // Каждый захваченный город укрепляет плацдарм атакующего; массовая
+    // пехота (ВССЗ, Рой, Безмозглые массы) быстрее устанавливает контроль.
     const citiesHeld = planet.cities.filter((c) => c.holder === lead).length;
-    b.liberation = clamp(b.liberation + (ratio - 0.5) * 34 + citiesHeld * 1.1, 0, 100);
+    const captureRate = 1 + massShare(state.factions[lead]) * 0.3;
+    b.liberation = clamp(b.liberation + (ratio - 0.5) * 34 * captureRate + citiesHeld * 1.1, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
     const CITY_THRESHOLDS = [30, 55, 80];
@@ -171,8 +176,22 @@ export function resolveGround(state: GameState): void {
 
 function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, attackers: Fleet[]): void {
   const prev = planet.owner;
+  const garrisonLost = planet.garrison;
   planet.owner = attacker;
   planet.battle = undefined;
+  // Мрак рассеивается, когда мир отбит у роя, — оставляя богатые залежи Е-711.
+  if (planet.gloom && attacker !== 'terminids') {
+    planet.gloom = false;
+    planet.e711Rich = true;
+    pushLog(state, {
+      text: `Мрак над ${planet.name} рассеивается. Разведка сообщает о богатых залежах Е-711.`,
+      tone: attacker === state.player ? 'good' : 'info',
+    });
+  }
+  // Иллюминаты вывозят население захваченных миров Супер-Земли.
+  if (attacker === 'illuminate' && prev === 'superEarth') {
+    harvestPopulation(state, planet.name, garrisonLost, planet.cities.length);
+  }
   // Landed infantry becomes the new garrison; ships stay in orbit.
   let landed = 0;
   for (const f of attackers) {
@@ -218,6 +237,8 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
       p.owner = victor;
       p.garrison = Math.max(5, p.garrison * 0.5);
       p.battle = undefined;
+      // С падением их владык миры Бездны возвращаются в реальность.
+      if (p.abyss) p.abyss = false;
       flipped++;
     }
   }
@@ -243,7 +264,9 @@ function regrowGarrison(state: GameState, planet: Planet): void {
     let growth = 0.4 + state.factions[planet.owner].bonuses.recruitment * 0.04;
     // Точка снабжения здесь или на соседней своей планете ускоряет пополнение.
     if (depotBonus(state, planet)) growth *= 1.8;
-    planet.garrison = Math.min(cap, planet.garrison + growth);
+    // Пополнение гарнизона идёт из реальных пулов войск фракции.
+    const drawn = drawUnits(state.factions[planet.owner], Math.min(growth, cap - planet.garrison));
+    planet.garrison += drawn;
   }
 }
 

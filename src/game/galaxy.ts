@@ -101,6 +101,9 @@ export function generateGalaxy(seed: number): Galaxy {
     supplied: true,
     gloom: false,
     abyss: false,
+    minerals: 0,
+    buildings: [],
+    e711Rich: false,
   });
   sectors.set('sector_core', {
     id: 'sector_core',
@@ -177,9 +180,20 @@ export function generateGalaxy(seed: number): Galaxy {
         supplied: true,
         gloom: false,
         abyss: false,
+        minerals: 0,
+        buildings: [],
+        e711Rich: false,
       });
       sector.planets.push(id);
     }
+  }
+
+  // --- Ископаемые: магмовые миры богаты, вулканические/бесплодные — иногда ---
+  for (const id of order) {
+    const p = planets.get(id)!;
+    if (p.biome === 'magma') p.minerals = 2;
+    else if ((p.biome === 'volcanic' || p.biome === 'barren') && rng.chance(0.5)) p.minerals = 1;
+    else if (rng.chance(0.12)) p.minerals = 1;
   }
 
   // --- Faction capitals ---

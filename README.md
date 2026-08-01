@@ -82,12 +82,21 @@ every remaining world submits to the victor and its fleets scatter. The
 Terminids have no capital: the swarm has no head to cut off and must be
 **exterminated planet by planet**.
 
-### Three troop types (per faction)
-1. **Ships** — fleets that move between planets along supply lines and carry troops.
-2. **Infantry** — carried aboard ships, deployed to planets, and does the ground fighting.
-3. **Special technology** — a unique super-unit per faction (a moon-sized Star
-   Destroyer, an orbital Democracy Space Station, a reality-bending Monolith, a
-   living Super Colony), unlocked through the focus tree.
+### Troops & manpower
+Every faction fields **ships** (fleets on supply lines), **infantry** (ground
+forces drawn from named troop pools) and a **special super-unit** unlocked via
+the focus tree. Infantry is not abstract — each faction has its own troop
+types with distinct replenishment rules:
+
+| Faction | Troops | Replenishment |
+|---|---|---|
+| Super Earth | Helldivers (elite) + SEAF (mass) | grows with controlled planets; E-711 fuel mined from liberated Terminid worlds boosts the fleet |
+| Automatons | AAF (mass), Incinerator & Jet squads (need dedicated factories), Cyborg Legions (elite) | built from minerals mined on magma/volcanic worlds; Cyborg Legions assemble **only on Cyberstan** |
+| Terminids | Swarm (mass) + Breach/Predator/Spore strains | effectively endless — grows with every planet held |
+| Illuminate | Great Fleet (elite, **irreplaceable**), Voteless (mass), Confiscators | Voteless replenished by harvesting the population of captured Super Earth worlds |
+
+Elite share boosts combat power; mass share speeds up planetary capture.
+Garrisons and fleet complements draw from these real pools.
 
 ### Combat
 - **Orbital layer:** hostile fleets sharing a world trade ship losses.
