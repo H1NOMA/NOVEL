@@ -191,3 +191,54 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #24344f; border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Главное меню (Escape) ---------- */
+#main-menu {
+  position: absolute; inset: 0; z-index: 45;
+  background: rgba(4, 7, 15, 0.94);
+  display: flex; align-items: stretch; justify-content: center;
+}
+#main-menu.hidden { display: none; }
+.menu-inner {
+  display: flex; width: min(1100px, 92vw); margin: 6vh auto; gap: 40px;
+}
+.menu-left {
+  flex: 1; display: flex; flex-direction: column; justify-content: space-between;
+}
+.menu-right {
+  width: 380px; display: flex; flex-direction: column; gap: 8px;
+}
+.menu-title {
+  font-size: 13px; letter-spacing: 3px; color: var(--gold); font-weight: 700;
+  margin-bottom: 8px; text-transform: uppercase;
+}
+.menu-squad {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
+  padding: 14px;
+}
+.squad-slot {
+  display: flex; align-items: center; gap: 10px; padding: 10px;
+  border: 1px dashed var(--edge); border-radius: 6px; margin-top: 8px; font-size: 13px;
+}
+.squad-slot.filled { border-style: solid; border-color: var(--se); background: rgba(63,169,245,0.07); }
+.squad-plus {
+  width: 26px; height: 26px; border: 1px dashed var(--muted); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 16px;
+}
+.menu-quit {
+  width: 120px; height: 120px; align-self: flex-start;
+  background: #2a0f12; color: var(--aut); border: 2px solid var(--aut); border-radius: 8px;
+  font-weight: 700; letter-spacing: 2px; font-size: 14px; cursor: pointer; line-height: 1.5;
+}
+.menu-quit:hover { background: var(--aut); color: #fff; }
+.menu-btn {
+  display: block; width: 100%; text-align: left; padding: 13px 16px;
+  background: #12203a; color: var(--text); border: 1px solid var(--edge); border-radius: 6px;
+  font-weight: 700; letter-spacing: 1px; font-size: 14px; cursor: pointer;
+}
+.menu-btn:hover { border-color: var(--gold); color: var(--gold); }
+.save-row {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; font-size: 13px;
+}
+.save-row .grow { flex: 1; }

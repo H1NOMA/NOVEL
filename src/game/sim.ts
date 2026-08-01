@@ -8,6 +8,7 @@ import { resolveGround, resolveOrbital } from './combat';
 import { garrisonReinforce, stepFleets } from './units';
 import { recomputeSupply } from './supply';
 import { stepDecisions } from './decisions';
+import { autosaveTick } from './persist';
 
 /** Continuous fleet movement — called every animation frame with elapsed days. */
 export function moveFleets(state: GameState, days: number): void {
@@ -45,6 +46,7 @@ export function advanceDay(state: GameState): void {
   stepDecisions(state);
 
   checkVictory(state);
+  autosaveTick(state);
   bus.emit('dayPassed', { day: state.day });
   bus.emit('stateChanged', undefined);
 }

@@ -9,6 +9,7 @@ import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
 import { directGloom, enableE711Mining, fireSuperweapon, raiseSpire, rebuildSpecial, SPECIAL_REBUILD_COST, superShotReadyIn } from '../game/decisions';
 import { troopsOf } from '../data/troops';
+import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
 
@@ -30,6 +31,7 @@ export class UI {
   private focusTab: FactionId = 'superEarth';
   private toastTimer = 0;
   private decisionsEl!: HTMLElement;
+  private menuEl!: HTMLElement;
   /** Позиция карточки планеты (сохраняется между открытиями). */
   private cardPos: { x: number; y: number } | null = null;
   private spireMode = false;
@@ -49,6 +51,7 @@ export class UI {
     this.logEl = el('div'); this.logEl.id = 'log';
     this.toastEl = el('div'); this.toastEl.id = 'toast';
     this.decisionsEl = el('div'); this.decisionsEl.id = 'decisions'; this.decisionsEl.classList.add('hidden');
+    this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
     const help = el('div', undefined, `
       <b>УПРАВЛЕНИЕ</b><br>
       ЛКМ-перетаскивание — камера · Колесо — зум · ПКМ-перетаскивание — наклон<br>
@@ -57,7 +60,7 @@ export class UI {
       <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
       У терминидов её нет — выжигайте каждый улей.`);
     help.id = 'help';
-    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.logEl, this.toastEl, help);
+    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.menuEl, this.logEl, this.toastEl, help);
   }
 
   private wire(): void {
@@ -77,7 +80,13 @@ export class UI {
       else if (e.key === '2') { this.clock.setSpeed(2); this.renderClock(); }
       else if (e.key === '3') { this.clock.setSpeed(3); this.renderClock(); }
       else if (e.key.toLowerCase() === 'f') this.toggleFocus();
-      else if (e.key === 'Escape') { this.focusOverlay.classList.add('hidden'); }
+      else if (e.key === 'Escape') {
+        if (!this.focusOverlay.classList.contains('hidden')) {
+          this.focusOverlay.classList.add('hidden');
+        } else {
+          this.toggleMenu();
+        }
+      }
     });
   }
 
@@ -567,6 +576,82 @@ export class UI {
           this.renderFocus();
           this.renderStability();
         }
+      }));
+  }
+
+  // ---------------- Главное меню (Escape) ----------------
+
+  private toggleMenu(): void {
+    const opening = this.menuEl.classList.contains('hidden');
+    this.menuEl.classList.toggle('hidden');
+    if (opening) {
+      this.clock.setSpeed(0);
+      this.renderClock();
+      this.renderMenu();
+    }
+  }
+
+  private renderMenu(): void {
+    const slotRow = (slot: string, canSave: boolean) => {
+      const meta = saveMeta(slot);
+      const label = slot === AUTOSAVE_SLOT ? 'Автосейв' : `Слот ${slot.slice(-1)}`;
+      const info = meta ? `День ${meta.day} · ${meta.savedAt}` : 'Пусто';
+      return `<div class="save-row">
+        <div class="grow"><b>${label}</b><div class="hint" style="margin-top:2px">${info}</div></div>
+        ${canSave ? `<button class="mini-btn" data-save="${slot}">СОХРАНИТЬ</button>` : ''}
+        ${meta ? `<button class="mini-btn" data-load="${slot}">ЗАГРУЗИТЬ</button>` : ''}
+      </div>`;
+    };
+
+    this.menuEl.innerHTML = `
+      <div class="menu-inner">
+        <div class="menu-left">
+          <div class="menu-squad">
+            <div class="menu-title">КОМАНДА · 4 МЕСТА</div>
+            <div class="squad-slot filled">
+              <span class="fac-dot" style="background:var(--se)"></span>
+              <div class="grow"><b>Вы</b><div class="hint" style="margin-top:0">Супер-Земля · Командующий</div></div>
+            </div>
+            ${[2, 3, 4].map((i) => `
+            <div class="squad-slot">
+              <span class="squad-plus">+</span>
+              <div class="grow"><b>Место ${i}</b><div class="hint" style="margin-top:0">Пригласить друга на карту</div></div>
+              <button class="mini-btn off" disabled>СКОРО</button>
+            </div>`).join('')}
+          </div>
+          <button class="menu-quit" id="menu-quit">ВЫЙТИ<br>ИЗ ИГРЫ</button>
+        </div>
+        <div class="menu-right">
+          <div class="menu-title" style="text-align:right">ВТОРАЯ ГАЛАКТИЧЕСКАЯ ВОЙНА</div>
+          <button class="menu-btn" id="menu-continue">▶ ПРОДОЛЖИТЬ</button>
+          <button class="menu-btn" id="menu-new">✚ НАЧАТЬ НОВУЮ ИГРУ</button>
+          <div class="menu-title" style="margin-top:14px">СОХРАНИТЬ / ЗАГРУЗИТЬ</div>
+          ${slotRow(AUTOSAVE_SLOT, false)}
+          ${MANUAL_SLOTS.map((sl) => slotRow(sl, true)).join('')}
+          <div class="hint">Автосейв записывается автоматически каждый игровой год (365 дней).</div>
+        </div>
+      </div>`;
+
+    this.menuEl.querySelector('#menu-continue')!.addEventListener('click', () => this.toggleMenu());
+    this.menuEl.querySelector('#menu-new')!.addEventListener('click', () => {
+      location.reload();
+    });
+    this.menuEl.querySelector('#menu-quit')!.addEventListener('click', () => {
+      window.close();
+      this.toast('ЗАКРЫТИЕ ДОСТУПНО В ДЕСКТОП-ВЕРСИИ');
+    });
+    this.menuEl.querySelectorAll<HTMLButtonElement>('[data-save]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const slot = b.dataset.save!;
+        if (saveGame(this.state, slot, `Слот ${slot.slice(-1)}`)) {
+          this.toast('ИГРА СОХРАНЕНА');
+          this.renderMenu();
+        }
+      }));
+    this.menuEl.querySelectorAll<HTMLButtonElement>('[data-load]').forEach((b) =>
+      b.addEventListener('click', () => {
+        requestLoad(b.dataset.load!);
+        location.reload();
       }));
   }
 

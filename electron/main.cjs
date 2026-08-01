@@ -17,6 +17,7 @@ function createWindow() {
     height: Math.min(1000, height),
     minWidth: 1100,
     minHeight: 700,
+    fullscreen: true,
     show: false,
     backgroundColor: '#05070f',
     autoHideMenuBar: true,

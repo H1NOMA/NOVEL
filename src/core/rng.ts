@@ -7,6 +7,15 @@ export class RNG {
     this.s = seed >>> 0;
   }
 
+  /** Внутреннее состояние — для сохранений. */
+  dump(): number {
+    return this.s;
+  }
+
+  restore(v: number): void {
+    this.s = v >>> 0;
+  }
+
   next(): number {
     this.s |= 0;
     this.s = (this.s + 0x6d2b79f5) | 0;

@@ -1,5 +1,6 @@
 import './style.css';
 import { createGame } from './game/state';
+import { deserializeState, readSave, takePendingLoad } from './game/persist';
 import { GameClock } from './game/clock';
 import { GalaxyScene } from './render/scene';
 import { UI } from './ui/ui';
@@ -8,7 +9,19 @@ function boot(): void {
   const canvas = document.getElementById('scene') as HTMLCanvasElement;
   const seed = Math.floor(Math.random() * 1e9);
 
-  const state = createGame(seed);
+  // Если запрошена загрузка сейва — поднимаем состояние из него.
+  let state = createGame(seed);
+  const pending = takePendingLoad();
+  if (pending) {
+    const raw = readSave(pending);
+    if (raw) {
+      try {
+        state = deserializeState(raw);
+      } catch (e) {
+        console.error('Не удалось загрузить сохранение:', e);
+      }
+    }
+  }
   const scene = new GalaxyScene(canvas, state);
   const clock = new GameClock(state);
   const ui = new UI(state, scene, clock);
