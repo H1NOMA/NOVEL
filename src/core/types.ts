@@ -98,6 +98,8 @@ export interface Planet {
   buildings: string[];
   /** Богатые залежи Е-711 — остаются после освобождения мира из Мрака. */
   e711Rich: boolean;
+  /** Планета уничтожена орбитальным залпом супероружия — осталось поле обломков. */
+  shattered: boolean;
 }
 
 export interface City {
@@ -235,6 +237,8 @@ export interface FactionState {
   specialUnlocked: boolean;
   /** Супероружие было уничтожено — восстановление стоит очень дорого. */
   lostSpecial: boolean;
+  /** День последнего планетарного залпа супероружия (перезарядка 1000 дней). */
+  superShotDay: number;
   /** Открытые спецспособности (Мрак, Бездна и т.п.). */
   flags: Partial<Record<FactionFlag, boolean>>;
   /** Пулы наземных войск по типам (id типа → численность). */

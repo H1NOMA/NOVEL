@@ -7,7 +7,7 @@ import { canSelectFocus, selectFocus } from '../game/focus';
 import { orderFleetTo, garrisonReinforce } from '../game/units';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
-import { directGloom, enableE711Mining, raiseSpire, rebuildSpecial, SPECIAL_REBUILD_COST } from '../game/decisions';
+import { directGloom, enableE711Mining, fireSuperweapon, raiseSpire, rebuildSpecial, SPECIAL_REBUILD_COST, superShotReadyIn } from '../game/decisions';
 import { troopsOf } from '../data/troops';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
@@ -198,6 +198,30 @@ export class UI {
     if (!p || (p.abyss && s.player !== 'illuminate')) { this.panel.classList.add('hidden'); return; }
     this.panel.classList.remove('hidden');
 
+    if (p.shattered) {
+      // Поле обломков: минимальная карточка (флоты игрока могут улететь).
+      const hereFleets = fleetsAt(s, id).filter((f) => f.faction === s.player);
+      let sh = `
+        <div class="pc-head" id="pc-drag">
+          <span class="pc-title">☄ ${p.name}</span>
+          <button class="pc-close" id="pc-close">✕</button>
+        </div>
+        <div class="pc-body">
+        <div class="pp-sub">ПОЛЕ ОБЛОМКОВ · ${p.sector}</div>
+        <div class="hint">Планета уничтожена орбитальным залпом. Линии снабжения мертвы; здесь больше нечего захватывать.</div>`;
+      hereFleets.forEach((f) => {
+        sh += `<div class="fleet-row ${s.selectedFleet === f.id ? 'sel' : ''}">
+          <div class="grow"><div>${f.special ? '◆ ' + SPECIALS[f.faction].name : '🚀 Супер-эсминец'}</div></div>
+          <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
+        </div>`;
+      });
+      sh += `</div>`;
+      this.panel.innerHTML = sh;
+      this.applyCardPos();
+      this.wireCard(p);
+      return;
+    }
+
     const here = fleetsAt(s, id);
     const playerFleets = here.filter((f) => f.faction === s.player);
     const enemyFleets = here.filter((f) => f.faction !== s.player);
@@ -242,6 +266,14 @@ export class UI {
     }
     if (this.spireMode && p.owner === 'illuminate' && s.player === 'illuminate') {
       html += `<button class="mini-btn wide" data-act="spire">▲ Воздвигнуть экзошпиль</button>`;
+    }
+    // Планетарный залп: своя станция на орбите чужой планеты.
+    const stationHere = playerFleets.some((f) => f.special);
+    if (stationHere && p.owner !== s.player && (s.player === 'superEarth' || s.player === 'automatons')) {
+      const ready = superShotReadyIn(s, s.player);
+      html += ready === 0
+        ? `<button class="mini-btn wide" data-act="fire" style="border-color:var(--fed);color:var(--fed)">☄ ОРБИТАЛЬНЫЙ ЗАЛП — УНИЧТОЖИТЬ ПЛАНЕТУ</button>`
+        : `<button class="mini-btn wide off" disabled>☄ Орудие перезаряжается: ещё ${ready} дн</button>`;
     }
 
     if (p.cities.length) {
@@ -336,6 +368,14 @@ export class UI {
             this.toast('ТОЧКА СНАБЖЕНИЯ РАЗВЁРНУТА');
             this.renderPanel();
             this.renderStability();
+          }
+          return;
+        }
+        if (act === 'fire') {
+          if (fireSuperweapon(s, s.player, p.id)) {
+            this.toast(`☄ ${p.name} — ПЛАНЕТА УНИЧТОЖЕНА`, 3500);
+            this.scene.refreshOwners();
+            this.renderPanel();
           }
           return;
         }

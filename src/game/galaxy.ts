@@ -104,6 +104,7 @@ export function generateGalaxy(seed: number): Galaxy {
     minerals: 0,
     buildings: [],
     e711Rich: false,
+    shattered: false,
   });
   sectors.set('sector_core', {
     id: 'sector_core',
@@ -183,6 +184,7 @@ export function generateGalaxy(seed: number): Galaxy {
         minerals: 0,
         buildings: [],
         e711Rich: false,
+        shattered: false,
       });
       sector.planets.push(id);
     }

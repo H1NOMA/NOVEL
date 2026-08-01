@@ -9,6 +9,7 @@ export const DEPOT_COST = 60;
 
 /** Может ли флот фракции войти на планету (транзитом или как в цель). */
 export function canEnter(state: GameState, faction: FactionId, planet: Planet): boolean {
+  if (planet.shattered) return false;
   if (planet.abyss) return faction === 'illuminate';
   if (planet.gloom && faction !== 'terminids' && !state.factions[faction].flags.gloomTravel) return false;
   return true;
@@ -24,6 +25,7 @@ export function recomputeSupply(state: GameState): void {
   const byFaction = new Map<FactionId, Planet[]>();
   for (const id of state.galaxy.order) {
     const p = state.galaxy.planets.get(id)!;
+    if (p.shattered) continue;
     if (!byFaction.has(p.owner)) byFaction.set(p.owner, []);
     byFaction.get(p.owner)!.push(p);
   }

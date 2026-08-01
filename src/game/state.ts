@@ -47,6 +47,7 @@ function initFaction(id: FactionId): FactionState {
     stability: id === 'superEarth' ? 62 : 100,
     specialUnlocked: false,
     lostSpecial: false,
+    superShotDay: -100000,
     flags: {},
     units,
     resources: { minerals: 0, e711: 0 },
@@ -138,9 +139,10 @@ export function pushLog(state: GameState, entry: Omit<LogEntry, 'day'>): void {
 }
 
 export function planetsOf(state: GameState, faction: FactionId): Planet[] {
+  // Поля обломков никому не принадлежат и территорией не считаются.
   return state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
-    .filter((p) => p.owner === faction);
+    .filter((p) => p.owner === faction && !p.shattered);
 }
 
 export function fleetsAt(state: GameState, planetId: string): Fleet[] {

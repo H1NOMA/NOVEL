@@ -1,4 +1,4 @@
-import { pushLog, type GameState } from './state';
+import { fleetsAt, pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
 import { FACTORY_DEFS } from '../data/troops';
 import { SPECIALS } from '../data/factions';
@@ -53,6 +53,7 @@ export function raiseSpire(state: GameState, planetId: string): boolean {
 export function stepDecisions(state: GameState): void {
   stepGloom(state);
   stepAbyss(state);
+  stepFederationDefection(state);
   aiDecisions(state);
 }
 
@@ -183,6 +184,83 @@ export function enableE711Mining(state: GameState): boolean {
 }
 
 export const SPECIAL_REBUILD_COST = 300;
+export const SUPER_SHOT_COOLDOWN = 1000;
+
+/** Дней до готовности планетарного залпа (0 = заряжен). */
+export function superShotReadyIn(state: GameState, faction: FactionId): number {
+  return Math.max(0, SUPER_SHOT_COOLDOWN - (state.day - state.factions[faction].superShotDay));
+}
+
+/**
+ * Планетарный залп DSS/ASS: мгновенно уничтожает планету, на орбите которой
+ * стоит станция. Остаётся лишь поле обломков — линии снабжения к нему мертвы.
+ * Перезарядка — 1000 дней.
+ */
+export function fireSuperweapon(state: GameState, faction: FactionId, planetId: string): boolean {
+  if (faction !== 'superEarth' && faction !== 'automatons') return false;
+  const fs = state.factions[faction];
+  const planet = state.galaxy.planets.get(planetId);
+  if (!planet || planet.shattered || planet.abyss || planet.owner === faction) return false;
+  if (superShotReadyIn(state, faction) > 0) return false;
+  const station = fleetsAt(state, planetId).find((f) => f.faction === faction && f.special);
+  if (!station) return false;
+
+  fs.superShotDay = state.day;
+  const name = planet.name;
+
+  // Всё на орбите, кроме стрелявшей станции, гибнет во взрыве.
+  for (const fid of [...state.fleetOrder]) {
+    const f = state.fleets.get(fid);
+    if (!f || f.at !== planetId || f.transit || f.id === station.id) continue;
+    if (f.special) state.factions[f.faction].lostSpecial = true;
+    removeFleet(state, fid);
+  }
+
+  // Планета перестаёт существовать.
+  planet.shattered = true;
+  planet.garrison = 0;
+  planet.cities = [];
+  planet.battle = undefined;
+  planet.depot = false;
+  planet.buildings = [];
+  planet.gloom = false;
+  planet.e711Rich = false;
+  planet.fortification = 0;
+  planet.value = 0;
+  state.spires = state.spires.filter((sp) => sp.planet !== planetId);
+
+  pushLog(state, {
+    faction,
+    text: `${SPECIALS[faction].name} открывает огонь по ${name}. Планета УНИЧТОЖЕНА — осталось лишь поле обломков. Перезарядка: ${SUPER_SHOT_COOLDOWN} дней.`,
+    tone: 'alert',
+  });
+  return true;
+}
+
+/**
+ * Переприсяга: после восстания Супер-Федерации миры Супер-Земли, оставшиеся
+ * без орбитального прикрытия при низкой стабильности, добровольно переходят
+ * под оранжевое знамя.
+ */
+function stepFederationDefection(state: GameState): void {
+  if (!state.superFederationRisen || !state.factions.superFederation.alive) return;
+  if (state.factions.superEarth.stability >= 40) return;
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.owner !== 'superEarth' || p.isCapital || p.shattered || p.battle) continue;
+    // «Фрегаты» СЗ на орбите удерживают лояльность.
+    const guarded = fleetsAt(state, id).some((f) => f.faction === 'superEarth');
+    if (guarded) continue;
+    if (state.rng.chance(0.018)) {
+      p.owner = 'superFederation';
+      for (const c of p.cities) c.holder = 'superFederation';
+      pushLog(state, {
+        text: `${p.name} присягает СУПЕР-ФЕДЕРАЦИИ: стабильность пала, орбита пуста — колония сделала выбор.`,
+        tone: 'alert',
+      });
+    }
+  }
+}
 
 /** Восстановить уничтоженное супероружие — очень дорого. */
 export function rebuildSpecial(state: GameState, faction: FactionId): boolean {
@@ -211,6 +289,18 @@ function aiDecisions(state: GameState): void {
     const fs = state.factions[faction];
     if (fs.alive && fs.lostSpecial && fs.production >= SPECIAL_REBUILD_COST + 60) {
       rebuildSpecial(state, faction);
+    }
+  }
+  // ASS автоматонов, зависнув над вражеским миром с заряженным орудием, стреляет.
+  if (state.factions.automatons.alive && superShotReadyIn(state, 'automatons') === 0) {
+    for (const fid of state.fleetOrder) {
+      const f = state.fleets.get(fid);
+      if (!f || f.faction !== 'automatons' || !f.special || f.transit) continue;
+      const p = state.galaxy.planets.get(f.at);
+      if (p && p.owner !== 'automatons' && !p.shattered && !p.abyss && p.garrison > 40) {
+        fireSuperweapon(state, 'automatons', p.id);
+      }
+      break;
     }
   }
   // Автоматоны в приоритете строят фабрики особых отрядов.

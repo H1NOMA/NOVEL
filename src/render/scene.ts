@@ -183,7 +183,7 @@ export class GalaxyScene {
     this.state.galaxy.lines.forEach((ln, li) => {
       const pa = this.state.galaxy.planets.get(ln.a)!;
       const pb = this.state.galaxy.planets.get(ln.b)!;
-      const dim = pa.abyss || pb.abyss ? 0.12 : 1;
+      const dim = pa.abyss || pb.abyss || pa.shattered || pb.shattered ? 0.12 : 1;
       const ca = new THREE.Color(FACTIONS[pa.owner].color).multiplyScalar(dim);
       const cb = new THREE.Color(FACTIONS[pb.owner].color).multiplyScalar(dim);
       const base = li * 6;
@@ -198,8 +198,9 @@ export class GalaxyScene {
     for (const sector of this.state.galaxy.sectors.values()) {
       const vis = this.sectorVisuals.get(sector.id);
       if (!vis) continue;
-      const owners = new Set(sector.planets.map((pid) => this.state.galaxy.planets.get(pid)!.owner));
-      if (owners.size === 1) {
+      const alive = sector.planets.map((pid) => this.state.galaxy.planets.get(pid)!).filter((p) => !p.shattered);
+      const owners = new Set(alive.map((p) => p.owner));
+      if (owners.size === 1 && alive.length > 0) {
         const color = FACTIONS[[...owners][0]!].color;
         vis.fillMat.color.set(color);
         vis.fillMat.opacity = 0.09;
@@ -222,6 +223,7 @@ export class GalaxyScene {
       vis.setOwner(FACTIONS[p.owner].color);
       vis.setGloom(p.gloom);
       vis.setAbyss(p.abyss);
+      vis.setShattered(p.shattered);
     }
     this.refreshSupplyColors();
     this.refreshSectors();

@@ -166,6 +166,7 @@ export interface PlanetVisual {
   setHovered(on: boolean): void;
   setGloom(on: boolean): void;
   setAbyss(on: boolean): void;
+  setShattered(on: boolean): void;
 }
 
 /** Deterministic 0..1 stream from a planet seed — drives per-planet variety. */
@@ -257,8 +258,25 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   abyssShell.scale.setScalar(baseRadius * 1.1);
   abyssShell.visible = false;
 
+  // Поле обломков — кольцо каменной крошки на месте уничтоженной планеты.
+  const debrisCount = 70;
+  const debrisPos = new Float32Array(debrisCount * 3);
+  for (let i = 0; i < debrisCount; i++) {
+    const a = (i / debrisCount) * Math.PI * 2 + rand() * 0.3;
+    const r = 0.7 + rand() * 0.75;
+    debrisPos[i * 3] = Math.cos(a) * r;
+    debrisPos[i * 3 + 1] = (rand() - 0.5) * 0.16;
+    debrisPos[i * 3 + 2] = Math.sin(a) * r;
+  }
+  const debrisGeo = new THREE.BufferGeometry();
+  debrisGeo.setAttribute('position', new THREE.BufferAttribute(debrisPos, 3));
+  const debrisMat = new THREE.PointsMaterial({ color: 0x9a938a, size: 0.09, sizeAttenuation: true });
+  const debris = new THREE.Points(debrisGeo, debrisMat);
+  debris.scale.setScalar(baseRadius);
+  debris.visible = false;
+
   const group = new THREE.Group();
-  group.add(surface, atmo, hoverRing, gloomShell, abyssShell);
+  group.add(surface, atmo, hoverRing, gloomShell, abyssShell, debris);
   group.userData.planetId = planet.id;
 
   let spin = rand() * Math.PI * 2;
@@ -286,6 +304,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       if (hoverRing.visible) hoverRing.rotation.z += dt * 0.9;
       if (gloomShell.visible) gloomShell.rotation.y += dt * 0.15;
       if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
+      if (debris.visible) debris.rotation.y += dt * 0.08;
     },
     setOwner(hex: string) {
       material.uniforms.uTint.value.set(hex);
@@ -310,6 +329,15 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       abyssShell.visible = on;
       if (on) gloomShell.visible = false;
       syncRing();
+    },
+    setShattered(on: boolean) {
+      surface.visible = !on;
+      atmo.visible = !on;
+      debris.visible = on;
+      if (on) {
+        gloomShell.visible = false;
+        abyssShell.visible = false;
+      }
     },
   };
 }

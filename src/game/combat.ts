@@ -30,6 +30,7 @@ function fleetPower(state: GameState, f: Fleet): number {
 export function resolveOrbital(state: GameState): void {
   for (const id of state.galaxy.order) {
     const planet = state.galaxy.planets.get(id)!;
+    if (planet.shattered) continue;
     const here = fleetsAt(state, id);
     if (here.length < 2) continue;
 
@@ -85,6 +86,7 @@ function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, p
 export function resolveGround(state: GameState): void {
   for (const id of state.galaxy.order) {
     const planet = state.galaxy.planets.get(id)!;
+    if (planet.shattered) continue;
     // fleetsAt already excludes fleets still in transit.
     const attackers = fleetsAt(state, id).filter((f) => areHostile(f.faction, planet.owner));
 
