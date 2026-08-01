@@ -76,13 +76,45 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 .bar-row { display: flex; justify-content: space-between; margin-top: 6px; }
 .warn { color: var(--fed); font-weight: 700; }
 
-/* ---------- Planet panel ---------- */
+/* ---------- Карточка планеты (перемещаемая, по центру) ---------- */
 #planet-panel {
-  position: absolute; right: 16px; top: 70px; width: 300px; max-height: calc(100% - 210px);
-  overflow-y: auto; background: var(--panel); border: 1px solid var(--edge);
-  border-radius: 8px; padding: 14px; font-size: 13px; backdrop-filter: blur(3px);
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 320px; max-height: 72vh; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--edge);
+  border-radius: 8px; font-size: 13px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  z-index: 30;
 }
-#planet-panel.hidden, #focus-overlay.hidden, #stability.hidden { display: none; }
+#planet-panel.hidden, #focus-overlay.hidden, #stability.hidden, #decisions.hidden { display: none; }
+.pc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid var(--edge); cursor: grab;
+  background: rgba(255,255,255,0.04); border-radius: 8px 8px 0 0; user-select: none;
+}
+.pc-head:active { cursor: grabbing; }
+.pc-title { font-weight: 700; font-size: 15px; letter-spacing: 1px; }
+.pc-close {
+  background: none; border: 1px solid var(--edge); color: var(--muted);
+  border-radius: 4px; cursor: pointer; width: 24px; height: 24px; font-size: 12px;
+}
+.pc-close:hover { color: var(--gold); border-color: var(--gold); }
+.pc-body { padding: 10px 14px 14px; overflow-y: auto; }
+.ctrl-bar {
+  display: flex; height: 10px; border-radius: 5px; overflow: hidden;
+  background: #1a2438; margin: 4px 0 2px;
+}
+.ctrl-bar > span { display: block; height: 100%; transition: width .4s; }
+.ctrl-row { display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; }
+.mini-btn.wide { display: block; width: 100%; margin-top: 8px; text-align: left; }
+.mini-btn.off { opacity: 0.45; cursor: not-allowed; }
+.mini-btn.sel { border-color: var(--gold); color: var(--gold); }
+
+/* ---------- Решения ---------- */
+#decisions {
+  position: absolute; left: 16px; top: 240px; width: 300px; max-height: 55vh;
+  display: flex; flex-direction: column; background: var(--panel);
+  border: 1px solid var(--edge); border-radius: 8px; font-size: 13px; z-index: 25;
+}
+.dec-item { padding: 8px 0; border-bottom: 1px dashed rgba(255,255,255,0.08); }
 .pp-name { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
 .pp-sub { color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
 .pp-owner { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; font-weight: 700; }

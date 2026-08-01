@@ -81,6 +81,21 @@ export interface Planet {
   battle?: PlanetBattle;
   /** Strategic value — production + score weight. */
   value: number;
+  /** Города на планете (если есть) — контроль над ними ускоряет захват. */
+  cities: City[];
+  /** Построена ли точка снабжения. */
+  depot: boolean;
+  /** Есть ли связь с ядром территории владельца (пересчитывается ежедневно). */
+  supplied: boolean;
+  /** Планета окутана Мраком терминидов. */
+  gloom: boolean;
+  /** Планета погружена в Бездну иллюминатов. */
+  abyss: boolean;
+}
+
+export interface City {
+  name: string;
+  holder: FactionId;
 }
 
 export interface SupplyLine {
@@ -158,7 +173,11 @@ export type FocusEffect =
   | { kind: 'fleet'; ships: number; infantry: number }
   | { kind: 'unlockSpecial' }
   | { kind: 'spawnSuperFederation' }
+  | { kind: 'flag'; flag: FactionFlag }
   | { kind: 'custom'; note: string };
+
+/** Особые способности, открываемые фокусами-спецпроектами. */
+export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss';
 
 export interface FocusNode {
   id: string;
@@ -207,6 +226,8 @@ export interface FactionState {
   stability: number;
   /** Whether the special unit has been unlocked. */
   specialUnlocked: boolean;
+  /** Открытые спецспособности (Мрак, Бездна и т.п.). */
+  flags: Partial<Record<FactionFlag, boolean>>;
   alive: boolean;
 }
 

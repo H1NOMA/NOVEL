@@ -3,16 +3,28 @@ import type { Fleet } from '../core/types';
 import { FACTIONS } from '../data/factions';
 import { fleetWorldPos } from '../game/units';
 import type { GameState } from '../game/state';
+import { shipModel, stationModel } from './ships';
 
-const SHIP_GEO = new THREE.ConeGeometry(0.09, 0.26, 5);
-const SPECIAL_GEO = new THREE.OctahedronGeometry(0.2, 0);
-const GLOW_GEO = new THREE.SphereGeometry(0.14, 10, 10);
+const GLOW_GEO = new THREE.SphereGeometry(0.12, 10, 10);
+const EXHAUST_GEO = new THREE.ConeGeometry(0.03, 0.16, 6);
 
 interface FleetMesh {
   group: THREE.Group;
-  body: THREE.Mesh;
+  model: THREE.Group;
+  exhaust: THREE.Mesh;
+  exhaustMat: THREE.MeshBasicMaterial;
   last: THREE.Vector2;
+  yaw: number;
+  phase: number;
   special: boolean;
+}
+
+/** Кратчайшая интерполяция угла (через ±π). */
+function lerpAngle(a: number, b: number, t: number): number {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * Math.min(1, t);
 }
 
 export class FleetLayer {
@@ -25,20 +37,43 @@ export class FleetLayer {
   private make(fleet: Fleet): FleetMesh {
     const color = new THREE.Color(FACTIONS[fleet.faction].color);
     const special = !!fleet.special;
-    const mat = new THREE.MeshBasicMaterial({ color });
-    const body = new THREE.Mesh(special ? SPECIAL_GEO : SHIP_GEO, mat);
+    const model = special ? stationModel(color) : shipModel(fleet.faction, color);
+
     const glowMat = new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.3,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     const glow = new THREE.Mesh(GLOW_GEO, glowMat);
-    glow.scale.setScalar(special ? 2.2 : 1.3);
+    glow.scale.setScalar(special ? 2.4 : 1.5);
+
+    // Выхлоп двигателей — виден только в полёте.
+    const exhaustMat = new THREE.MeshBasicMaterial({
+      color: 0x9fd4ff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const exhaust = new THREE.Mesh(EXHAUST_GEO, exhaustMat);
+    exhaust.rotation.x = Math.PI / 2; // остриё назад вдоль -Z
+    exhaust.position.z = -0.24;
+    model.add(exhaust);
+
     const g = new THREE.Group();
-    g.add(body, glow);
-    const fm: FleetMesh = { group: g, body, last: new THREE.Vector2(), special };
+    g.add(model, glow);
+    const fm: FleetMesh = {
+      group: g,
+      model,
+      exhaust,
+      exhaustMat,
+      last: new THREE.Vector2(),
+      yaw: 0,
+      phase: Math.random() * Math.PI * 2,
+      special,
+    };
     this.group.add(g);
     return fm;
   }
@@ -47,8 +82,7 @@ export class FleetLayer {
     this.t += dt;
     const seen = new Set<string>();
 
-    // Docked fleets share their planet's orbit — assign each an orbital slot
-    // so several fleets spread out evenly instead of stacking at the centre.
+    // Флоты на стоянке делят орбиту планеты — распределяем по слотам.
     const docked = new Map<string, Fleet[]>();
     for (const id of state.fleetOrder) {
       const fleet = state.fleets.get(id);
@@ -68,48 +102,49 @@ export class FleetLayer {
         this.meshes.set(id, fm);
       }
 
+      const bob = Math.sin(this.t * 2.2 + fm.phase) * 0.012;
+
       if (!fleet.transit) {
-        // In orbit: circle the planet at its rim.
+        // На орбите: кружим у кромки планеты.
         const planet = state.galaxy.planets.get(fleet.at);
         if (planet) {
           const slots = docked.get(fleet.at)!;
           const slot = slots.indexOf(fleet);
           const planetR = 0.42 * planet.scale;
-          const orbitR = planetR * 1.75 + (slot % 3) * 0.14;
-          const angle = this.t * (0.55 - (slot % 3) * 0.12) + (slot * Math.PI * 2) / Math.max(1, slots.length);
-          const cx = planet.pos.x * this.scale;
-          const cz = planet.pos.y * this.scale;
-          const x = cx + Math.cos(angle) * orbitR;
-          const z = cz + Math.sin(angle) * orbitR;
-          const y = fm.special ? 0.3 : 0.18;
-          fm.group.position.set(x, y, z);
-          // face along the orbital tangent
-          fm.body.rotation.set(Math.PI / 2, Math.atan2(-Math.sin(angle), -Math.cos(angle)) , 0);
-          if (fm.special) {
-            fm.body.rotation.x = 0;
-            fm.body.rotation.y += dt * 0.6;
-          }
+          const orbitR = planetR * 1.8 + (slot % 3) * 0.16;
+          const angle = this.t * (0.5 - (slot % 3) * 0.11) + (slot * Math.PI * 2) / Math.max(1, slots.length);
+          const x = planet.pos.x * this.scale + Math.cos(angle) * orbitR;
+          const z = planet.pos.y * this.scale + Math.sin(angle) * orbitR;
+          fm.group.position.set(x, (fm.special ? 0.3 : 0.16) + bob, z);
+          // нос по касательной к орбите
+          const targetYaw = Math.atan2(-Math.cos(angle), Math.sin(angle));
+          fm.yaw = lerpAngle(fm.yaw, targetYaw, dt * 4);
+          fm.model.rotation.y = fm.yaw;
+          if (fm.special) fm.model.rotation.y += Math.sin(this.t * 0.4) * 0.2;
+          fm.exhaustMat.opacity = Math.max(0, fm.exhaustMat.opacity - dt * 2);
           fm.last.set(x, z);
           continue;
         }
       }
 
-      // In transit: fly along the supply lines.
+      // В полёте по линиям снабжения.
       const wp = fleetWorldPos(state.galaxy, fleet);
       const x = wp.x * this.scale;
       const z = wp.y * this.scale;
-      const y = fm.special ? 0.32 : 0.2;
       const dx = x - fm.last.x;
       const dz = z - fm.last.y;
-      if (Math.abs(dx) + Math.abs(dz) > 1e-5) {
-        fm.body.rotation.set(fm.special ? 0 : Math.PI / 2, Math.atan2(dx, dz), 0);
+      if (Math.abs(dx) + Math.abs(dz) > 1e-6) {
+        fm.yaw = lerpAngle(fm.yaw, Math.atan2(dx, dz), dt * 5);
       }
+      fm.model.rotation.y = fm.yaw;
+      fm.group.position.set(x, (fm.special ? 0.32 : 0.2) + bob, z);
+      // выхлоп: разгорается в полёте и пульсирует
+      fm.exhaustMat.opacity = Math.min(0.75, fm.exhaustMat.opacity + dt * 3);
+      fm.exhaust.scale.y = 0.85 + Math.sin(this.t * 9 + fm.phase) * 0.25;
       fm.last.set(x, z);
-      fm.group.position.set(x, y, z);
-      if (fm.special) fm.body.rotation.y += dt * 0.6;
     }
 
-    // Remove meshes for fleets that no longer exist.
+    // Удаляем меши исчезнувших флотов.
     for (const [id, fm] of this.meshes) {
       if (!seen.has(id)) {
         this.group.remove(fm.group);

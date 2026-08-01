@@ -47,3 +47,21 @@ export function sectorName(rng: { pick<T>(a: readonly T[]): T; int(a: number, b:
   }
   return `Сектор ${rng.pick(SECTOR_NAMES)}-${rng.int(2, 99)}`;
 }
+
+const CITY_NAMES = [
+  'Новая Гавань', 'Форт Свобода', 'Прайм-Сити', 'Уиллоу', 'Вершина', 'Аркадия',
+  'Меза', 'Единство', 'Стальград', 'Портовый Узел', 'Аванпост-9', 'Цитадель',
+  'Купол Согласия', 'Терраполис', 'Гнездо', 'Улей-Сити', 'Обсидиан', 'Маяк',
+  'Северный Кряж', 'Долина Хмеля', 'Крепость Заря', 'Периметр',
+];
+
+export function cityName(rng: { pick<T>(a: readonly T[]): T; int(a: number, b: number): number }, used: Set<string>): string {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const n = rng.pick(CITY_NAMES);
+    if (!used.has(n)) {
+      used.add(n);
+      return n;
+    }
+  }
+  return `${rng.pick(CITY_NAMES)}-${rng.int(2, 99)}`;
+}

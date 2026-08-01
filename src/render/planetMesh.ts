@@ -131,19 +131,41 @@ void main(){
 `;
 
 const SPHERE_GEO = new THREE.SphereGeometry(1, 40, 40);
-const RING_GEO = new THREE.RingGeometry(1.35, 1.55, 48);
+
+// Кольцо наведения: три дуги с тремя квадратными вырезами, равномерно
+// распределёнными по окружности. Вращается вокруг оси планеты.
+const HOVER_ARC = (Math.PI * 2) / 3 - 0.38; // дуга ~101°, вырез ~22°
+function buildHoverRing(): THREE.Group {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const start = (i * Math.PI * 2) / 3 + 0.19;
+    const geo = new THREE.RingGeometry(1.42, 1.58, 20, 1, start, HOVER_ARC);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffd24a,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const arc = new THREE.Mesh(geo, mat);
+    g.add(arc);
+  }
+  g.rotation.x = -Math.PI / 2;
+  return g;
+}
 
 export interface PlanetVisual {
   group: THREE.Group;
   surface: THREE.Mesh;
   material: THREE.ShaderMaterial;
-  ring: THREE.Mesh;
-  ringMat: THREE.MeshBasicMaterial;
   planetId: string;
   baseRadius: number;
-  update(t: number): void;
+  update(t: number, dt: number): void;
   setOwner(hex: string): void;
   setSelected(on: boolean): void;
+  setHovered(on: boolean): void;
+  setGloom(on: boolean): void;
+  setAbyss(on: boolean): void;
 }
 
 /** Deterministic 0..1 stream from a planet seed — drives per-planet variety. */
@@ -207,43 +229,87 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const atmo = new THREE.Mesh(SPHERE_GEO, atmoMat);
   atmo.scale.setScalar(baseRadius * 1.22);
 
-  const ringMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(FACTIONS[planet.owner].color),
+  // Кольцо наведения (появляется только при hover/выборе, крутится вокруг оси).
+  const hoverRing = buildHoverRing();
+  hoverRing.scale.setScalar(baseRadius);
+  hoverRing.visible = false;
+
+  // Оболочка Мрака: мутная споровая пелена.
+  const gloomMat = new THREE.MeshBasicMaterial({
+    color: 0xd8b32a,
     transparent: true,
-    opacity: 0.85,
-    side: THREE.DoubleSide,
+    opacity: 0.22,
+    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const ring = new THREE.Mesh(RING_GEO, ringMat);
-  ring.scale.setScalar(baseRadius);
-  ring.rotation.x = -Math.PI / 2; // lie flat on the galactic plane
+  const gloomShell = new THREE.Mesh(SPHERE_GEO, gloomMat);
+  gloomShell.scale.setScalar(baseRadius * 1.5);
+  gloomShell.visible = false;
+
+  // Пелена Бездны: почти чёрная воронка на месте исчезнувшей планеты.
+  const abyssMat = new THREE.MeshBasicMaterial({
+    color: 0x1a0630,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+  });
+  const abyssShell = new THREE.Mesh(SPHERE_GEO, abyssMat);
+  abyssShell.scale.setScalar(baseRadius * 1.1);
+  abyssShell.visible = false;
 
   const group = new THREE.Group();
-  group.add(surface, atmo, ring);
+  group.add(surface, atmo, hoverRing, gloomShell, abyssShell);
   group.userData.planetId = planet.id;
 
   let spin = rand() * Math.PI * 2;
+  let hovered = false;
+  let selected = false;
+  let inAbyss = false;
+
+  const syncRing = () => {
+    hoverRing.visible = (hovered || selected) && !inAbyss;
+    for (const arc of hoverRing.children) {
+      ((arc as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(selected ? 0xffd24a : 0xdce6f5);
+    }
+  };
+
   return {
     group,
     surface,
     material,
-    ring,
-    ringMat,
     planetId: planet.id,
     baseRadius,
-    update(t: number) {
+    update(t: number, dt: number) {
       material.uniforms.uTime.value = t;
       spin += spinSpeed;
       surface.rotation.y = spin;
+      if (hoverRing.visible) hoverRing.rotation.z += dt * 0.9;
+      if (gloomShell.visible) gloomShell.rotation.y += dt * 0.15;
+      if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
     },
     setOwner(hex: string) {
       material.uniforms.uTint.value.set(hex);
       (atmoMat.uniforms.uColor.value as THREE.Color).set(hex);
-      ringMat.color.set(hex);
     },
     setSelected(on: boolean) {
-      ringMat.opacity = on ? 1 : 0.85;
-      ring.scale.setScalar(on ? baseRadius * 1.15 : baseRadius);
+      selected = on;
+      syncRing();
+    },
+    setHovered(on: boolean) {
+      hovered = on;
+      syncRing();
+    },
+    setGloom(on: boolean) {
+      gloomShell.visible = on && !inAbyss;
+    },
+    setAbyss(on: boolean) {
+      inAbyss = on;
+      // Планета исчезает из реального пространства: видна лишь тёмная воронка.
+      surface.visible = !on;
+      atmo.visible = !on;
+      abyssShell.visible = on;
+      if (on) gloomShell.visible = false;
+      syncRing();
     },
   };
 }

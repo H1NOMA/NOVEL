@@ -1,7 +1,7 @@
 import type { BiomeId, FactionId, Planet, SupplyLine, Vec2 } from '../core/types';
 import { RNG } from '../core/rng';
 import { FACTIONS } from '../data/factions';
-import { planetName, sectorName } from './names';
+import { cityName, planetName, sectorName } from './names';
 
 export interface Sector {
   id: string;
@@ -66,6 +66,7 @@ export function generateGalaxy(seed: number): Galaxy {
   const order: string[] = [];
   const sectors = new Map<string, Sector>();
   const used = new Set<string>();
+  const usedCities = new Set<string>();
   let idCounter = 0;
 
   const addPlanet = (p: Planet) => {
@@ -91,6 +92,15 @@ export function generateGalaxy(seed: number): Galaxy {
     garrison: 120,
     fortification: 5,
     value: 10,
+    cities: [
+      { name: 'Мегаполис Единства', holder: 'superEarth' },
+      { name: 'Столица Свободы', holder: 'superEarth' },
+      { name: 'Порт Демократии', holder: 'superEarth' },
+    ],
+    depot: true,
+    supplied: true,
+    gloom: false,
+    abyss: false,
   });
   sectors.set('sector_core', {
     id: 'sector_core',
@@ -160,6 +170,13 @@ export function generateGalaxy(seed: number): Galaxy {
         garrison: owner === 'superEarth' ? rng.int(15, 35) : rng.int(25, 55),
         fortification: rng.int(0, 2),
         value: rng.int(1, 5),
+        cities: rng.chance(0.42)
+          ? Array.from({ length: rng.int(1, 3) }, () => ({ name: cityName(rng, usedCities), holder: owner }))
+          : [],
+        depot: false,
+        supplied: true,
+        gloom: false,
+        abyss: false,
       });
       sector.planets.push(id);
     }

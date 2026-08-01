@@ -6,6 +6,8 @@ import { runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
 import { resolveGround, resolveOrbital } from './combat';
 import { garrisonReinforce, stepFleets } from './units';
+import { recomputeSupply } from './supply';
+import { stepDecisions } from './decisions';
 
 /** Continuous fleet movement — called every animation frame with elapsed days. */
 export function moveFleets(state: GameState, days: number): void {
@@ -37,8 +39,10 @@ export function advanceDay(state: GameState): void {
     if (fid !== state.player) runAI(state, fid);
   }
 
+  recomputeSupply(state);
   resolveOrbital(state);
   resolveGround(state);
+  stepDecisions(state);
 
   checkVictory(state);
   bus.emit('dayPassed', { day: state.day });

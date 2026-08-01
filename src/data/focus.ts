@@ -51,6 +51,25 @@ const superEarth: FocusNode[] = [
   { id: 'se_martale', faction: 'superEarth', title: 'Наступление на Мартейл', desc: 'Удар молота во фланг автоматонов.', cost: 60, x: 6, y: 3, requires: ['se_fortress'], effects: [{ kind: 'combat', amount: 0.12 }] },
   { id: 'se_totallib', faction: 'superEarth', title: 'Тотальное освобождение', desc: 'Меньшее, чем свободная галактика, нас не устроит.', cost: 75, x: 7, y: 3, requires: ['se_creek', 'se_martale'], effects: [{ kind: 'combat', amount: 0.25 }, { kind: 'warSupport', amount: 10 }] },
 
+  // --- Западный фронт: война с автоматонами ---
+  { id: 'se_av_front', faction: 'superEarth', title: 'Западный фронт', desc: 'Развернуть главные силы против машинного восстания.', cost: 50, x: 0, y: 5, requires: ['se_liberation'], effects: [{ kind: 'combat', amount: 0.08 }] },
+  { id: 'se_av_ap', faction: 'superEarth', title: 'Бронебойный арсенал', desc: 'Автопушки и безоткатки против корпусов из холодной стали.', cost: 55, x: 1, y: 5, requires: ['se_av_front'], effects: [{ kind: 'combat', amount: 0.12 }] },
+  { id: 'se_av_emp', faction: 'superEarth', title: 'ЭМИ-стратагемы', desc: 'Импульсные минные поля глушат целые колонны автоматонов.', cost: 55, x: 0, y: 6, requires: ['se_av_front'], effects: [{ kind: 'combat', amount: 0.08 }, { kind: 'fortify', amount: 1 }] },
+  { id: 'se_av_wall', faction: 'superEarth', title: 'Вал Малевелона', desc: 'Линия крепостей на месте самой страшной мясорубки войны.', cost: 60, x: 1, y: 6, requires: ['se_av_ap'], effects: [{ kind: 'fortify', amount: 2 }] },
+  { id: 'se_av_march', faction: 'superEarth', title: 'Марш на Киберстан', desc: 'Дорога к машинной столице будет вымощена ломом.', cost: 70, x: 0, y: 7, requires: ['se_av_emp', 'se_av_wall'], effects: [{ kind: 'combat', amount: 0.2 }] },
+
+  // --- Флот Возмездия: война с иллюминатами ---
+  { id: 'se_ai_shield', faction: 'superEarth', title: 'Контрфазовые щиты', desc: 'Экраны, гасящие фазовые атаки кальмаров.', cost: 55, x: 2, y: 5, requires: ['se_blockade'], effects: [{ kind: 'combat', amount: 0.1 }] },
+  { id: 'se_ai_intel', faction: 'superEarth', title: 'Разведуправление «Спрут»', desc: 'Выследить Воинство в тёмных углах галактики.', cost: 55, x: 2, y: 6, requires: ['se_ai_shield'], effects: [{ kind: 'warSupport', amount: 6 }, { kind: 'combat', amount: 0.08 }] },
+  { id: 'se_ai_hunt', faction: 'superEarth', title: 'Охота на кальмаров', desc: 'Каждый монолит — цель. Каждый шпиль — мишень.', cost: 65, x: 2, y: 7, requires: ['se_ai_intel'], effects: [{ kind: 'combat', amount: 0.18 }] },
+
+  // --- Восточный фронт: война с терминидами ---
+  { id: 'se_at_pest', faction: 'superEarth', title: 'Тотальная дезинсекция', desc: 'Возобновить программу контроля жуков — теперь без ограничений.', cost: 50, x: 6, y: 5, requires: ['se_fortress'], effects: [{ kind: 'combat', amount: 0.1 }] },
+  { id: 'se_at_napalm', faction: 'superEarth', title: 'Напалмовые заграждения', desc: 'Огненные рвы вокруг каждой колонии. Жуки не любят огонь.', cost: 55, x: 7, y: 5, requires: ['se_at_pest'], effects: [{ kind: 'combat', amount: 0.12 }] },
+  { id: 'se_at_gloomtech', faction: 'superEarth', title: 'Прорыв Мрака', desc: 'СПЕЦПРОЕКТ: фильтры и навигация для полётов сквозь споровые тучи.', cost: 80, x: 6, y: 6, requires: ['se_at_pest'], effects: [{ kind: 'flag', flag: 'gloomTravel' }] },
+  { id: 'se_at_e710', faction: 'superEarth', title: 'Жатва Э-710', desc: 'Каждый сожжённый улей — топливо для флота.', cost: 55, x: 7, y: 6, requires: ['se_at_napalm'], effects: [{ kind: 'industry', amount: 4 }] },
+  { id: 'se_at_exterm', faction: 'superEarth', title: 'Протокол истребления', desc: 'Не сдерживание. Не контроль. Истребление.', cost: 70, x: 7, y: 7, requires: ['se_at_gloomtech', 'se_at_e710'], effects: [{ kind: 'combat', amount: 0.2 }] },
+
   // --- Путь к Федерации (скрыт, пока не рухнет стабильность) ---
   { id: 'se_dissent', faction: 'superEarth', title: 'Семена раскола', desc: 'Внешние колонии шепчутся о более свободном союзе. Стабильность тает.', cost: 40, x: 4, y: 5, requires: ['se_root'], gate: 'lowStability', branch: 'federation', effects: [{ kind: 'stability', amount: -10 }, { kind: 'custom', note: 'Открывает Путь к Федерации.' }] },
   { id: 'se_fed_path', faction: 'superEarth', title: 'Путь к Федерации', desc: 'Среди разочарованных зреет иное видение демократии.', cost: 55, x: 4, y: 6, requires: ['se_dissent'], branch: 'federation', effects: [{ kind: 'stability', amount: -8 }] },
@@ -95,6 +114,17 @@ const automatons: FocusNode[] = [
   { id: 'aut_march', faction: 'automatons', title: 'Бесконечный марш', desc: 'Ни отступления, ни капитуляции, ни кнопки «выкл».', cost: 60, x: 7, y: 2, requires: ['aut_creek'], effects: [{ kind: 'recruitment', amount: 5 }] },
   { id: 'aut_core', faction: 'automatons', title: 'Бросок к Ядру', desc: 'Нацелить каждую колонну на саму Супер-Землю.', cost: 70, x: 6, y: 3, requires: ['aut_purge'], effects: [{ kind: 'combat', amount: 0.2 }] },
   { id: 'aut_encircle', faction: 'automatons', title: 'Доктрина окружения', desc: 'Перерезать линии снабжения; пусть защитники голодают во тьме.', cost: 60, x: 7, y: 3, requires: ['aut_march'], effects: [{ kind: 'combat', amount: 0.12 }, { kind: 'shipCap', amount: 2 }] },
+
+  // --- Развитие ---
+  { id: 'aut_dev_ai', faction: 'automatons', title: 'Пробуждение сверх-ИИ', desc: 'Единый разум просчитывает войну на тысячу ходов вперёд.', cost: 65, x: 3, y: 4, requires: ['aut_cyberstan'], effects: [{ kind: 'industry', amount: 3 }, { kind: 'combat', amount: 0.08 }] },
+  { id: 'aut_dev_legion', faction: 'automatons', title: 'Легион-Прайм', desc: 'Новое поколение шасси: быстрее, твёрже, беспощаднее.', cost: 60, x: 4, y: 4, requires: ['aut_uplinks'], effects: [{ kind: 'recruitment', amount: 5 }] },
+  // --- Спецпроекты ---
+  { id: 'aut_sp_gloomburn', faction: 'automatons', title: 'Прожиг Мрака', desc: 'СПЕЦПРОЕКТ: плазменные резаки выжигают коридоры в споровых тучах.', cost: 80, x: 3, y: 5, requires: ['aut_dev_ai'], effects: [{ kind: 'flag', flag: 'gloomTravel' }] },
+  { id: 'aut_sp_yards', faction: 'automatons', title: 'Орбитальные верфи', desc: 'Верфи, собирающие флот быстрее, чем враг успевает его жечь.', cost: 70, x: 4, y: 5, requires: ['aut_dev_legion'], effects: [{ kind: 'shipCap', amount: 3 }, { kind: 'fleet', ships: 6, infantry: 20 }] },
+  // --- Контроль территории ---
+  { id: 'aut_ter_curtain', faction: 'automatons', title: 'Железный занавес', desc: 'Граница из стали от полюса до полюса.', cost: 60, x: 6, y: 4, requires: ['aut_core'], effects: [{ kind: 'fortify', amount: 2 }] },
+  { id: 'aut_ter_grid', faction: 'automatons', title: 'Оборонная сеть', desc: 'Каждая планета — узел единой машины войны.', cost: 60, x: 7, y: 4, requires: ['aut_encircle'], effects: [{ kind: 'fortify', amount: 1 }, { kind: 'combat', amount: 0.08 }] },
+  { id: 'aut_ter_bastion', faction: 'automatons', title: 'Бастион Вальдиса', desc: 'Неприступный опорный сектор на дальнем рубеже.', cost: 65, x: 6, y: 5, requires: ['aut_ter_curtain'], effects: [{ kind: 'combat', amount: 0.1 }, { kind: 'fortify', amount: 1 }] },
 ];
 
 // ============================ ИЛЛЮМИНАТЫ ===================================
@@ -133,6 +163,17 @@ const illuminate: FocusNode[] = [
   { id: 'ill_reclaim', faction: 'illuminate', title: 'Вернуть утраченные миры', desc: 'Каждая планета, что была у кальмаров, снова станет их.', cost: 65, x: 6, y: 2, requires: ['ill_shrine'], effects: [{ kind: 'combat', amount: 0.2 }] },
   { id: 'ill_raid', faction: 'illuminate', title: 'Рейд на Супер-Землю', desc: 'Ударить в самое сердце Управляемой Демократии.', cost: 65, x: 7, y: 2, requires: ['ill_shrine'], effects: [{ kind: 'combat', amount: 0.15 }, { kind: 'warSupport', amount: 6 }] },
   { id: 'ill_deepstrike', faction: 'illuminate', title: 'Удары из глубокого космоса', desc: 'Возникнуть из ниоткуда; не оставить ничего.', cost: 60, x: 6, y: 3, requires: ['ill_reclaim'], effects: [{ kind: 'combat', amount: 0.12 }, { kind: 'shipCap', amount: 2 }] },
+
+  // --- Развитие ---
+  { id: 'ill_dev_hosts', faction: 'illuminate', title: 'Пробуждение Воинств', desc: 'Спящие флоты Великого Воинства выходят из тёмных гаваней.', cost: 60, x: 3, y: 4, requires: ['ill_singularity'], effects: [{ kind: 'recruitment', amount: 4 }] },
+  { id: 'ill_dev_phase', faction: 'illuminate', title: 'Глубокая фаза', desc: 'Корабли учатся существовать между слоями реальности.', cost: 65, x: 4, y: 4, requires: ['ill_rend'], effects: [{ kind: 'combat', amount: 0.12 }] },
+  { id: 'ill_dev_choir', faction: 'illuminate', title: 'Хор Пустоты', desc: 'Песнь, которую слышат все покорённые разумы разом.', cost: 60, x: 5, y: 4, requires: ['ill_darkenergy'], effects: [{ kind: 'industry', amount: 3 }, { kind: 'warSupport', amount: 6 }] },
+  // --- Спецпроекты ---
+  { id: 'ill_sp_abyss', faction: 'illuminate', title: 'Бездна', desc: 'СПЕЦПРОЕКТ: экзошпили утягивают целые миры из реального пространства.', cost: 90, x: 3, y: 5, requires: ['ill_dev_hosts'], effects: [{ kind: 'flag', flag: 'abyss' }] },
+  { id: 'ill_sp_gloompierce', faction: 'illuminate', title: 'Пронзить Мрак', desc: 'СПЕЦПРОЕКТ: фазовый сдвиг проводит флот сквозь любые споры.', cost: 80, x: 4, y: 5, requires: ['ill_dev_phase'], effects: [{ kind: 'flag', flag: 'gloomTravel' }] },
+  // --- Контроль территории ---
+  { id: 'ill_ter_nexus', faction: 'illuminate', title: 'Нексусы контроля', desc: 'Пси-якоря удерживают завоёванное в покорности.', cost: 60, x: 6, y: 4, requires: ['ill_deepstrike'], effects: [{ kind: 'fortify', amount: 2 }] },
+  { id: 'ill_ter_dominion', faction: 'illuminate', title: 'Доминион', desc: 'Галактика — лишь алтарь, ждущий своего часа.', cost: 65, x: 6, y: 5, requires: ['ill_ter_nexus'], effects: [{ kind: 'combat', amount: 0.15 }] },
 ];
 
 // ============================ ТЕРМИНИДЫ ====================================
@@ -170,6 +211,16 @@ const terminids: FocusNode[] = [
   { id: 'term_hive', faction: 'terminids', title: 'Ульи-крепости', desc: 'Бастионы из кости и хитина превращают планеты в гнёзда.', cost: 55, x: 6, y: 2, requires: ['term_oshaune'], effects: [{ kind: 'fortify', amount: 2 }] },
   { id: 'term_consume', faction: 'terminids', title: 'Пожрать Ядро', desc: 'Внутренние миры созрели. Рой голоден.', cost: 70, x: 7, y: 2, requires: ['term_oshaune'], effects: [{ kind: 'combat', amount: 0.2 }] },
   { id: 'term_swarm', faction: 'terminids', title: 'Бесконечный рой', desc: 'Против волны нет победы. Есть только отсрочка.', cost: 65, x: 7, y: 3, requires: ['term_consume'], effects: [{ kind: 'recruitment', amount: 6 }] },
+
+  // --- Развитие ---
+  { id: 'term_dev_predator', faction: 'terminids', title: 'Штамм хищников', desc: 'Выведенные охотиться на охотников.', cost: 60, x: 3, y: 4, requires: ['term_hivemind'], effects: [{ kind: 'combat', amount: 0.15 }] },
+  { id: 'term_dev_apex', faction: 'terminids', title: 'Апекс-эволюция', desc: 'Вершина пищевой цепи галактики сменилась.', cost: 70, x: 3, y: 5, requires: ['term_dev_predator'], effects: [{ kind: 'combat', amount: 0.15 }] },
+  // --- Спецпроекты ---
+  { id: 'term_sp_gloomcloud', faction: 'terminids', title: 'Споровое облако', desc: 'СПЕЦПРОЕКТ: Мрак приходит в движение. В «Решениях» можно направлять его в сектора — окутанные миры недоступны чужим флотам.', cost: 85, x: 4, y: 4, requires: ['term_noqueen'], effects: [{ kind: 'flag', flag: 'gloomSpread' }] },
+  { id: 'term_sp_deepgloom', faction: 'terminids', title: 'Сердце Мрака', desc: 'В глубине спор зреет нечто, чего не видел никто из живых.', cost: 70, x: 4, y: 5, requires: ['term_sp_gloomcloud'], effects: [{ kind: 'combat', amount: 0.1 }, { kind: 'fortify', amount: 1 }] },
+  // --- Контроль территории ---
+  { id: 'term_ter_tunnels', faction: 'terminids', title: 'Глубинные туннели', desc: 'Рой движется под поверхностью — там, куда не достают бомбы.', cost: 60, x: 6, y: 4, requires: ['term_hive'], effects: [{ kind: 'fortify', amount: 2 }] },
+  { id: 'term_ter_infest', faction: 'terminids', title: 'Заражение миров', desc: 'Каждый захваченный мир сам становится гнездом.', cost: 60, x: 7, y: 4, requires: ['term_swarm'], effects: [{ kind: 'recruitment', amount: 4 }] },
 ];
 
 export const FOCUS_TREES: Record<FactionId, FocusNode[]> = {

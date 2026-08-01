@@ -2,6 +2,7 @@ import type { FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS } from '../data/factions';
 import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
+import { canEnter } from './supply';
 
 const FLEET_COST = 45;
 const INFANTRY_CAP = 45;
@@ -115,13 +116,13 @@ function nearestHostileWorld(state: GameState, faction: FactionId, from: string)
   return bfsFind(
     state,
     from,
-    (p) => p.owner === faction,
-    (p) => p.owner !== faction && areHostile(faction, p.owner)
+    (p) => p.owner === faction && canEnter(state, faction, p),
+    (p) => p.owner !== faction && areHostile(faction, p.owner) && canEnter(state, faction, p)
   );
 }
 
 function nearestOwnedWorld(state: GameState, faction: FactionId, from: string): string | null {
-  return bfsFind(state, from, () => true, (p) => p.owner === faction);
+  return bfsFind(state, from, (p) => canEnter(state, faction, p), (p) => p.owner === faction);
 }
 
 function mostThreatenedWorld(state: GameState, faction: FactionId): string | null {

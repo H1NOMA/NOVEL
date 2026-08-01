@@ -181,10 +181,11 @@ export class GalaxyScene {
   private refreshSupplyColors(): void {
     const arr = this.supplyColors.array as Float32Array;
     this.state.galaxy.lines.forEach((ln, li) => {
-      const oa = this.state.galaxy.planets.get(ln.a)!.owner;
-      const ob = this.state.galaxy.planets.get(ln.b)!.owner;
-      const ca = new THREE.Color(FACTIONS[oa].color);
-      const cb = new THREE.Color(FACTIONS[ob].color);
+      const pa = this.state.galaxy.planets.get(ln.a)!;
+      const pb = this.state.galaxy.planets.get(ln.b)!;
+      const dim = pa.abyss || pb.abyss ? 0.12 : 1;
+      const ca = new THREE.Color(FACTIONS[pa.owner].color).multiplyScalar(dim);
+      const cb = new THREE.Color(FACTIONS[pb.owner].color).multiplyScalar(dim);
       const base = li * 6;
       arr[base] = ca.r * 0.5; arr[base + 1] = ca.g * 0.5; arr[base + 2] = ca.b * 0.5;
       arr[base + 3] = cb.r * 0.5; arr[base + 4] = cb.g * 0.5; arr[base + 5] = cb.b * 0.5;
@@ -216,7 +217,11 @@ export class GalaxyScene {
   refreshOwners(): void {
     for (const id of this.state.galaxy.order) {
       const p = this.state.galaxy.planets.get(id)!;
-      this.planets.get(id)?.setOwner(FACTIONS[p.owner].color);
+      const vis = this.planets.get(id);
+      if (!vis) continue;
+      vis.setOwner(FACTIONS[p.owner].color);
+      vis.setGloom(p.gloom);
+      vis.setAbyss(p.abyss);
     }
     this.refreshSupplyColors();
     this.refreshSectors();
@@ -226,6 +231,15 @@ export class GalaxyScene {
 
   setSelected(id: string | null): void {
     for (const [pid, vis] of this.planets) vis.setSelected(pid === id);
+  }
+
+  private hoveredId: string | null = null;
+  setHovered(id: string | null): void {
+    if (id === this.hoveredId) return;
+    if (this.hoveredId) this.planets.get(this.hoveredId)?.setHovered(false);
+    this.hoveredId = id;
+    if (id) this.planets.get(id)?.setHovered(true);
+    this.canvas.style.cursor = id ? 'pointer' : 'default';
   }
 
   focusOn(id: string): void {
@@ -262,8 +276,17 @@ export class GalaxyScene {
       py = e.clientY;
       this.canvas.setPointerCapture(e.pointerId);
     });
+    let lastHoverCheck = 0;
     this.canvas.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
+      if (!dragging) {
+        const now = performance.now();
+        if (now - lastHoverCheck > 70) {
+          lastHoverCheck = now;
+          const id = this.pick(e.clientX, e.clientY);
+          this.setHovered(id);
+        }
+        return;
+      }
       const dx = e.clientX - px;
       const dy = e.clientY - py;
       px = e.clientX;
@@ -329,7 +352,7 @@ export class GalaxyScene {
   render(): void {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
-    for (const vis of this.planets.values()) vis.update(t);
+    for (const vis of this.planets.values()) vis.update(t, dt);
     this.fleets.update(this.state, dt);
     this.updateCamera();
     this.renderer.render(this.scene, this.camera);

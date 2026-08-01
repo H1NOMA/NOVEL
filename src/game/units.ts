@@ -1,6 +1,7 @@
-import type { Fleet, Planet, Vec2 } from '../core/types';
+import type { FactionId, Fleet, Planet, Vec2 } from '../core/types';
 import { findPath, type Galaxy } from './galaxy';
 import { pushLog, type GameState } from './state';
+import { canEnter, nearestFriendly } from './supply';
 
 /** World units a fleet travels per game-day. */
 export const MOVE_SPEED = 72;
@@ -12,8 +13,8 @@ function edgeLength(galaxy: Galaxy, a: string, b: string): number {
 }
 
 /** Can a fleet of `faction` transit *through* this planet (not as a destination)? */
-function transitable(p: Planet, faction: string): boolean {
-  return p.owner === faction;
+function transitable(state: GameState, p: Planet, faction: FactionId): boolean {
+  return p.owner === faction && canEnter(state, faction, p);
 }
 
 /** Order a fleet to move/invade toward a target planet along supply lines. */
@@ -22,12 +23,37 @@ export function orderFleetTo(state: GameState, fleet: Fleet, target: string, inv
     fleet.order = { kind: 'idle' };
     return true;
   }
+  const targetPlanet = state.galaxy.planets.get(target);
+  if (!targetPlanet || !canEnter(state, fleet.faction, targetPlanet)) return false;
   const from = fleet.transit ? fleet.transit.from : fleet.at;
-  const path = findPath(state.galaxy, from, target, (p) => transitable(p, fleet.faction) || p.id === target);
+  const path = findPath(state.galaxy, from, target, (p) => transitable(state, p, fleet.faction) || p.id === target);
   if (!path || path.length < 2) return false;
   fleet.transit = { from, to: target, path, progress: 0, legIndex: 0 };
   fleet.order = invade ? { kind: 'invade', target } : { kind: 'move', target };
   return true;
+}
+
+/**
+ * Отступление: флоты фракции на орбите планеты уходят к ближайшему своему
+ * миру, если он достижим (не в окружении, не за Мраком/Бездной).
+ * Возвращает число отступивших флотов.
+ */
+export function retreatFleets(state: GameState, planetId: string, faction: FactionId): number {
+  let retreated = 0;
+  const refuge = nearestFriendly(state, faction, planetId);
+  if (!refuge) return 0;
+  for (const fid of [...state.fleetOrder]) {
+    const f = state.fleets.get(fid);
+    if (!f || f.faction !== faction || f.at !== planetId || f.transit) continue;
+    // Отступающие прорываются и через чужое пространство — лишь бы оно было
+    // проходимым (не Мрак и не Бездна).
+    const path = findPath(state.galaxy, planetId, refuge, (p) => canEnter(state, faction, p));
+    if (!path || path.length < 2) continue;
+    f.transit = { from: planetId, to: refuge, path, progress: 0, legIndex: 0 };
+    f.order = { kind: 'move', target: refuge };
+    retreated++;
+  }
+  return retreated;
 }
 
 /** Advance all in-transit fleets by `days` (may be fractional). Returns arrivals. */

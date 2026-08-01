@@ -1,6 +1,8 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
 import { fleetsAt, pushLog, removeFleet, type GameState } from './state';
+import { depotBonus } from './supply';
+import { retreatFleets } from './units';
 
 // ---------------------------------------------------------------------------
 // Combat resolves in two layers each day:
@@ -86,7 +88,11 @@ export function resolveGround(state: GameState): void {
       // No invaders — decay any stale battle and slowly regrow garrison.
       if (planet.battle) {
         planet.battle.liberation = Math.max(0, planet.battle.liberation - 6);
-        if (planet.battle.liberation <= 0) planet.battle = undefined;
+        if (planet.battle.liberation <= 0) {
+          planet.battle = undefined;
+          // Вторжение отбито — города возвращаются законному владельцу.
+          for (const c of planet.cities) c.holder = planet.owner;
+        }
       }
       regrowGarrison(state, planet);
       continue;
@@ -102,7 +108,9 @@ export function resolveGround(state: GameState): void {
     for (const [fac, val] of attackPower) if (val > leadVal) { leadVal = val; lead = fac; }
 
     const attackerForce = leadVal;
-    const defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
+    let defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
+    // Планета в окружении (без снабжения) обороняется вполсилы.
+    if (!planet.supplied) defBonus *= 0.55;
     const defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
 
     if (!planet.battle || planet.battle.attacker !== lead) {
@@ -129,7 +137,23 @@ export function resolveGround(state: GameState): void {
 
     // Attrition: both sides lose strength; the meter shifts toward the winner.
     const ratio = attackerForce / (attackerForce + defenderForce + 0.001);
-    b.liberation = clamp(b.liberation + (ratio - 0.5) * 34, 0, 100);
+    // Каждый захваченный город укрепляет плацдарм атакующего.
+    const citiesHeld = planet.cities.filter((c) => c.holder === lead).length;
+    b.liberation = clamp(b.liberation + (ratio - 0.5) * 34 + citiesHeld * 1.1, 0, 100);
+
+    // Города переходят из рук в руки по мере освобождения планеты.
+    const CITY_THRESHOLDS = [30, 55, 80];
+    planet.cities.forEach((city, ci) => {
+      const th = CITY_THRESHOLDS[Math.min(ci, CITY_THRESHOLDS.length - 1)]!;
+      if (b.liberation >= th && city.holder !== lead) {
+        city.holder = lead;
+        pushLog(state, {
+          faction: lead,
+          text: `Город ${city.name} (${planet.name}) захвачен силами ${FACTION_GEN[lead]}.`,
+          tone: planet.owner === state.player ? 'bad' : lead === state.player ? 'good' : 'info',
+        });
+      }
+    });
 
     // Casualties reduce garrison and landed infantry.
     const gLoss = Math.min(planet.garrison, attackerForce * 0.04);
@@ -159,6 +183,16 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   }
   planet.garrison = Math.max(8, landed);
   planet.fortification = Math.max(0, planet.fortification - 2);
+  for (const c of planet.cities) c.holder = attacker;
+  // Флоты прежнего владельца отступают в ближайший свой мир (если не окружены).
+  const retreated = retreatFleets(state, planet.id, prev);
+  if (retreated > 0) {
+    pushLog(state, {
+      faction: prev,
+      text: `Флоты ${FACTION_GEN[prev]} отступают с орбиты ${planet.name}.`,
+      tone: 'info',
+    });
+  }
   pushLog(state, {
     faction: attacker,
     text: `${planet.name} — планета захвачена силами ${FACTION_GEN[attacker]}${planet.isCapital ? '. Пала СТОЛИЦА!' : '.'}`,
@@ -199,9 +233,17 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
 }
 
 function regrowGarrison(state: GameState, planet: Planet): void {
+  // Окружённая планета не получает пополнений — гарнизон медленно тает.
+  if (!planet.supplied) {
+    planet.garrison = Math.max(1, planet.garrison - 0.5);
+    return;
+  }
   const cap = planet.isCapital ? 140 : 40 + planet.value * 8;
   if (planet.garrison < cap) {
-    planet.garrison = Math.min(cap, planet.garrison + 0.4 + state.factions[planet.owner].bonuses.recruitment * 0.04);
+    let growth = 0.4 + state.factions[planet.owner].bonuses.recruitment * 0.04;
+    // Точка снабжения здесь или на соседней своей планете ускоряет пополнение.
+    if (depotBonus(state, planet)) growth *= 1.8;
+    planet.garrison = Math.min(cap, planet.garrison + growth);
   }
 }
 

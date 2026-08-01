@@ -6,6 +6,8 @@ import { BIOMES } from '../data/biomes';
 import { canSelectFocus, selectFocus } from '../game/focus';
 import { orderFleetTo, garrisonReinforce } from '../game/units';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
+import { buildDepot, DEPOT_COST } from '../game/supply';
+import { directGloom, raiseSpire } from '../game/decisions';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
 
@@ -26,6 +28,10 @@ export class UI {
   private toastEl!: HTMLElement;
   private focusTab: FactionId = 'superEarth';
   private toastTimer = 0;
+  private decisionsEl!: HTMLElement;
+  /** Позиция карточки планеты (сохраняется между открытиями). */
+  private cardPos: { x: number; y: number } | null = null;
+  private spireMode = false;
 
   constructor(private state: GameState, private scene: GalaxyScene, private clock: GameClock) {
     this.root = document.getElementById('ui')!;
@@ -41,6 +47,7 @@ export class UI {
     this.focusOverlay = el('div'); this.focusOverlay.id = 'focus-overlay'; this.focusOverlay.classList.add('hidden');
     this.logEl = el('div'); this.logEl.id = 'log';
     this.toastEl = el('div'); this.toastEl.id = 'toast';
+    this.decisionsEl = el('div'); this.decisionsEl.id = 'decisions'; this.decisionsEl.classList.add('hidden');
     const help = el('div', undefined, `
       <b>УПРАВЛЕНИЕ</b><br>
       ЛКМ-перетаскивание — камера · Колесо — зум · ПКМ-перетаскивание — наклон<br>
@@ -49,7 +56,7 @@ export class UI {
       <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
       У терминидов её нет — выжигайте каждый улей.`);
     help.id = 'help';
-    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.logEl, this.toastEl, help);
+    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.logEl, this.toastEl, help);
   }
 
   private wire(): void {
@@ -117,9 +124,11 @@ export class UI {
         <div class="hud-day">ДЕНЬ ${s.day}</div>
       </div>
       <button class="hud-btn" id="focus-btn">◈ ДРЕВО ФОКУСОВ</button>
+      <button class="hud-btn" id="decisions-btn">⚙ РЕШЕНИЯ</button>
       <div class="hud-factions">${chips}</div>`;
 
     this.hud.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
+    this.hud.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
       b.addEventListener('click', () => { this.clock.setSpeed(Number(b.dataset.s) as 0 | 1 | 2 | 3); this.renderClock(); });
     });
@@ -177,31 +186,57 @@ export class UI {
     const id = s.selectedPlanet;
     if (!id) { this.panel.classList.add('hidden'); return; }
     const p = s.galaxy.planets.get(id);
-    if (!p) { this.panel.classList.add('hidden'); return; }
+    if (!p || (p.abyss && s.player !== 'illuminate')) { this.panel.classList.add('hidden'); return; }
     this.panel.classList.remove('hidden');
 
     const here = fleetsAt(s, id);
     const playerFleets = here.filter((f) => f.faction === s.player);
     const enemyFleets = here.filter((f) => f.faction !== s.player);
 
+    // Контроль над планетой: при битве — шкала освобождения, иначе 100% владельца.
+    const b = p.battle;
+    const controlPct = b ? 100 - b.liberation : 100;
+    const attackerPct = b ? b.liberation : 0;
+
     let html = `
-      <div class="pp-name">${p.name}${p.isCapital ? ' ★' : ''}</div>
-      <div class="pp-sub">${p.isCapital ? 'СТОЛИЧНЫЙ МИР · ' : ''}${p.sector} · ${BIOMES[p.biome].label}</div>
+      <div class="pc-head" id="pc-drag">
+        <span class="pc-title">${p.name}${p.isCapital ? ' ★' : ''}</span>
+        <button class="pc-close" id="pc-close">✕</button>
+      </div>
+      <div class="pc-body">
+      <div class="pp-sub">${p.isCapital ? 'СТОЛИЧНЫЙ МИР · ' : ''}${p.sector} · ${BIOMES[p.biome].label}${p.gloom ? ' · ВО МРАКЕ' : ''}</div>
       <div class="pp-owner"><span class="fac-dot" style="background:${FACTIONS[p.owner].color}"></span>${FACTIONS[p.owner].name}</div>
+
+      <div class="pp-section">Контроль</div>
+      <div class="ctrl-bar">
+        <span style="width:${controlPct}%;background:${FACTIONS[p.owner].color}"></span>
+        ${b ? `<span style="width:${attackerPct}%;background:${FACTIONS[b.attacker].color}"></span>` : ''}
+      </div>
+      <div class="ctrl-row">
+        <span style="color:${FACTIONS[p.owner].color}">${FACTIONS[p.owner].short} ${controlPct.toFixed(0)}%</span>
+        ${b ? `<span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} ${attackerPct.toFixed(0)}%</span>` : ''}
+      </div>
+      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день</div>` : ''}
+
+      <div class="pp-stat"><span>Снабжение</span><b>${p.supplied ? (p.depot ? '▣ Точка снабжения' : '✓ Обеспечено') : '<span style="color:var(--fed)">⛔ ОКРУЖЕНИЕ</span>'}</b></div>
       <div class="pp-stat"><span>Гарнизон</span><b>${p.garrison.toFixed(0)}</b></div>
       <div class="pp-stat"><span>Укрепления</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
       <div class="pp-stat"><span>Стратегическая ценность</span><b>${p.value}</b></div>
-      <div class="pp-stat"><span>Линии снабжения</span><b>${p.links.length}</b></div>`;
+      <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${enemyFleets.length}</span></b></div>`;
 
-    if (p.battle) {
-      const b = p.battle;
-      html += `<div class="battle-box">
-        <b style="color:var(--fed)">⚔ БИТВА · День ${b.days}</b>
-        <div class="pp-stat"><span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} — штурм</span>
-          <span style="color:${FACTIONS[b.defender].color}">${FACTIONS[b.defender].short} — оборона</span></div>
-        <div class="bar"><span style="width:${b.liberation}%;background:${FACTIONS[b.attacker].color}"></span></div>
-        <div style="text-align:center;font-size:11px;margin-top:3px">Освобождение ${b.liberation.toFixed(0)}%</div>
-      </div>`;
+    if (p.owner === s.player && !p.depot) {
+      const can = s.factions[s.player].production >= DEPOT_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="depot" ${can ? '' : 'disabled'}>▣ Построить точку снабжения (${DEPOT_COST} пр. · есть ${s.factions[s.player].production.toFixed(0)})</button>`;
+    }
+    if (this.spireMode && p.owner === 'illuminate' && s.player === 'illuminate') {
+      html += `<button class="mini-btn wide" data-act="spire">▲ Воздвигнуть экзошпиль</button>`;
+    }
+
+    if (p.cities.length) {
+      html += `<div class="pp-section">Города</div>`;
+      p.cities.forEach((c) => {
+        html += `<div class="pp-stat"><span>🏙 ${c.name}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
+      });
     }
 
     html += `<div class="pp-section">Ваши силы здесь</div>`;
@@ -226,24 +261,147 @@ export class UI {
       });
     }
 
-    html += `<div class="hint">${s.selectedFleet ? 'Флот выбран — кликните планету назначения.' : 'Выберите флот, затем кликните целевую планету для перелёта или вторжения.'}</div>`;
+    html += `<div class="hint">${s.selectedFleet ? 'Флот выбран — кликните планету назначения.' : 'Выберите флот, затем кликните целевую планету для перелёта или вторжения.'}</div>
+      </div>`;
 
     this.panel.innerHTML = html;
+    this.applyCardPos();
+    this.wireCard(p);
+  }
+
+  /** Позиционирование и перетаскивание карточки. */
+  private applyCardPos(): void {
+    if (this.cardPos) {
+      this.panel.style.left = `${this.cardPos.x}px`;
+      this.panel.style.top = `${this.cardPos.y}px`;
+      this.panel.style.transform = 'none';
+    } else {
+      this.panel.style.left = '50%';
+      this.panel.style.top = '50%';
+      this.panel.style.transform = 'translate(-50%, -50%)';
+    }
+  }
+
+  private wireCard(p: Planet): void {
+    const s = this.state;
+    this.panel.querySelector('#pc-close')?.addEventListener('click', () => {
+      s.selectedPlanet = null;
+      this.scene.setSelected(null);
+      this.renderPanel();
+    });
+
+    // Перетаскивание за заголовок.
+    const head = this.panel.querySelector<HTMLElement>('#pc-drag');
+    if (head) {
+      head.addEventListener('pointerdown', (e) => {
+        if ((e.target as HTMLElement).id === 'pc-close') return;
+        e.preventDefault();
+        const rect = this.panel.getBoundingClientRect();
+        const offX = e.clientX - rect.left;
+        const offY = e.clientY - rect.top;
+        const move = (ev: PointerEvent) => {
+          this.cardPos = {
+            x: Math.max(0, Math.min(window.innerWidth - rect.width, ev.clientX - offX)),
+            y: Math.max(0, Math.min(window.innerHeight - 80, ev.clientY - offY)),
+          };
+          this.applyCardPos();
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      });
+    }
+
     this.panel.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        const act = btn.dataset.act;
+        if (act === 'depot') {
+          if (buildDepot(s, s.player, p.id)) {
+            this.toast('ТОЧКА СНАБЖЕНИЯ РАЗВЁРНУТА');
+            this.renderPanel();
+            this.renderStability();
+          }
+          return;
+        }
+        if (act === 'spire') {
+          if (raiseSpire(s, p.id)) {
+            this.spireMode = false;
+            this.toast('ЭКЗОШПИЛЬ ВОЗДВИГНУТ');
+            this.renderPanel();
+          }
+          return;
+        }
         const fid = btn.dataset.fleet!;
         const fleet = s.fleets.get(fid);
         if (!fleet) return;
-        if (btn.dataset.act === 'select') {
+        if (act === 'select') {
           s.selectedFleet = s.selectedFleet === fid ? null : fid;
           this.renderPanel();
-        } else if (btn.dataset.act === 'deploy') {
+        } else if (act === 'deploy') {
           garrisonReinforce(s, fleet);
           this.scene.refreshOwners();
           this.renderPanel();
         }
       });
+    });
+  }
+
+  // ---------------- Decisions ----------------
+
+  private toggleDecisions(): void {
+    const hidden = this.decisionsEl.classList.toggle('hidden');
+    if (!hidden) this.renderDecisions();
+  }
+
+  private renderDecisions(): void {
+    const s = this.state;
+    const fs = s.factions[s.player];
+    let html = `<div class="pc-head"><span class="pc-title">⚙ РЕШЕНИЯ</span>
+      <button class="pc-close" id="dec-close">✕</button></div><div class="pc-body">`;
+
+    html += `<div class="dec-item">
+      <b>▣ Точки снабжения</b>
+      <div class="hint">Стройте на своих планетах через карточку планеты (${DEPOT_COST} производства). Точка ускоряет пополнение гарнизона планеты и всех соседних своих миров.</div>
+    </div>`;
+
+    if (fs.flags.gloomTravel) {
+      html += `<div class="dec-item"><b>☁ Прорыв Мрака — активен</b>
+        <div class="hint">Флоты фракции могут входить в миры, окутанные Мраком.</div></div>`;
+    }
+
+    if (fs.flags.gloomSpread) {
+      html += `<div class="dec-item"><b>☁ Направить Мрак</b>
+        <div class="hint">Выберите сектор — споровые тучи начнут окутывать его миры.</div>`;
+      for (const sector of s.galaxy.sectors.values()) {
+        const own = sector.planets.filter((pid) => s.galaxy.planets.get(pid)!.owner === s.player).length;
+        if (!own) continue;
+        const active = s.gloomTarget === sector.id;
+        html += `<button class="mini-btn wide ${active ? 'sel' : ''}" data-gloom="${sector.id}">${active ? '☁ ' : ''}${sector.name} (${own} миров)</button>`;
+      }
+      html += `</div>`;
+    }
+
+    if (fs.flags.abyss) {
+      html += `<div class="dec-item"><b>▲ Экзошпиль Бездны</b>
+        <div class="hint">Включите режим и нажмите «Воздвигнуть экзошпиль» в карточке своей планеты. Через 30 дней мир уйдёт в Бездну.</div>
+        <button class="mini-btn wide ${this.spireMode ? 'sel' : ''}" id="dec-spire">${this.spireMode ? '✓ Режим выбора активен' : 'Выбрать планету'}</button></div>`;
+    }
+
+    html += `</div>`;
+    this.decisionsEl.innerHTML = html;
+    this.decisionsEl.querySelector('#dec-close')?.addEventListener('click', () => this.decisionsEl.classList.add('hidden'));
+    this.decisionsEl.querySelectorAll<HTMLButtonElement>('[data-gloom]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (directGloom(this.state, b.dataset.gloom!)) this.renderDecisions();
+      }));
+    this.decisionsEl.querySelector('#dec-spire')?.addEventListener('click', () => {
+      this.spireMode = !this.spireMode;
+      this.renderDecisions();
+      this.renderPanel();
     });
   }
 

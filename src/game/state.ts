@@ -26,6 +26,10 @@ export interface GameState {
   log: LogEntry[];
   superFederationRisen: boolean;
   winner: FactionId | null;
+  /** Экзошпили иллюминатов: планета → дней до погружения в Бездну. */
+  spires: { planet: string; daysLeft: number }[];
+  /** Сектор, выбранный терминидами для распространения Мрака. */
+  gloomTarget: string | null;
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -40,6 +44,7 @@ function initFaction(id: FactionId): FactionState {
     bonuses: { combat: 0, recruitment: 0, industry: 0, shipCap: 0, fortify: 0 },
     stability: id === 'superEarth' ? 62 : 100,
     specialUnlocked: false,
+    flags: {},
     alive: true,
   };
 }
@@ -65,6 +70,8 @@ export function createGame(seed: number): GameState {
     log: [],
     superFederationRisen: false,
     winner: null,
+    spires: [],
+    gloomTarget: null,
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.

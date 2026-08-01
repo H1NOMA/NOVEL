@@ -88,6 +88,9 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
     case 'manpower':
       fs.manpower = Math.min(500, fs.manpower + eff.amount);
       break;
+    case 'flag':
+      fs.flags[eff.flag] = true;
+      break;
     case 'fleet': {
       const worlds = planetsOf(state, faction);
       const home = worlds.find((p) => p.isCapital) ?? worlds[0];

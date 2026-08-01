@@ -39,9 +39,9 @@ export function createNebulaDisc(worldRadius: number): THREE.Mesh {
   cv.width = cv.height = size;
   const ctx = cv.getContext('2d')!;
   const g = ctx.createRadialGradient(size / 2, size / 2, 10, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(120,180,255,0.32)');
-  g.addColorStop(0.25, 'rgba(60,110,190,0.2)');
-  g.addColorStop(0.6, 'rgba(30,50,110,0.1)');
+  g.addColorStop(0, 'rgba(120,180,255,0.2)');
+  g.addColorStop(0.25, 'rgba(60,110,190,0.12)');
+  g.addColorStop(0.6, 'rgba(30,50,110,0.06)');
   g.addColorStop(1, 'rgba(8,10,30,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
