@@ -77,35 +77,72 @@ precision highp float;
 uniform vec3 uLand; uniform vec3 uSea; uniform vec3 uAtmo;
 uniform vec3 uTint; uniform float uWater; uniform float uRough;
 uniform float uClouds; uniform float uTime; uniform float uSeed;
-uniform float uFreq;
+uniform float uFreq; uniform float uWarp; uniform float uBands;
+uniform float uCity; uniform float uCapSize;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
 void main(){
   vec3 n = normalize(vObj);
   vec3 sp = n * (uFreq + uRough) + vec3(uSeed);
-  float h = fbm(sp);
-  float land = smoothstep(uWater - 0.06, uWater + 0.06, h * 0.5 + 0.5);
+
+  // Доменное искажение — континенты обретают естественные рваные очертания.
+  vec3 w = vec3(fbm(sp + 13.1), fbm(sp + 71.7), fbm(sp + 29.3));
+  vec3 q = sp + uWarp * w;
+  float h = fbm(q);
+
+  // Газовые гиганты: турбулентные широтные полосы.
+  if (uBands > 0.5) {
+    h = mix(h, sin(n.y * uBands + w.x * 4.0 + uSeed) * 0.55, 0.7);
+  }
+
+  float hn = h * 0.5 + 0.5;
+  float land = smoothstep(uWater - 0.05, uWater + 0.05, hn);
   vec3 surf = mix(uSea, uLand, land);
-  float detail = fbm(sp * 3.1);
-  surf *= 0.82 + 0.32 * (detail * 0.5 + 0.5);
-  // polar ice caps
+
+  // Высотная окраска суши: низины темнее и сочнее, нагорья светлее.
+  float relief = fbm(q * 2.6);
+  surf = mix(surf * 0.8, surf * 1.25, smoothstep(-0.4, 0.6, relief) * land);
+  // Мелкий рельеф.
+  float detail = fbm(q * 5.3);
+  surf *= 0.86 + 0.24 * (detail * 0.5 + 0.5);
+  // Прибрежная полоса чуть светлее (отмели).
+  float shore = smoothstep(uWater - 0.05, uWater, hn) * (1.0 - land);
+  surf += uSea * shore * 0.5;
+
+  // Полярные шапки переменного размера.
   float lat = abs(n.y);
-  surf = mix(surf, vec3(0.92, 0.96, 1.0), smoothstep(0.82, 0.95, lat) * 0.7);
-  // clouds
-  float c = fbm(sp * 1.7 + vec3(uTime * 0.03, 0.0, 0.0));
-  c = smoothstep(0.35, 0.75, c * 0.5 + 0.5) * uClouds;
-  surf = mix(surf, vec3(1.0), c * 0.55);
-  // lighting
+  float cap = smoothstep(uCapSize, uCapSize + 0.1, lat + relief * 0.05);
+  surf = mix(surf, vec3(0.93, 0.96, 1.0), cap * 0.85);
+
+  // Два слоя облаков: крупные массивы + перистая рябь.
+  float c1 = fbm(sp * 1.6 + vec3(uTime * 0.03, 0.0, 0.0));
+  float c2 = fbm(sp * 4.2 + vec3(-uTime * 0.05, uTime * 0.01, 0.0));
+  float clouds = smoothstep(0.32, 0.72, c1 * 0.5 + 0.5) * 0.75 + smoothstep(0.55, 0.9, c2 * 0.5 + 0.5) * 0.35;
+  clouds *= uClouds;
+  surf = mix(surf, vec3(1.0), clamp(clouds, 0.0, 1.0) * 0.6);
+
+  // Освещение.
   vec3 nrm = normalize(vNormal);
   vec3 sun = normalize(vec3(0.55, 0.35, 0.75));
   float diff = clamp(dot(nrm, sun), 0.0, 1.0);
-  vec3 col = surf * (0.3 + 0.95 * diff);
-  // owner-coloured rim light: the ONLY colour-coding on the sphere itself,
-  // so the map reads as exactly four faction colours.
+  vec3 col = surf * (0.26 + 1.0 * diff);
+
+  // Солнечный блик на воде.
   vec3 vd = normalize(vView);
+  float spec = pow(clamp(dot(reflect(-sun, nrm), vd), 0.0, 1.0), 28.0);
+  col += vec3(1.0, 0.97, 0.85) * spec * (1.0 - land) * (1.0 - clouds) * 0.55;
+
+  // Ночные огни городов на тёмной стороне обитаемых миров.
+  if (uCity > 0.5) {
+    float night = 1.0 - smoothstep(0.0, 0.25, diff);
+    float lights = smoothstep(0.72, 0.86, fbm(q * 7.0) * 0.5 + 0.5);
+    col += vec3(1.0, 0.82, 0.45) * lights * night * land * (1.0 - clouds) * 0.9;
+  }
+
+  // Фракционный ободок — единственная цветовая кодировка на сфере.
   float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 3.0);
   col += uTint * fres * 1.15;
-  col += uAtmo * fres * 0.15;
+  col += uAtmo * fres * 0.12;
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -130,7 +167,8 @@ void main(){
 }
 `;
 
-const SPHERE_GEO = new THREE.SphereGeometry(1, 40, 40);
+const SPHERE_GEO = new THREE.SphereGeometry(1, 72, 54);
+const SHELL_GEO = new THREE.SphereGeometry(1, 28, 20);
 
 // Кольцо наведения: три дуги с тремя квадратными вырезами, равномерно
 // распределёнными по окружности. Вращается вокруг оси планеты.
@@ -194,6 +232,11 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const clouds = Math.min(1, Math.max(0, biome.clouds + rand() * 0.25 - 0.12));
   const spinSpeed = (0.0012 + rand() * 0.003) * (rand() < 0.15 ? -1 : 1);
   const tilt = (rand() * 2 - 1) * 0.35;
+  // Дополнительная уникальность поверхности.
+  const warp = 0.35 + rand() * 0.85;                       // рваность континентов
+  const bands = planet.biome === 'gas' ? 6 + rand() * 10 : 0; // полосы гигантов
+  const capSize = 0.72 + rand() * 0.2;                     // размер полярных шапок
+  const city = planet.cities.length > 0 ? 1 : 0;           // ночные огни городов
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
@@ -209,6 +252,10 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uTime: { value: 0 },
       uSeed: { value: (planet.seed % 8933) * 0.017 },
       uFreq: { value: freq },
+      uWarp: { value: warp },
+      uBands: { value: bands },
+      uCity: { value: city },
+      uCapSize: { value: capSize },
     },
   });
 
@@ -227,7 +274,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
-  const atmo = new THREE.Mesh(SPHERE_GEO, atmoMat);
+  const atmo = new THREE.Mesh(SHELL_GEO, atmoMat);
   atmo.scale.setScalar(baseRadius * 1.22);
 
   // Кольцо наведения (появляется только при hover/выборе, крутится вокруг оси).
@@ -243,7 +290,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     opacity: 0.9,
     depthWrite: false,
   });
-  const gloomShell = new THREE.Mesh(SPHERE_GEO, gloomMat);
+  const gloomShell = new THREE.Mesh(SHELL_GEO, gloomMat);
   gloomShell.scale.setScalar(baseRadius * 1.28);
   gloomShell.visible = false;
 
@@ -254,7 +301,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const gloomHaze = new THREE.Mesh(SPHERE_GEO, gloomHazeMat);
+  const gloomHaze = new THREE.Mesh(SHELL_GEO, gloomHazeMat);
   gloomHaze.scale.set(baseRadius * 1.75, baseRadius * 1.45, baseRadius * 1.75);
   gloomHaze.visible = false;
 
@@ -265,7 +312,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     opacity: 0.85,
     depthWrite: false,
   });
-  const abyssShell = new THREE.Mesh(SPHERE_GEO, abyssMat);
+  const abyssShell = new THREE.Mesh(SHELL_GEO, abyssMat);
   abyssShell.scale.setScalar(baseRadius * 1.1);
   abyssShell.visible = false;
 

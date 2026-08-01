@@ -5,6 +5,8 @@ import { bus } from '../core/emitter';
 import { createPlanetVisual, type PlanetVisual } from './planetMesh';
 import { createNebulaDisc, createStarfield } from './starfield';
 import { FleetLayer } from './fleets';
+import { emblemSprite } from './emblems';
+import type { FactionId } from '../core/types';
 
 export const GALAXY_SCALE = 0.03;
 
@@ -44,6 +46,9 @@ export class GalaxyScene {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     this.renderer.setClearColor(0x05070f, 1);
+    // Кинематографичный тон-маппинг — сочнее свет и глубже тени.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 2000);
     this.radiusWorld = state.galaxy.radiusMax * GALAXY_SCALE;
@@ -53,6 +58,7 @@ export class GalaxyScene {
     this.buildSectors();
     this.buildSupplyLines();
     this.buildPlanets();
+    this.buildHomeworldMarkers();
     this.scene.add(this.fleets.group);
 
     this.resize();
@@ -177,6 +183,31 @@ export class GalaxyScene {
     this.refreshOwners();
   }
 
+  /** Эмблемы родных миров фракций, парящие над их планетами. */
+  private homeMarkers: { sprite: THREE.Sprite; baseY: number; phase: number }[] = [];
+  private fedMarkerPlaced = false;
+
+  private addHomeMarker(planetId: string, faction: FactionId): void {
+    const p = this.state.galaxy.planets.get(planetId);
+    if (!p) return;
+    const sprite = emblemSprite(faction);
+    const baseY = 0.42 * p.scale + 0.62;
+    sprite.position.set(p.pos.x * GALAXY_SCALE, baseY, p.pos.y * GALAXY_SCALE);
+    this.scene.add(sprite);
+    this.homeMarkers.push({ sprite, baseY, phase: Math.random() * Math.PI * 2 });
+  }
+
+  private buildHomeworldMarkers(): void {
+    // Родные миры: Супер-Земля, Киберстан, Святилище Скв'бай, Кеплер Прайм.
+    for (const id of this.state.galaxy.order) {
+      const p = this.state.galaxy.planets.get(id)!;
+      if (p.id === 'p_super_earth') this.addHomeMarker(id, 'superEarth');
+      else if (p.name === 'Киберстан') this.addHomeMarker(id, 'automatons');
+      else if (p.name === "Святилище Скв'бай") this.addHomeMarker(id, 'illuminate');
+      else if (p.name === 'Кеплер Прайм') this.addHomeMarker(id, 'terminids');
+    }
+  }
+
   /** Re-colour supply lines by the owner of their endpoints. */
   private refreshSupplyColors(): void {
     const arr = this.supplyColors.array as Float32Array;
@@ -216,6 +247,16 @@ export class GalaxyScene {
   }
 
   refreshOwners(): void {
+    // Эмблема Супер-Федерации появляется вместе с Новым Конкордом.
+    if (this.state.superFederationRisen && !this.fedMarkerPlaced) {
+      const cap = this.state.galaxy.order
+        .map((id) => this.state.galaxy.planets.get(id)!)
+        .find((p) => p.name === 'Новый Конкорд');
+      if (cap) {
+        this.addHomeMarker(cap.id, 'superFederation');
+        this.fedMarkerPlaced = true;
+      }
+    }
     for (const id of this.state.galaxy.order) {
       const p = this.state.galaxy.planets.get(id)!;
       const vis = this.planets.get(id);
@@ -359,6 +400,9 @@ export class GalaxyScene {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
     for (const vis of this.planets.values()) vis.update(t, dt);
+    for (const m of this.homeMarkers) {
+      m.sprite.position.y = m.baseY + Math.sin(t * 1.1 + m.phase) * 0.05;
+    }
     this.fleets.update(this.state, dt);
     this.updateCamera();
     this.renderer.render(this.scene, this.camera);
