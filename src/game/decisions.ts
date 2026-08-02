@@ -7,6 +7,7 @@ import type { FactionId } from '../core/types';
 import { retreatFleets } from './units';
 import { removeFleet } from './state';
 import { FACTION_GEN } from '../data/factions';
+import { bonusesFor, buyBonus, canBuyBonus } from './politics';
 
 // ---------------------------------------------------------------------------
 // «Решения» — спецмеханики, открываемые фокусами:
@@ -407,6 +408,11 @@ function aiDecisions(state: GameState): void {
     // Богатый ИИ вкладывается в тяжёлые корабли и дивизии.
     if (fs.production >= 380) produceShips(state, faction, 'battleship');
     else if (fs.production >= 220) produceShips(state, faction, 'dreadnought');
+    // Накопленную политвласть ИИ тратит на первый доступный бонус.
+    if (fs.politicalPower >= 160) {
+      const pick = bonusesFor(faction).find((b) => canBuyBonus(state, faction, b.id));
+      if (pick) buyBonus(state, faction, pick.id);
+    }
     if (fs.production >= 150) {
       const own = Object.entries(fs.units)
         .filter(([id]) => id !== 'greatFleet')

@@ -13,6 +13,9 @@ import { enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, pr
 import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
+import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
+import { emblemDataURL } from '../render/emblems';
+import { portraitDataURL, RULERS } from '../render/portraits';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
 
@@ -26,7 +29,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
 export class UI {
   private root: HTMLElement;
   private hud!: HTMLElement;
-  private stability!: HTMLElement;
+  private sideBtns!: HTMLElement;
+  private chipsEl!: HTMLElement;
+  private dossierEl!: HTMLElement;
+  /** Раскрыто ли меню политических бонусов в досье. */
+  private bonusesOpen = false;
   private panel!: HTMLElement;
   private focusOverlay!: HTMLElement;
   private logEl!: HTMLElement;
@@ -69,7 +76,9 @@ export class UI {
 
   private build(): void {
     this.hud = el('div'); this.hud.id = 'hud';
-    this.stability = el('div'); this.stability.id = 'stability';
+    this.sideBtns = el('div'); this.sideBtns.id = 'side-btns';
+    this.chipsEl = el('div'); this.chipsEl.id = 'fac-chips';
+    this.dossierEl = el('div'); this.dossierEl.id = 'dossier'; this.dossierEl.classList.add('hidden');
     this.panel = el('div'); this.panel.id = 'planet-panel'; this.panel.classList.add('hidden');
     this.focusOverlay = el('div'); this.focusOverlay.id = 'focus-overlay'; this.focusOverlay.classList.add('hidden');
     this.logEl = el('div'); this.logEl.id = 'log';
@@ -81,16 +90,17 @@ export class UI {
     this.forcesEl = el('div'); this.forcesEl.id = 'forces-dock';
     this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
-    const help = el('div', undefined, `
-      <b>УПРАВЛЕНИЕ</b><br>
-      <b>WASD</b> — движение карты · Колесо — зум · ПКМ-перетаскивание — вращение<br>
-      ЛКМ-рамка — выделить планеты · Клик по планете — сведения<br>
-      <b>Shift+клик</b> по карточке флота — мультивыбор · <b>ПКМ по планете</b> — приказ выбранным<br>
-      <b>F</b> — фокусы · <b>Пробел</b> — пауза · <b>1/2/3</b> — скорость<br>
-      <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
-      У терминидов её нет — выжигайте каждый улей.`);
-    help.id = 'help';
-    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.logEl, this.toastEl, help);
+
+    // Кнопки фокусов/решений/производства — под шапкой слева.
+    this.sideBtns.innerHTML = `
+      <button class="hud-btn-sq" id="focus-btn" title="Древо фокусов (F)">◈</button>
+      <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
+      <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>`;
+    this.sideBtns.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
+    this.sideBtns.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
+    this.sideBtns.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
+
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -116,6 +126,8 @@ export class UI {
       else if (e.key === 'Escape') {
         if (!this.focusOverlay.classList.contains('hidden')) {
           this.focusOverlay.classList.add('hidden');
+        } else if (!this.dossierEl.classList.contains('hidden')) {
+          this.dossierEl.classList.add('hidden');
         } else {
           this.toggleMenu();
         }
@@ -125,10 +137,10 @@ export class UI {
 
   renderAll(): void {
     this.renderHud();
-    this.renderStability();
     this.renderPanel();
     this.renderLog();
     this.renderForces();
+    if (!this.dossierEl.classList.contains('hidden')) this.renderDossier();
     if (!this.focusOverlay.classList.contains('hidden')) this.renderFocus();
   }
 
@@ -139,10 +151,10 @@ export class UI {
       this.scene.setSelected(null);
     }
     this.renderHud();
-    this.renderStability();
     this.renderPanel();
     this.renderLog();
     this.renderForces();
+    if (!this.dossierEl.classList.contains('hidden')) this.renderDossier();
     if (this.detailFleet) this.renderFleetDetail();
     if (!this.decisionsEl.classList.contains('hidden')) this.renderDecisions();
     if (!this.productionEl.classList.contains('hidden')) this.renderProduction();
@@ -174,34 +186,34 @@ export class UI {
 
   private renderHud(): void {
     const s = this.state;
-    const chips = FACTION_IDS.concat(s.superFederationRisen ? ['superFederation'] : [])
-      .map((f) => {
-        const alive = planetsOf(s, f).length > 0 || fleetsOf(s, f).length > 0;
-        const count = planetsOf(s, f).length;
-        return `<div class="fac-chip ${alive ? '' : 'dead'}">
-          <span class="fac-dot" style="background:${FACTIONS[f].color}"></span>
-          ${FACTIONS[f].short} <b style="color:${FACTIONS[f].color}">${count}</b></div>`;
-      }).join('');
+    const fs = s.factions[s.player];
+
+    // Шапка: слева флаг фракции и показатели, справа — перемотка времени и день.
+    const inds = [
+      `<span class="hud-ind" title="Политическая власть">⚖ <b>${fs.politicalPower.toFixed(0)}</b></span>`,
+      s.player === 'superEarth'
+        ? `<span class="hud-ind" title="Стабильность">☼ <b style="color:${fs.stability > 60 ? '#6fe39a' : fs.stability > 35 ? 'var(--gold)' : 'var(--fed)'}">${fs.stability.toFixed(0)}%</b></span>`
+        : '',
+      `<span class="hud-ind" title="Поддержка войны">⚔ <b>${fs.warSupport.toFixed(0)}%</b></span>`,
+      `<span class="hud-ind" title="Очки производства">⚒ <b style="color:var(--gold)">${fs.production.toFixed(0)}</b></span>`,
+      fs.flags.e711Mining ? `<span class="hud-ind" title="Топливо Е-711">⛽ <b style="color:var(--gold)">${fs.resources.e711.toFixed(0)}</b></span>` : '',
+      fs.resources.minerals > 0 ? `<span class="hud-ind" title="Ископаемые">⛏ <b>${fs.resources.minerals.toFixed(0)}</b></span>` : '',
+    ].filter(Boolean).join('');
 
     this.hud.innerHTML = `
-      <div class="hud-title">ВТОРАЯ ГАЛАКТИЧЕСКАЯ ВОЙНА<small>ВЕРХОВНОЕ КОМАНДОВАНИЕ СУПЕР-ЗЕМЛИ</small></div>
-      <div class="hud-clock">
+      <button id="flag-btn" title="Досье фракции"><img src="${emblemDataURL(s.player)}" alt=""></button>
+      <div class="hud-inds">${inds}</div>
+      <div class="hud-clock" style="margin-left:auto">
+        <div class="hud-day">ДЕНЬ ${s.day}</div>
         <div class="speed-btns" id="speed">
           <button class="speed-btn" data-s="0">II</button>
           <button class="speed-btn" data-s="1">1×</button>
           <button class="speed-btn" data-s="2">2×</button>
           <button class="speed-btn" data-s="3">3×</button>
         </div>
-        <div class="hud-day">ДЕНЬ ${s.day}</div>
-      </div>
-      <button class="hud-btn-sq" id="focus-btn" title="Древо фокусов (F)">◈</button>
-      <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
-      <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
-      <div class="hud-factions">${chips}</div>`;
+      </div>`;
 
-    this.hud.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
-    this.hud.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
-    this.hud.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
+    this.hud.querySelector('#flag-btn')!.addEventListener('click', () => this.toggleDossier());
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
       b.addEventListener('click', () => {
         const v = Number(b.dataset.s) as 0 | 1 | 2 | 3;
@@ -210,6 +222,20 @@ export class UI {
       });
     });
     this.renderClock();
+    this.renderChips();
+  }
+
+  /** Счёт планет по фракциям — строкой под шапкой справа. */
+  private renderChips(): void {
+    const s = this.state;
+    this.chipsEl.innerHTML = FACTION_IDS.concat(s.superFederationRisen ? ['superFederation'] : [])
+      .map((f) => {
+        const alive = planetsOf(s, f).length > 0 || fleetsOf(s, f).length > 0;
+        const count = planetsOf(s, f).length;
+        return `<div class="fac-chip ${alive ? '' : 'dead'}">
+          <span class="fac-dot" style="background:${FACTIONS[f].color}"></span>
+          ${FACTIONS[f].short} <b style="color:${FACTIONS[f].color}">${count}</b></div>`;
+      }).join('');
   }
 
   private renderClock(): void {
@@ -220,25 +246,90 @@ export class UI {
     });
   }
 
-  // ---------------- Stability ----------------
+  // ---------------- Показатели (теперь в шапке) ----------------
 
   private renderStability(): void {
-    const se = this.state.factions.superEarth;
-    const low = se.stability < 40;
-    const col = se.stability > 60 ? '#6fe39a' : se.stability > 35 ? 'var(--gold)' : 'var(--fed)';
-    this.stability.innerHTML = `
-      <div style="display:flex;justify-content:space-between">
-        <b style="color:var(--se)">СУПЕР-ЗЕМЛЯ</b>
-        <span>Стабильность ${se.stability.toFixed(0)}%</span>
-      </div>
-      <div class="bar"><span style="width:${se.stability}%;background:${col}"></span></div>
-      <div class="bar-row"><span>Поддержка войны</span><span>${se.warSupport.toFixed(0)}%</span></div>
-      <div class="bar"><span style="width:${se.warSupport}%;background:var(--se)"></span></div>
-      <div class="bar-row"><span>Промышленность ${se.industry.toFixed(0)}</span><span>Резервы ${se.manpower.toFixed(0)}</span></div>
-      ${troopsOf('superEarth').map((t) => `<div class="bar-row"><span>${t.name}</span><span>${(se.units[t.id] ?? 0).toFixed(0)}</span></div>`).join('')}
-      ${se.flags.e711Mining ? `<div class="bar-row"><span style="color:var(--gold)">Топливо Е-711</span><span style="color:var(--gold)">${se.resources.e711.toFixed(0)}</span></div>` : ''}
-      ${low && !this.state.superFederationRisen ? '<div class="warn">⚠ Растёт недовольство — открыт Путь к Федерации.</div>' : ''}
-      ${this.state.superFederationRisen ? '<div class="warn">⚑ Супер-Федерация активна.</div>' : ''}`;
+    // Показатели фракции живут в шапке; отдельной панели больше нет.
+    this.renderHud();
+    if (!this.dossierEl.classList.contains('hidden')) this.renderDossier();
+  }
+
+  // ---------------- Досье фракции ----------------
+
+  private toggleDossier(): void {
+    const hidden = this.dossierEl.classList.toggle('hidden');
+    if (!hidden) this.renderDossier();
+  }
+
+  private renderDossier(): void {
+    const s = this.state;
+    const f = s.player;
+    const fs = s.factions[f];
+    const def = FACTIONS[f];
+    const ruler = RULERS[f];
+    const worlds = planetsOf(s, f).length;
+    const fleets = fleetsOf(s, f).length;
+    const focus = fs.activeFocus
+      ? `${FOCUS_TREES[f].find((n) => n.id === fs.activeFocus!.id)?.title ?? '?'} · ещё ${Math.ceil(fs.activeFocus.remaining)} дн`
+      : '<span style="color:var(--muted)">не выбран</span>';
+
+    const bonuses = bonusesFor(f).map((b) => {
+      const bought = timesBought(s, f, b.id);
+      const can = canBuyBonus(s, f, b.id);
+      const soldOut = !b.repeatable && bought > 0;
+      return `<div class="bonus-row">
+        <div class="grow">
+          <b>${b.name}</b>${bought ? ` <span class="bonus-count">×${bought}</span>` : ''}
+          <div class="hint" style="margin-top:2px">${b.desc}</div>
+        </div>
+        <button class="mini-btn ${can ? '' : 'off'}" data-bonus="${b.id}" ${can ? '' : 'disabled'}>
+          ${soldOut ? '✓' : `${b.cost} ПВ`}</button>
+      </div>`;
+    }).join('');
+
+    this.dossierEl.innerHTML = `
+      <div class="pc-head"><span class="pc-title" style="color:${def.color}">ДОСЬЕ · ${def.name.toUpperCase()}</span>
+        <button class="pc-close" id="dos-close">✕</button></div>
+      <div class="pc-body">
+        <div class="dossier-top">
+          <img class="dossier-portrait" src="${portraitDataURL(f)}" alt="">
+          <div>
+            <b>${ruler.name}</b>
+            <div class="hint" style="margin-top:2px">${ruler.title}</div>
+            <div class="hint" style="margin-top:6px">${def.blurb}</div>
+          </div>
+        </div>
+        <div class="pp-stat"><span>Миры под контролем</span><b>${worlds}</b></div>
+        <div class="pp-stat"><span>Боевые соединения</span><b>${fleets}</b></div>
+        <div class="pp-stat"><span>Резервы войск</span><b>${fs.manpower.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>Промышленность</span><b>${fs.industry.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>Политическая власть</span><b style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)}</b></div>
+        <div class="pp-section">Текущий фокус</div>
+        <div class="hint" style="margin-top:2px">◈ ${focus}</div>
+        <button class="mini-btn wide" id="dos-focus">◈ Открыть древо фокусов</button>
+        <div class="pp-section bonus-toggle" id="dos-bonuses-toggle">
+          ${this.bonusesOpen ? '▾' : '▸'} Политические решения <span style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)} ПВ</span>
+        </div>
+        <div id="dos-bonuses" ${this.bonusesOpen ? '' : 'style="display:none"'}>${bonuses}</div>
+      </div>`;
+
+    this.dossierEl.querySelector('#dos-close')?.addEventListener('click', () => this.dossierEl.classList.add('hidden'));
+    this.dossierEl.querySelector('#dos-focus')?.addEventListener('click', () => {
+      this.dossierEl.classList.add('hidden');
+      this.toggleFocus();
+    });
+    this.dossierEl.querySelector('#dos-bonuses-toggle')?.addEventListener('click', () => {
+      this.bonusesOpen = !this.bonusesOpen;
+      this.renderDossier();
+    });
+    this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-bonus]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (buyBonus(this.state, this.state.player, b.dataset.bonus!)) {
+          this.toast('ПОЛИТИЧЕСКОЕ РЕШЕНИЕ ПРИНЯТО');
+          this.renderDossier();
+          this.renderHud();
+        }
+      }));
   }
 
   // ---------------- Planet panel ----------------

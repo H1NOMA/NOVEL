@@ -258,6 +258,10 @@ export interface FactionState {
   units: Record<string, number>;
   /** Стратегические ресурсы фракции. */
   resources: { minerals: number; e711: number };
+  /** Политическая власть — копится ежедневно, тратится на бонусы в досье. */
+  politicalPower: number;
+  /** Купленные политические бонусы (id, повторные покупки — повторные записи). */
+  purchasedBonuses: string[];
   alive: boolean;
 }
 

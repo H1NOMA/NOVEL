@@ -180,10 +180,9 @@ function star(ctx: CanvasRenderingContext2D, cx: number, cy: number, points: num
 }
 
 const cache = new Map<FactionId, THREE.Texture>();
+const urlCache = new Map<FactionId, string>();
 
-export function emblemTexture(faction: FactionId): THREE.Texture {
-  const cached = cache.get(faction);
-  if (cached) return cached;
+function emblemCanvas(faction: FactionId): HTMLCanvasElement {
   const [cv, ctx] = makeCanvas();
   switch (faction) {
     case 'superEarth': drawSuperEarth(ctx); break;
@@ -192,7 +191,22 @@ export function emblemTexture(faction: FactionId): THREE.Texture {
     case 'illuminate': drawIlluminate(ctx); break;
     case 'superFederation': drawFederation(ctx); break;
   }
-  const tex = new THREE.CanvasTexture(cv);
+  return cv;
+}
+
+/** Эмблема как data-URL — для DOM-интерфейса (флаг в шапке, досье). */
+export function emblemDataURL(faction: FactionId): string {
+  const cached = urlCache.get(faction);
+  if (cached) return cached;
+  const url = emblemCanvas(faction).toDataURL('image/png');
+  urlCache.set(faction, url);
+  return url;
+}
+
+export function emblemTexture(faction: FactionId): THREE.Texture {
+  const cached = cache.get(faction);
+  if (cached) return cached;
+  const tex = new THREE.CanvasTexture(emblemCanvas(faction));
   tex.anisotropy = 4;
   cache.set(faction, tex);
   return tex;

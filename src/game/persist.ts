@@ -101,6 +101,11 @@ export function deserializeState(json: string): GameState {
     f.dreadnoughts = f.dreadnoughts ?? 0;
     f.battleships = f.battleships ?? 0;
   }
+  // …и о политической власти.
+  for (const fs of Object.values(b.factions)) {
+    fs.politicalPower = fs.politicalPower ?? 0;
+    fs.purchasedBonuses = fs.purchasedBonuses ?? [];
+  }
   const fleets = new Map(b.fleets.map((f) => [f.id, f]));
   return {
     seed: b.seed,

@@ -57,6 +57,8 @@ function initFaction(id: FactionId): FactionState {
     flags: {},
     units,
     resources: { minerals: 0, e711: 0 },
+    politicalPower: id === 'superEarth' ? 30 : 0,
+    purchasedBonuses: [],
     alive: true,
   };
 }

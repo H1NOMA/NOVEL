@@ -4,6 +4,7 @@ import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './stat
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
 import { drawUnits, mineE711, replenishUnits, totalUnits } from './troops';
+import { accruePower } from './politics';
 import { bus } from '../core/emitter';
 
 const FLEET_COST = 45;
@@ -28,6 +29,7 @@ export function runEconomy(state: GameState, faction: FactionId): void {
 
   const income = worlds.reduce((s, p) => s + p.value, 0);
   fs.production += 0.4 * (fs.industry + income * 0.3);
+  accruePower(state, faction);
 
   // Пополнение пулов войск по правилам фракции + добыча Е-711.
   replenishUnits(state, faction);
