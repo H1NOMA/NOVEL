@@ -303,12 +303,15 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 
 /* ---------- Нижняя панель сил ---------- */
 #forces-dock {
-  position: absolute; right: 16px; bottom: 16px;
-  display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; z-index: 24; max-width: 72vw;
+  position: absolute; left: 0; right: 0; bottom: 16px;
+  display: flex; align-items: flex-end; justify-content: center; z-index: 24;
+  pointer-events: none;
 }
 .forces-cards {
-  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; max-width: 60vw;
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; max-width: 56vw;
+  pointer-events: auto;
 }
+.forces-tabs { position: absolute; right: 16px; bottom: 0; pointer-events: auto; }
 .force-card {
   min-width: 150px; flex: 0 0 auto; padding: 8px 10px; cursor: pointer;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 7px;
