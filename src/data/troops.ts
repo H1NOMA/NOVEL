@@ -61,9 +61,9 @@ export const FACTORY_DEFS = [
 
 /** Классы кораблей: базовые эсминцы, тяжёлые дредноуты, линкоры-флагманы. */
 export const SHIP_CLASSES = [
-  { id: 'destroyer', name: 'Супер-эсминцы', count: 4, power: 1, cost: 45, desc: '+4 базовых корабля соединению' },
-  { id: 'dreadnought', name: 'Дредноут', count: 1, power: 3, cost: 120, desc: 'Тяжёлый корабль: сила ×3' },
-  { id: 'battleship', name: 'Линкор-флагман', count: 1, power: 6, cost: 250, desc: 'Флагман: сила ×6' },
+  { id: 'destroyer', name: 'Супер-эсминцы', count: 4, power: 1, cost: 45, days: 12, desc: '+4 базовых корабля' },
+  { id: 'dreadnought', name: 'Дредноут', count: 1, power: 3, cost: 120, days: 30, desc: 'Тяжёлый корабль: сила ×3' },
+  { id: 'battleship', name: 'Линкор-флагман', count: 1, power: 6, cost: 250, days: 55, desc: 'Флагман: сила ×6' },
 ] as const;
 
 export type ShipClassId = (typeof SHIP_CLASSES)[number]['id'];

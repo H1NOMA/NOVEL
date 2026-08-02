@@ -110,6 +110,73 @@ export function fleetWorldPos(galaxy: Galaxy, fleet: Fleet): Vec2 {
   };
 }
 
+/**
+ * Разделить соединение пополам: половина корпусов и пехоты уходит в новое
+ * соединение на той же орбите. Спецстанция остаётся в исходном.
+ */
+export function splitFleet(state: GameState, fleet: Fleet): Fleet | null {
+  if (fleet.transit) return null;
+  const hulls = fleet.ships + fleet.dreadnoughts + fleet.battleships;
+  if (hulls < 2) return null;
+  const ships = Math.floor(fleet.ships / 2);
+  const dreads = Math.floor(fleet.dreadnoughts / 2);
+  const bbs = Math.floor(fleet.battleships / 2);
+  if (ships + dreads + bbs < 1) return null;
+  const inf = Math.floor(fleet.infantry / 2);
+  fleet.ships -= ships;
+  fleet.dreadnoughts -= dreads;
+  fleet.battleships -= bbs;
+  fleet.infantry -= inf;
+  const nf: Fleet = {
+    id: `f_${state.fleetCounter++}`,
+    faction: fleet.faction,
+    at: fleet.at,
+    ships,
+    dreadnoughts: dreads,
+    battleships: bbs,
+    infantry: inf,
+    order: { kind: 'idle' },
+  };
+  state.fleets.set(nf.id, nf);
+  state.fleetOrder.push(nf.id);
+  pushLog(state, {
+    faction: fleet.faction,
+    text: `Соединение разделено: сформирована новая боевая группа (${(ships + dreads + bbs).toFixed(0)} корп.).`,
+    tone: 'info',
+  });
+  return nf;
+}
+
+/**
+ * Расформировать соединение на своей планете: пехота усиливает гарнизон,
+ * корпуса встают на склад местной верфи (если её нет — идут на слом,
+ * возвращая часть производства).
+ */
+export function disbandFleet(state: GameState, fleet: Fleet): boolean {
+  if (fleet.transit || fleet.special) return false;
+  const p = state.galaxy.planets.get(fleet.at);
+  if (!p || p.owner !== fleet.faction) return false;
+  p.garrison += fleet.infantry;
+  if (p.shipyard) {
+    p.shipyard.stored.ships += fleet.ships;
+    p.shipyard.stored.dreadnoughts += fleet.dreadnoughts;
+    p.shipyard.stored.battleships += fleet.battleships;
+  } else {
+    const scrap = fleet.ships * 6 + fleet.dreadnoughts * 18 + fleet.battleships * 40;
+    state.factions[fleet.faction].production += scrap;
+  }
+  pushLog(state, {
+    faction: fleet.faction,
+    text: `Соединение у ${p.name} расформировано: пехота — в гарнизон, корпуса — ${p.shipyard ? 'на верфь' : 'на слом'}.`,
+    tone: 'info',
+  });
+  const idx = state.fleetOrder.indexOf(fleet.id);
+  if (idx >= 0) state.fleetOrder.splice(idx, 1);
+  state.fleets.delete(fleet.id);
+  if (state.selectedFleet === fleet.id) state.selectedFleet = null;
+  return true;
+}
+
 /** Merge friendly fleets that pile up on a planet to reduce clutter (optional). */
 export function garrisonReinforce(state: GameState, fleet: Fleet): void {
   const planet = state.galaxy.planets.get(fleet.at)!;

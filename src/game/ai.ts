@@ -34,8 +34,9 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   if (faction === 'superEarth') mineE711(state);
 
   // Build a new fleet when affordable and under the cap.
+  // Игрок строит корабли сам — на верфях; автосборка флотов только у ИИ.
   const fleets = fleetsOf(state, faction);
-  if (fs.production >= FLEET_COST && fleets.length < fleetCap(state, faction) && totalUnits(fs) >= 20) {
+  if (faction !== state.player && fs.production >= FLEET_COST && fleets.length < fleetCap(state, faction) && totalUnits(fs) >= 20) {
     fs.production -= FLEET_COST;
     const crew = drawUnits(fs, 20);
     const yard = worlds.find((p) => p.isCapital) ?? worlds[0]!;

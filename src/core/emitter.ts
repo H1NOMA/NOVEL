@@ -8,6 +8,10 @@ export interface GameEvents extends Record<string, unknown> {
   speedChanged: { speed: number };
   planetSelected: { id: string | null };
   planetChanged: { id: string };
+  /** Планеты, охваченные рамкой выделения ЛКМ. */
+  planetsBoxSelected: { ids: string[] };
+  /** Клик ПКМ по планете (без перетаскивания) — приказ выбранным флотам. */
+  planetRightClicked: { id: string };
   stateChanged: void;
   log: { text: string };
   factionEliminated: { faction: string };

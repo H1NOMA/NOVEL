@@ -270,3 +270,73 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 #defeat-banner.hidden { display: none; }
 #defeat-banner b { color: var(--aut); letter-spacing: 2px; }
 .banner-sub { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+
+/* ---------- Рамка выделения (ЛКМ) ---------- */
+#select-box {
+  position: fixed; display: none; z-index: 40; pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- Нижняя панель сил ---------- */
+#forces-dock {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: flex; align-items: flex-end; gap: 10px; z-index: 24; max-width: 72vw;
+}
+.forces-cards {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; max-width: 60vw;
+}
+.force-card {
+  min-width: 150px; flex: 0 0 auto; padding: 8px 10px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 7px;
+  font-size: 12px; line-height: 1.35; user-select: none;
+}
+.force-card:hover { border-color: var(--se); }
+.force-card.open { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+.force-card.multi { border-color: #fff; box-shadow: 0 0 0 1px #fff inset; }
+.force-card.static { cursor: default; }
+.force-card.wide-card { min-width: 260px; max-width: 340px; }
+.fc-name { font-weight: 700; color: var(--se); letter-spacing: 0.5px; }
+.force-card.multi .fc-name { color: #fff; }
+.fc-check { color: #fff; }
+.fc-comp { color: var(--text); }
+.fc-loc { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.force-empty {
+  align-self: center; color: var(--muted); font-size: 12px; padding: 10px 14px;
+  background: var(--panel); border: 1px dashed var(--edge); border-radius: 7px; white-space: nowrap;
+}
+.forces-tabs { display: flex; flex-direction: column; gap: 6px; }
+.forces-tab {
+  width: 44px; height: 44px; font-size: 20px; line-height: 1; cursor: pointer;
+  background: #12203a; color: var(--gold); border: 1px solid var(--edge); border-radius: 7px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.forces-tab:hover { border-color: var(--gold); }
+.forces-tab.active { background: var(--gold); color: #101010; border-color: var(--gold); }
+
+/* ---------- Панель состава соединения ---------- */
+#fleet-detail {
+  position: absolute; left: 16px; top: 46%; transform: translateY(-50%);
+  width: 270px; background: var(--panel); border: 1px solid var(--edge);
+  border-radius: 8px; font-size: 13px; z-index: 26;
+  display: flex; flex-direction: column; max-height: 60vh;
+}
+#fleet-detail.hidden { display: none; }
+
+/* ---------- Действия над выделением ---------- */
+#box-actions {
+  position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px; z-index: 30;
+  background: rgba(8, 12, 24, 0.95); border: 1px solid #fff; border-radius: 8px;
+  font-size: 13px; letter-spacing: 0.5px;
+}
+#box-actions.hidden { display: none; }
+
+/* ---------- Строки верфей в производстве ---------- */
+.yard-row {
+  margin-top: 8px; padding: 8px 10px; background: rgba(255,255,255,0.03);
+  border: 1px solid var(--edge); border-radius: 6px;
+}
+.yard-head { font-size: 13px; }
+.yard-status { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; gap: 8px; align-items: center; }
+.yard-btns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }

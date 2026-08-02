@@ -96,6 +96,8 @@ export function createGame(seed: number): GameState {
       .filter((p) => p.owner === fid);
     const cap = homeworlds.find((p) => p.isCapital) ?? homeworlds[0];
     if (!cap) continue;
+    // Столичный мир каждой фракции начинает с готовой верфью.
+    cap.shipyard = { queue: null, stored: { ships: 0, dreadnoughts: 0, battleships: 0 } };
     const isEnemy = fid !== 'superEarth';
     const fleetCount = fid === 'superEarth' ? 3 : 3;
     for (let i = 0; i < fleetCount; i++) {

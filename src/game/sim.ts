@@ -8,6 +8,7 @@ import { resolveGround, resolveOrbital } from './combat';
 import { garrisonReinforce, stepFleets } from './units';
 import { recomputeSupply } from './supply';
 import { stepDecisions } from './decisions';
+import { stepShipyards } from './shipyards';
 import { autosaveTick } from './persist';
 
 /** Continuous fleet movement — called every animation frame with elapsed days. */
@@ -41,6 +42,7 @@ export function advanceDay(state: GameState): void {
   }
 
   recomputeSupply(state);
+  stepShipyards(state);
   resolveOrbital(state);
   resolveGround(state);
   stepDecisions(state);

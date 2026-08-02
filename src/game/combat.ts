@@ -4,6 +4,7 @@ import { fleetsAt, pushLog, removeFleet, type GameState } from './state';
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
+import { scuttleYard } from './shipyards';
 import { bus } from '../core/emitter';
 
 // ---------------------------------------------------------------------------
@@ -219,6 +220,8 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   const garrisonLost = planet.garrison;
   planet.owner = attacker;
   planet.battle = undefined;
+  // Верфь достаётся победителю, но склад и стапель защитники уничтожают.
+  scuttleYard(planet);
   // Мрак рассеивается, когда мир отбит у роя, — оставляя богатые залежи Е-711.
   if (planet.gloom && attacker !== 'terminids') {
     planet.gloom = false;

@@ -4,10 +4,12 @@ import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, areHostile } from '../dat
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, selectFocus } from '../game/focus';
-import { orderFleetTo, garrisonReinforce } from '../game/units';
+import { orderFleetTo, garrisonReinforce, splitFleet, disbandFleet } from '../game/units';
+import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, takeStoredShips, yardsOf, SHIPYARD_COST } from '../game/shipyards';
+import { canEnter } from '../game/supply';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
-import { enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, produceShips, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_REBUILD_COST, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
+import { enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_REBUILD_COST, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
 import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
@@ -45,6 +47,18 @@ export class UI {
   private lastSpeed: 1 | 2 | 3 = 1;
   /** Скорость до открытия меню (восстанавливается при закрытии). */
   private menuPrevSpeed: 0 | 1 | 2 | 3 = 0;
+  // --- нижняя панель сил и групповое управление ---
+  private forcesEl!: HTMLElement;
+  private fleetDetailEl!: HTMLElement;
+  private boxActionsEl!: HTMLElement;
+  private forcesTab: 'fleet' | 'army' | 'special' = 'fleet';
+  private forcesOpen = true;
+  /** Мультивыбор соединений (Shift+клик по карточкам). */
+  private selectedFleets = new Set<string>();
+  /** Планеты, охваченные рамкой выделения. */
+  private boxPlanets: string[] = [];
+  /** Соединение, открытое в левой панели состава. */
+  private detailFleet: string | null = null;
 
   constructor(private state: GameState, private scene: GalaxyScene, private clock: GameClock) {
     this.root = document.getElementById('ui')!;
@@ -64,15 +78,19 @@ export class UI {
     this.productionEl = el('div'); this.productionEl.id = 'production'; this.productionEl.classList.add('hidden');
     this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
     this.bannerEl = el('div'); this.bannerEl.id = 'defeat-banner'; this.bannerEl.classList.add('hidden');
+    this.forcesEl = el('div'); this.forcesEl.id = 'forces-dock';
+    this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
+    this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
     const help = el('div', undefined, `
       <b>УПРАВЛЕНИЕ</b><br>
-      ЛКМ-перетаскивание — камера · Колесо — зум · ПКМ-перетаскивание — наклон<br>
-      Клик по планете — сведения · Выберите флот и кликните цель для перелёта/вторжения<br>
-      <b>F</b> — древо фокусов · <b>Пробел</b> — пауза · <b>1/2/3</b> — скорость<br>
+      <b>WASD</b> — движение карты · Колесо — зум · ПКМ-перетаскивание — вращение<br>
+      ЛКМ-рамка — выделить планеты · Клик по планете — сведения<br>
+      <b>Shift+клик</b> по карточке флота — мультивыбор · <b>ПКМ по планете</b> — приказ выбранным<br>
+      <b>F</b> — фокусы · <b>Пробел</b> — пауза · <b>1/2/3</b> — скорость<br>
       <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
       У терминидов её нет — выжигайте каждый улей.`);
     help.id = 'help';
-    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.logEl, this.toastEl, help);
+    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.logEl, this.toastEl, help);
   }
 
   private wire(): void {
@@ -86,6 +104,8 @@ export class UI {
     });
     bus.on('focusCompleted', () => this.renderAll());
     bus.on('factionDefeated', ({ faction, by }) => this.showDefeatBanner(faction as FactionId, by as FactionId | null));
+    bus.on('planetsBoxSelected', ({ ids }) => this.onBoxSelected(ids));
+    bus.on('planetRightClicked', ({ id }) => this.onPlanetRightClicked(id));
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
@@ -108,6 +128,7 @@ export class UI {
     this.renderStability();
     this.renderPanel();
     this.renderLog();
+    this.renderForces();
     if (!this.focusOverlay.classList.contains('hidden')) this.renderFocus();
   }
 
@@ -121,6 +142,8 @@ export class UI {
     this.renderStability();
     this.renderPanel();
     this.renderLog();
+    this.renderForces();
+    if (this.detailFleet) this.renderFleetDetail();
     if (!this.decisionsEl.classList.contains('hidden')) this.renderDecisions();
     if (!this.productionEl.classList.contains('hidden')) this.renderProduction();
     // owners may have shifted this day
@@ -307,9 +330,18 @@ export class UI {
       ${p.e711Rich ? `<div class="pp-stat"><span>Е-711</span><b style="color:var(--gold)">Богатые залежи</b></div>` : p.origin === 'terminids' && p.owner === 'superEarth' ? `<div class="pp-stat"><span>Е-711</span><b>Следы залежей</b></div>` : ''}
       ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld === 'termicide' ? '☠ Система термицида' : bld).join('<br>')}</b></div>` : ''}`;
 
+    if (p.shipyard) {
+      const q = p.shipyard.queue;
+      const qdef = q ? SHIP_CLASSES.find((c) => c.id === q.cls) : null;
+      html += `<div class="pp-stat"><span>⚓ Верфь</span><b>${q && qdef ? `${qdef.name} · ${q.daysLeft} дн` : storedHulls(p.shipyard) > 0 ? `Склад: ${storedHulls(p.shipyard)} корп.` : 'Стапель свободен'}</b></div>`;
+    }
     if (p.owner === s.player && !p.depot) {
       const can = s.factions[s.player].production >= DEPOT_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="depot" ${can ? '' : 'disabled'}>▣ Построить точку снабжения (${DEPOT_COST} пр. · есть ${s.factions[s.player].production.toFixed(0)})</button>`;
+    }
+    if (p.owner === s.player && !p.shipyard && p.supplied) {
+      const can = s.factions[s.player].production >= SHIPYARD_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="yard" ${can ? '' : 'disabled'}>⚓ Построить верфь (${SHIPYARD_COST} пр.)</button>`;
     }
     if (this.spireMode && p.owner === 'illuminate' && s.player === 'illuminate') {
       html += `<button class="mini-btn wide" data-act="spire">▲ Воздвигнуть экзошпиль</button>`;
@@ -346,6 +378,7 @@ export class UI {
           <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
+        ${p.owner === s.player && p.shipyard && storedHulls(p.shipyard) > 0 ? `<button class="mini-btn" data-act="takeyard" data-fleet="${f.id}">⚓ С ВЕРФИ</button>` : ''}
       </div>`;
     });
 
@@ -424,6 +457,13 @@ export class UI {
           }
           return;
         }
+        if (act === 'yard') {
+          if (buildShipyard(s, s.player, p.id)) {
+            this.toast('ВЕРФЬ РАЗВЁРНУТА · ЗАКАЗЫ — В «⚒ ПРОИЗВОДСТВО»');
+            this.renderPanel();
+          }
+          return;
+        }
         if (act === 'fire') {
           if (fireSuperweapon(s, s.player, p.id)) {
             this.toast(`☄ ${p.name} — ПЛАНЕТА УНИЧТОЖЕНА`, 3500);
@@ -466,9 +506,263 @@ export class UI {
           garrisonReinforce(s, fleet);
           this.scene.refreshOwners();
           this.renderPanel();
+        } else if (act === 'takeyard') {
+          if (takeStoredShips(s, fleet)) {
+            this.toast('КОРАБЛИ ПРИНЯТЫ С ВЕРФИ');
+            this.renderPanel();
+            this.renderForces();
+          }
         }
       });
     });
+  }
+
+  // ---------------- Нижняя панель сил (флот / армия / спецтех) ----------------
+
+  /** Человекочитаемое имя соединения. */
+  private fleetName(fid: string): string {
+    const f = this.state.fleets.get(fid);
+    if (!f) return fid;
+    if (f.special) return SPECIALS[f.faction].name;
+    const n = Number(fid.replace('f_', ''));
+    return `Соединение №${Number.isFinite(n) ? n + 1 : '?'}`;
+  }
+
+  private renderForces(): void {
+    const s = this.state;
+    const tabs = [
+      { id: 'fleet' as const, icon: '🚀', title: 'Флот' },
+      { id: 'army' as const, icon: '🪖', title: 'Наземные войска' },
+      { id: 'special' as const, icon: '◆', title: 'Особые технологии' },
+    ];
+    let cards = '';
+    if (this.forcesOpen) {
+      if (this.forcesTab === 'fleet') {
+        const fleets = fleetsOf(s, s.player);
+        cards = fleets.map((f) => {
+          const at = s.galaxy.planets.get(f.transit ? f.transit.to : f.at);
+          const where = f.transit ? `→ ${at?.name ?? '?'}` : at?.name ?? '?';
+          const multi = this.selectedFleets.has(f.id);
+          const open = this.detailFleet === f.id;
+          return `<div class="force-card ${open ? 'open' : ''} ${multi ? 'multi' : ''}" data-card-fleet="${f.id}">
+            <div class="fc-name">${f.special ? '◆ ' : ''}${this.fleetName(f.id)}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
+            <div class="fc-comp">ЭСМ ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}</div>
+            <div class="fc-comp">Пехота ${f.infantry.toFixed(0)}</div>
+            <div class="fc-loc">${f.transit ? '⇢ ' : '⚓ '}${where}</div>
+          </div>`;
+        }).join('') || '<div class="force-empty">Флотов нет — стройте корабли на верфях (⚒)</div>';
+      } else if (this.forcesTab === 'army') {
+        const fs = s.factions[s.player];
+        cards = troopsOf(s.player).map((t) => `
+          <div class="force-card static">
+            <div class="fc-name">${t.name}</div>
+            <div class="fc-comp">В пуле: <b>${(fs.units[t.id] ?? 0).toFixed(0)}</b></div>
+            <div class="fc-loc">${t.desc ?? ''}</div>
+          </div>`).join('');
+        cards += '<div class="force-empty">Дивизии формируются в «⚒ Производство»</div>';
+      } else {
+        const fs = s.factions[s.player];
+        const sp = SPECIALS[s.player];
+        const station = fleetsOf(s, s.player).find((f) => f.special);
+        let status: string;
+        if (!fs.specialUnlocked) status = 'Не разработана — откройте через древо фокусов';
+        else if (fs.lostSpecial) status = '<span style="color:var(--fed)">УНИЧТОЖЕНА</span> — восстановление в «⚙ Решения»';
+        else if (station) {
+          const at = s.galaxy.planets.get(station.transit ? station.transit.to : station.at);
+          status = `На орбите: ${at?.name ?? '?'}`;
+        } else status = 'Статус неизвестен';
+        const ready = superShotReadyIn(s, s.player);
+        cards = `<div class="force-card static wide-card">
+          <div class="fc-name">◆ ${sp.name}</div>
+          <div class="fc-comp">${sp.blurb}</div>
+          <div class="fc-loc">${status}</div>
+          ${fs.specialUnlocked && !fs.lostSpecial && (s.player === 'superEarth' || s.player === 'automatons')
+            ? `<div class="fc-loc">☄ Планетарный залп: ${ready === 0 ? '<b style="color:var(--gold)">ЗАРЯЖЕН</b>' : 'перезарядка ' + ready + ' дн'}</div>` : ''}
+        </div>`;
+      }
+    }
+    this.forcesEl.innerHTML = `
+      <div class="forces-cards" ${this.forcesOpen ? '' : 'style="display:none"'}>${cards}</div>
+      <div class="forces-tabs">
+        ${tabs.map((t) => `<button class="forces-tab ${this.forcesOpen && this.forcesTab === t.id ? 'active' : ''}" data-tab="${t.id}" title="${t.title}">${t.icon}</button>`).join('')}
+      </div>`;
+
+    this.forcesEl.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const tab = b.dataset.tab as 'fleet' | 'army' | 'special';
+        if (this.forcesOpen && this.forcesTab === tab) this.forcesOpen = false;
+        else { this.forcesOpen = true; this.forcesTab = tab; }
+        this.renderForces();
+      }));
+    this.forcesEl.querySelectorAll<HTMLElement>('[data-card-fleet]').forEach((card) =>
+      card.addEventListener('click', (ev) => {
+        const fid = card.dataset.cardFleet!;
+        if (ev.shiftKey) {
+          // Мультивыбор: щёлкаем несколько карточек с Shift.
+          if (this.selectedFleets.has(fid)) this.selectedFleets.delete(fid);
+          else this.selectedFleets.add(fid);
+          this.renderForces();
+          return;
+        }
+        this.detailFleet = this.detailFleet === fid ? null : fid;
+        this.state.selectedFleet = this.detailFleet;
+        const f = this.state.fleets.get(fid);
+        if (f && !f.transit) this.scene.focusOn(f.at);
+        this.renderForces();
+        this.renderFleetDetail();
+      }));
+  }
+
+  /** Левая панель: состав открытого соединения и операции над ним. */
+  private renderFleetDetail(): void {
+    const s = this.state;
+    const f = this.detailFleet ? s.fleets.get(this.detailFleet) : null;
+    if (!f) {
+      this.fleetDetailEl.classList.add('hidden');
+      this.detailFleet = null;
+      return;
+    }
+    this.fleetDetailEl.classList.remove('hidden');
+    const at = s.galaxy.planets.get(f.transit ? f.transit.to : f.at);
+    const yard = !f.transit && at && at.owner === s.player ? at.shipyard : undefined;
+    const hulls = f.ships + f.dreadnoughts + f.battleships;
+    this.fleetDetailEl.innerHTML = `
+      <div class="pc-head"><span class="pc-title">${f.special ? '◆ ' : ''}${this.fleetName(f.id)}</span>
+        <button class="pc-close" id="fd-close">✕</button></div>
+      <div class="pc-body">
+        <div class="pp-sub">${f.transit ? `В пути → ${at?.name ?? '?'}` : `На орбите: ${at?.name ?? '?'}`}</div>
+        <div class="pp-stat"><span>Супер-эсминцы</span><b>${f.ships.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>Дредноуты</span><b>${f.dreadnoughts.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>Линкоры-флагманы</span><b>${f.battleships.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>Пехота на борту</span><b>${f.infantry.toFixed(0)}</b></div>
+        ${f.special ? `<div class="hint">◆ Несёт супероружие фракции.</div>` : ''}
+        <div class="pp-section">Операции</div>
+        <button class="mini-btn wide ${hulls >= 2 && !f.transit ? '' : 'off'}" id="fd-split" ${hulls >= 2 && !f.transit ? '' : 'disabled'}>⑂ Разделить пополам</button>
+        ${yard && storedHulls(yard) > 0 ? `<button class="mini-btn wide" id="fd-take">⚓ Принять корабли с верфи (${storedHulls(yard)} корп.)</button>` : ''}
+        <button class="mini-btn wide ${!f.transit && !f.special && at?.owner === s.player ? '' : 'off'}" id="fd-disband" ${!f.transit && !f.special && at?.owner === s.player ? '' : 'disabled'}>✕ Расформировать</button>
+        <div class="hint">ПКМ по планете — приказ на перелёт/вторжение. Shift+клик по карточкам внизу — выбор нескольких соединений.</div>
+      </div>`;
+
+    this.fleetDetailEl.querySelector('#fd-close')?.addEventListener('click', () => {
+      this.detailFleet = null;
+      this.renderFleetDetail();
+      this.renderForces();
+    });
+    this.fleetDetailEl.querySelector('#fd-split')?.addEventListener('click', () => {
+      const nf = splitFleet(s, f);
+      if (nf) {
+        this.toast('СОЕДИНЕНИЕ РАЗДЕЛЕНО');
+        this.renderFleetDetail();
+        this.renderForces();
+      }
+    });
+    this.fleetDetailEl.querySelector('#fd-take')?.addEventListener('click', () => {
+      if (takeStoredShips(s, f)) {
+        this.toast('КОРАБЛИ ПРИНЯТЫ С ВЕРФИ');
+        this.renderFleetDetail();
+        this.renderForces();
+      }
+    });
+    this.fleetDetailEl.querySelector('#fd-disband')?.addEventListener('click', () => {
+      if (disbandFleet(s, f)) {
+        this.toast('СОЕДИНЕНИЕ РАСФОРМИРОВАНО');
+        this.detailFleet = null;
+        this.selectedFleets.delete(f.id);
+        this.renderFleetDetail();
+        this.renderForces();
+        this.renderStability();
+      }
+    });
+  }
+
+  // ---------------- Рамка выделения и групповые приказы ----------------
+
+  private onBoxSelected(ids: string[]): void {
+    this.boxPlanets = ids;
+    this.scene.setBoxSelected(ids);
+    if (!ids.length) {
+      this.boxActionsEl.classList.add('hidden');
+      return;
+    }
+    this.boxActionsEl.classList.remove('hidden');
+    this.boxActionsEl.innerHTML = `
+      <span>Выделено планет: <b>${ids.length}</b></span>
+      <button class="mini-btn" id="box-distribute">⇶ РАСПРЕДЕЛИТЬ ВОЙСКА</button>
+      <button class="pc-close" id="box-clear">✕</button>`;
+    this.boxActionsEl.querySelector('#box-distribute')?.addEventListener('click', () => this.distributeFleets());
+    this.boxActionsEl.querySelector('#box-clear')?.addEventListener('click', () => this.onBoxSelected([]));
+  }
+
+  /** Равномерно распределить флоты игрока по выделенным планетам. */
+  private distributeFleets(): void {
+    const s = this.state;
+    const targets = this.boxPlanets
+      .map((id) => s.galaxy.planets.get(id)!)
+      .filter((p) => p && !p.shattered && canEnter(s, s.player, p));
+    if (!targets.length) {
+      this.toast('НЕТ ДОСТУПНЫХ ПЛАНЕТ В ВЫДЕЛЕНИИ');
+      return;
+    }
+    // Супероружие в авторазвод не идёт — им командуют только вручную.
+    const fleets = fleetsOf(s, s.player).filter((f) => !f.special);
+    if (!fleets.length) {
+      this.toast('НЕТ СОЕДИНЕНИЙ ДЛЯ РАСПРЕДЕЛЕНИЯ');
+      return;
+    }
+    const load = new Map<string, number>(targets.map((p) => [p.id, 0]));
+    let sent = 0;
+    // Крупные соединения назначаем первыми — распределение выходит ровнее.
+    const byPower = [...fleets].sort((a, b) =>
+      (b.ships + b.dreadnoughts * 3 + b.battleships * 6) - (a.ships + a.dreadnoughts * 3 + a.battleships * 6));
+    for (const f of byPower) {
+      const from = s.galaxy.planets.get(f.transit ? f.transit.from : f.at);
+      if (!from) continue;
+      // Наименее нагруженная цель; при равенстве — ближайшая.
+      const best = [...targets].sort((a, b) => {
+        const la = load.get(a.id)!, lb = load.get(b.id)!;
+        if (la !== lb) return la - lb;
+        const da = Math.hypot(a.pos.x - from.pos.x, a.pos.y - from.pos.y);
+        const db = Math.hypot(b.pos.x - from.pos.x, b.pos.y - from.pos.y);
+        return da - db;
+      })[0]!;
+      const invade = areHostile(s.player, best.owner) && best.owner !== s.player;
+      if (f.at === best.id && !f.transit) {
+        load.set(best.id, load.get(best.id)! + 1);
+        continue;
+      }
+      if (orderFleetTo(s, f, best.id, invade)) {
+        load.set(best.id, load.get(best.id)! + 1);
+        sent++;
+      }
+    }
+    this.toast(sent ? `ВОЙСКА РАСПРЕДЕЛЕНЫ: ${sent} СОЕДИНЕНИЙ → ${targets.length} ПЛАНЕТ` : 'НЕТ МАРШРУТОВ К ЦЕЛЯМ');
+    this.onBoxSelected([]);
+    this.renderForces();
+  }
+
+  /** ПКМ по планете: приказ всем выбранным соединениям (или одному выбранному). */
+  private onPlanetRightClicked(id: string): void {
+    const s = this.state;
+    const dest = s.galaxy.planets.get(id);
+    if (!dest || dest.shattered) return;
+    const picks = this.selectedFleets.size
+      ? [...this.selectedFleets]
+      : s.selectedFleet ? [s.selectedFleet] : [];
+    if (!picks.length) return;
+    const invade = areHostile(s.player, dest.owner) && dest.owner !== s.player;
+    let sent = 0;
+    for (const fid of picks) {
+      const f = s.fleets.get(fid);
+      if (!f || f.faction !== s.player) continue;
+      if (orderFleetTo(s, f, id, invade)) sent++;
+    }
+    if (sent) {
+      this.toast(`ПРИКАЗ: ${invade ? 'ВТОРЖЕНИЕ' : 'ПЕРЕЛЁТ'} · ${dest.name} · ${sent} СОЕД.`);
+      this.selectedFleets.clear();
+      this.renderForces();
+    } else {
+      this.toast('НЕТ МАРШРУТА СНАБЖЕНИЯ');
+    }
   }
 
   // ---------------- Decisions ----------------
@@ -667,10 +961,34 @@ export class UI {
       const can = fs.production >= DIVISION_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-div="${t.id}" ${can ? '' : 'disabled'}>${t.name} · в пуле ${(fs.units[t.id] ?? 0).toFixed(0)}</button>`;
     }
-    html += `</div><div class="dec-item"><b>⚓ Верфи</b>`;
-    for (const c of SHIP_CLASSES) {
-      const can = fs.production >= c.cost;
-      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-ship="${c.id}" ${can ? '' : 'disabled'}>${c.name} — ${c.cost} пр. · ${c.desc}</button>`;
+    html += `</div>`;
+
+    // --- Верфи: корабли строятся только здесь и только вручную. ---
+    const yards = yardsOf(s, s.player);
+    html += `<div class="dec-item"><b>⚓ Верфи (${yards.length})</b>
+      <div class="hint">Верфь строится через карточку своей планеты (${SHIPYARD_COST} пр.). Один стапель — один заказ. Готовые корпуса ждут на складе: их забирает флот с орбиты, либо формируется новое соединение.</div>`;
+    if (!yards.length) {
+      html += `<div class="hint" style="color:var(--fed)">Верфей нет. Откройте карточку своей планеты и постройте первую.</div>`;
+    }
+    for (const p of yards) {
+      const y = p.shipyard!;
+      const q = y.queue;
+      const qdef = q ? SHIP_CLASSES.find((c) => c.id === q.cls) : null;
+      html += `<div class="yard-row">
+        <div class="yard-head"><b>⚓ ${p.name}</b>${p.supplied ? '' : ' <span style="color:var(--fed)">⛔ без снабжения</span>'}</div>
+        <div class="yard-status">${q && qdef
+          ? `Стапель: ${qdef.name} — ещё ${q.daysLeft} дн <button class="mini-btn" data-cancel="${p.id}">ОТМЕНИТЬ</button>`
+          : 'Стапель свободен'}</div>
+        <div class="yard-status">Склад: ЭСМ ${y.stored.ships} · ДРД ${y.stored.dreadnoughts} · ЛКР ${y.stored.battleships}</div>
+        <div class="yard-btns">`;
+      for (const c of SHIP_CLASSES) {
+        const can = !q && fs.production >= c.cost;
+        html += `<button class="mini-btn ${can ? '' : 'off'}" data-queue="${p.id}:${c.id}" ${can ? '' : 'disabled'} title="${c.desc} · ${c.days} дн">${c.name.split(' ')[0]} ${c.cost}</button>`;
+      }
+      if (storedHulls(y) > 0) {
+        html += `<button class="mini-btn" data-form="${p.id}">➕ СОЕДИНЕНИЕ</button>`;
+      }
+      html += `</div></div>`;
     }
     html += `</div></div>`;
     this.productionEl.innerHTML = html;
@@ -684,12 +1002,28 @@ export class UI {
           this.renderStability();
         } else this.toast('НЕВОЗМОЖНО: НЕТ РЕСУРСОВ ИЛИ УСЛОВИЙ');
       }));
-    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-ship]').forEach((b) =>
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-queue]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (produceShips(this.state, this.state.player, b.dataset.ship as ShipClassId)) {
-          this.toast('КОРАБЛИ СПУЩЕНЫ СО СТАПЕЛЕЙ');
+        const [pid, cls] = b.dataset.queue!.split(':');
+        if (queueShip(this.state, this.state.player, pid!, cls as ShipClassId)) {
+          this.toast('ЗАКАЗ ПОСТАВЛЕН НА СТАПЕЛЬ');
           this.renderProduction();
         }
+      }));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-cancel]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (cancelQueue(this.state, this.state.player, b.dataset.cancel!)) {
+          this.toast('ЗАКАЗ ОТМЕНЁН (ВОЗВРАТ 50%)');
+          this.renderProduction();
+        }
+      }));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-form]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (formFleetFromYard(this.state, this.state.player, b.dataset.form!)) {
+          this.toast('НОВОЕ СОЕДИНЕНИЕ СФОРМИРОВАНО');
+          this.renderProduction();
+          this.renderForces();
+        } else this.toast('НЕВОЗМОЖНО: ЛИМИТ ФЛОТОВ ИЛИ ПУСТОЙ СКЛАД');
       }));
   }
 

@@ -272,8 +272,43 @@ export class GalaxyScene {
 
   // --- selection -----------------------------------------------------------
 
+  private selectedId: string | null = null;
+  private boxSelected = new Set<string>();
+
   setSelected(id: string | null): void {
-    for (const [pid, vis] of this.planets) vis.setSelected(pid === id);
+    this.selectedId = id;
+    this.refreshSelection();
+  }
+
+  /** Групповое выделение планет рамкой (подсветка колец). */
+  setBoxSelected(ids: Iterable<string>): void {
+    this.boxSelected = new Set(ids);
+    this.refreshSelection();
+  }
+
+  private refreshSelection(): void {
+    for (const [pid, vis] of this.planets) {
+      vis.setSelected(pid === this.selectedId || this.boxSelected.has(pid));
+    }
+  }
+
+  /** Планеты, чьи центры попадают в экранный прямоугольник (px). */
+  planetsInRect(x0: number, y0: number, x1: number, y1: number): string[] {
+    const rect = this.canvas.getBoundingClientRect();
+    const [minX, maxX] = x0 < x1 ? [x0, x1] : [x1, x0];
+    const [minY, maxY] = y0 < y1 ? [y0, y1] : [y1, y0];
+    const out: string[] = [];
+    const v = new THREE.Vector3();
+    for (const id of this.state.galaxy.order) {
+      const p = this.state.galaxy.planets.get(id)!;
+      if (p.abyss || p.shattered) continue;
+      v.set(p.pos.x * GALAXY_SCALE, 0, p.pos.y * GALAXY_SCALE).project(this.camera);
+      if (v.z > 1) continue; // за камерой
+      const sx = rect.left + ((v.x + 1) / 2) * rect.width;
+      const sy = rect.top + ((1 - v.y) / 2) * rect.height;
+      if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) out.push(id);
+    }
+    return out;
   }
 
   private hoveredId: string | null = null;
@@ -309,18 +344,41 @@ export class GalaxyScene {
 
   // --- input ---------------------------------------------------------------
 
+  /** Зажатые клавиши WASD (по e.code — не зависит от раскладки). */
+  private keys = new Set<string>();
+  private boxEl: HTMLDivElement | null = null;
+
   private attachInput(): void {
     let dragging = false;
-    let mode: 'pan' | 'orbit' = 'pan';
+    let mode: 'box' | 'orbit' = 'box';
+    let startX = 0, startY = 0;
     let px = 0, py = 0;
     let moved = 0;
+
+    // WASD — перемещение карты.
+    window.addEventListener('keydown', (e) => {
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) this.keys.add(e.code);
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => this.keys.clear());
+
+    // Белая рамка выделения.
+    const ensureBox = (): HTMLDivElement => {
+      if (!this.boxEl) {
+        this.boxEl = document.createElement('div');
+        this.boxEl.id = 'select-box';
+        document.body.appendChild(this.boxEl);
+      }
+      return this.boxEl;
+    };
+    const hideBox = () => { if (this.boxEl) this.boxEl.style.display = 'none'; };
 
     this.canvas.addEventListener('pointerdown', (e) => {
       dragging = true;
       moved = 0;
-      mode = e.button === 2 || e.shiftKey ? 'orbit' : 'pan';
-      px = e.clientX;
-      py = e.clientY;
+      mode = e.button === 2 ? 'orbit' : 'box';
+      startX = px = e.clientX;
+      startY = py = e.clientY;
       this.canvas.setPointerCapture(e.pointerId);
     });
     let lastHoverCheck = 0;
@@ -342,26 +400,38 @@ export class GalaxyScene {
       if (mode === 'orbit') {
         this.yaw -= dx * 0.005;
         this.pitch = Math.max(0.35, Math.min(1.45, this.pitch - dy * 0.004));
-      } else {
-        // Camera follows the drag: mouse right → camera right (map slides left).
-        const k = this.distance * 0.0016;
-        const cos = Math.cos(this.yaw);
-        const sin = Math.sin(this.yaw);
-        this.target.x += (dx * cos - dy * sin) * k;
-        this.target.z += (dx * sin + dy * cos) * k;
-        this.clampTarget();
+      } else if (moved >= 6) {
+        // ЛКМ-перетаскивание рисует белую рамку выделения.
+        const box = ensureBox();
+        const x = Math.min(startX, px), y = Math.min(startY, py);
+        box.style.display = 'block';
+        box.style.left = `${x}px`;
+        box.style.top = `${y}px`;
+        box.style.width = `${Math.abs(px - startX)}px`;
+        box.style.height = `${Math.abs(py - startY)}px`;
       }
     });
     const end = (e: PointerEvent) => {
       if (!dragging) return;
       dragging = false;
+      hideBox();
       if (moved < 5) {
+        // Клик без перетаскивания.
         const id = this.pick(e.clientX, e.clientY);
-        bus.emit('planetSelected', { id });
+        if (e.button === 2) {
+          if (id) bus.emit('planetRightClicked', { id });
+        } else {
+          bus.emit('planetSelected', { id });
+        }
+        return;
+      }
+      if (mode === 'box') {
+        const ids = this.planetsInRect(startX, startY, e.clientX, e.clientY);
+        bus.emit('planetsBoxSelected', { ids });
       }
     };
     this.canvas.addEventListener('pointerup', end);
-    this.canvas.addEventListener('pointercancel', () => (dragging = false));
+    this.canvas.addEventListener('pointercancel', () => { dragging = false; hideBox(); });
     this.canvas.addEventListener('dblclick', (e) => {
       const id = this.pick(e.clientX, e.clientY);
       if (id) this.focusOn(id);
@@ -372,6 +442,24 @@ export class GalaxyScene {
       const f = Math.exp(e.deltaY * 0.0012);
       this.distance = Math.max(this.minDist, Math.min(this.maxDist, this.distance * f));
     }, { passive: false });
+  }
+
+  /** Сдвиг камеры от WASD; вызывается каждый кадр. */
+  private applyKeyPan(dt: number): void {
+    if (this.keys.size === 0) return;
+    let fx = 0, fy = 0; // экранные оси: fy>0 — вверх экрана, fx>0 — вправо
+    if (this.keys.has('KeyW')) fy += 1;
+    if (this.keys.has('KeyS')) fy -= 1;
+    if (this.keys.has('KeyD')) fx += 1;
+    if (this.keys.has('KeyA')) fx -= 1;
+    if (!fx && !fy) return;
+    // dt зажат: при просадке кадров карта не должна прыгать к краю.
+    const spd = this.distance * 0.55 * Math.min(dt, 0.05);
+    const cos = Math.cos(this.yaw), sin = Math.sin(this.yaw);
+    // Вверх экрана = (sin, -cos), вправо экрана = (cos, sin) — как в старом пане.
+    this.target.x += (fx * cos + fy * sin) * spd;
+    this.target.z += (fx * sin - fy * cos) * spd;
+    this.clampTarget();
   }
 
   private clampTarget(): void {
@@ -404,6 +492,7 @@ export class GalaxyScene {
       m.sprite.position.y = m.baseY + Math.sin(t * 1.1 + m.phase) * 0.05;
     }
     this.fleets.update(this.state, dt);
+    this.applyKeyPan(dt);
     this.updateCamera();
     this.renderer.render(this.scene, this.camera);
   }

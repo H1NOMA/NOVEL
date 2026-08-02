@@ -100,6 +100,15 @@ export interface Planet {
   e711Rich: boolean;
   /** Планета уничтожена орбитальным залпом супероружия — осталось поле обломков. */
   shattered: boolean;
+  /** Верфь: строит корабли по приказу игрока и складирует их до передачи флоту. */
+  shipyard?: Shipyard;
+}
+
+export interface Shipyard {
+  /** Текущий заказ на стапеле (одновременно строится один корабль). */
+  queue: { cls: string; daysLeft: number } | null;
+  /** Готовые корпуса, ожидающие передачи соединению. */
+  stored: { ships: number; dreadnoughts: number; battleships: number };
 }
 
 export interface City {
