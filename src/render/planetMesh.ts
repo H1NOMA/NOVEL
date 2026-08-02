@@ -174,8 +174,8 @@ varying vec3 vNormal; varying vec3 vView;
 void main(){
   vec3 nrm = normalize(vNormal);
   vec3 vd = normalize(vView);
-  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 2.5);
-  gl_FragColor = vec4(uColor, fres * 0.75);
+  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 3.4);
+  gl_FragColor = vec4(uColor, fres * 0.5);
 }
 `;
 
@@ -295,7 +295,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     blending: THREE.AdditiveBlending,
   });
   const atmo = new THREE.Mesh(SHELL_GEO, atmoMat);
-  atmo.scale.setScalar(baseRadius * 1.22);
+  atmo.scale.setScalar(baseRadius * 1.15);
 
   // Кольцо наведения (появляется только при hover/выборе, крутится вокруг оси).
   const hoverRing = buildHoverRing();

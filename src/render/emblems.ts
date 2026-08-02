@@ -220,6 +220,6 @@ export function emblemSprite(faction: FactionId): THREE.Sprite {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.setScalar(0.55);
+  sprite.scale.setScalar(0.42);
   return sprite;
 }

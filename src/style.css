@@ -4,10 +4,11 @@
   --ill: #8b5bd8;
   --term: #e8b830;
   --fed: #ff8c1a;
-  --gold: #ffd24a;
-  --panel: rgba(10, 16, 26, 0.86);
+  --gold: #e6c25e;
+  --panel: rgba(9, 14, 24, 0.92);
   --panel-solid: #0b1120;
-  --edge: rgba(120, 160, 220, 0.28);
+  --edge: rgba(125, 155, 205, 0.16);
+  --edge-strong: rgba(125, 155, 205, 0.3);
   --text: #dce6f5;
   --muted: #8fa3be;
   font-family: 'Rajdhani', 'Segoe UI', 'Roboto Condensed', system-ui, sans-serif;
@@ -35,18 +36,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 
 /* ---------- Top HUD ---------- */
 #hud {
-  position: absolute; top: 0; left: 0; right: 0; height: 56px;
-  display: flex; align-items: center; gap: 14px; padding: 0 16px;
-  background: linear-gradient(180deg, rgba(6,10,20,0.95), rgba(6,10,20,0.55));
-  border-bottom: 2px solid var(--gold);
+  position: absolute; top: 0; left: 0; right: 0; height: 52px;
+  display: flex; align-items: center; gap: 16px; padding: 0 14px;
+  background: linear-gradient(180deg, rgba(7,11,20,0.97), rgba(7,11,20,0.82));
+  border-bottom: 1px solid rgba(214, 178, 90, 0.3);
 }
 #flag-btn {
-  width: 42px; height: 42px; padding: 3px; cursor: pointer; flex: 0 0 42px;
-  background: #10192c; border: 1px solid var(--gold); border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; padding: 3px; cursor: pointer; flex: 0 0 38px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--edge-strong); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; transition: border-color .15s;
 }
 #flag-btn img { width: 100%; height: 100%; }
-#flag-btn:hover { background: #1a2a48; }
+#flag-btn:hover { border-color: var(--gold); }
 .hud-inds { display: flex; align-items: center; gap: 14px; font-size: 13px; flex-wrap: nowrap; }
 .hud-ind { white-space: nowrap; color: var(--muted); }
 .hud-ind b { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -54,9 +55,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 .hud-day { font-variant-numeric: tabular-nums; font-size: 15px; min-width: 92px; }
 .speed-btns { display: flex; gap: 4px; }
 .speed-btn {
-  background: #10192c; color: var(--text); border: 1px solid var(--edge);
-  width: 34px; height: 30px; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 13px;
+  background: rgba(255,255,255,0.04); color: var(--muted); border: 1px solid var(--edge);
+  width: 32px; height: 28px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px;
+  transition: border-color .15s, color .15s;
 }
+.speed-btn:hover { color: var(--text); }
 .speed-btn:hover { border-color: var(--gold); }
 .speed-btn.active { background: var(--gold); color: #101010; border-color: var(--gold); }
 
@@ -64,10 +67,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
   position: absolute; top: 62px; right: 16px; display: flex; gap: 8px; z-index: 20;
 }
 .fac-chip {
-  display: flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 4px;
-  background: rgba(255,255,255,0.04); border: 1px solid var(--edge); font-size: 12px;
+  display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px;
+  background: rgba(8,12,22,0.72); border: 1px solid rgba(255,255,255,0.06); font-size: 11px;
+  color: var(--muted);
 }
-.fac-dot { width: 10px; height: 10px; border-radius: 50%; }
+.fac-dot { width: 8px; height: 8px; border-radius: 50%; }
 .fac-chip.dead { opacity: 0.35; text-decoration: line-through; }
 
 .hud-btn {
@@ -85,7 +89,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 #dossier {
   position: absolute; left: 16px; top: 112px; width: 330px; max-height: 74vh;
   display: flex; flex-direction: column; background: var(--panel);
-  border: 1px solid var(--edge); border-radius: 8px; font-size: 13px; z-index: 32;
+  border: 1px solid var(--edge); border-radius: 10px; font-size: 13px; z-index: 32;
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 #dossier.hidden { display: none; }
@@ -109,7 +113,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 320px; max-height: 72vh; display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--edge);
-  border-radius: 8px; font-size: 13px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  border-radius: 10px; font-size: 13px; box-shadow: 0 12px 36px rgba(0,0,0,0.45);
   z-index: 30;
 }
 #planet-panel.hidden, #focus-overlay.hidden, #decisions.hidden { display: none; }
@@ -138,16 +142,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 
 /* ---------- Решения ---------- */
 #decisions {
-  position: absolute; left: 16px; top: 240px; width: 300px; max-height: 55vh;
+  position: absolute; left: 16px; top: 112px; width: 300px; max-height: 55vh;
   display: flex; flex-direction: column; background: var(--panel);
-  border: 1px solid var(--edge); border-radius: 8px; font-size: 13px; z-index: 25;
+  border: 1px solid var(--edge); border-radius: 10px; font-size: 13px; z-index: 25;
 }
 .dec-item { padding: 8px 0; border-bottom: 1px dashed rgba(255,255,255,0.08); }
 .pp-name { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
 .pp-sub { color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
 .pp-owner { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; font-weight: 700; }
 .pp-stat { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }
-.pp-section { margin-top: 12px; font-size: 11px; letter-spacing: 2px; color: var(--gold); text-transform: uppercase; }
+.pp-section { margin-top: 12px; font-size: 10px; letter-spacing: 1.6px; color: rgba(230,194,94,0.85); text-transform: uppercase; }
 .fleet-row {
   display: flex; align-items: center; gap: 8px; padding: 6px; margin-top: 6px;
   background: rgba(255,255,255,0.03); border: 1px solid var(--edge); border-radius: 5px;
@@ -155,7 +159,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 .fleet-row.sel { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 .fleet-row .grow { flex: 1; }
 .mini-btn {
-  background: #14233d; border: 1px solid var(--edge); color: var(--text);
+  background: rgba(255,255,255,0.05); border: 1px solid var(--edge); color: var(--text);
   padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 700;
 }
 .mini-btn:hover { border-color: var(--gold); color: var(--gold); }
@@ -191,8 +195,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 
 /* ---------- Log ---------- */
 #log {
-  position: absolute; left: 16px; bottom: 16px; width: 380px; max-height: 200px; overflow-y: auto;
-  background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; padding: 10px 12px; font-size: 12px;
+  position: absolute; left: 16px; bottom: 16px; width: 340px; max-height: 150px; overflow-y: auto;
+  background: rgba(8,12,20,0.72); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px;
+  padding: 8px 12px; font-size: 11px; line-height: 1.35;
 }
 .log-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); line-height: 1.3; }
 .log-entry .d { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
@@ -268,18 +273,19 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 
 /* ---------- Компактные квадратные кнопки HUD ---------- */
 .hud-btn-sq {
-  width: 40px; height: 40px; flex: 0 0 40px;
-  background: #12203a; color: var(--gold); border: 1px solid var(--gold);
-  border-radius: 6px; cursor: pointer; font-size: 19px; line-height: 1;
+  width: 38px; height: 38px; flex: 0 0 38px;
+  background: var(--panel); color: var(--gold); border: 1px solid var(--edge-strong);
+  border-radius: 8px; cursor: pointer; font-size: 17px; line-height: 1;
   display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: border-color .15s, background .15s;
 }
-.hud-btn-sq:hover { background: var(--gold); color: #101010; }
+.hud-btn-sq:hover { border-color: var(--gold); background: rgba(230,194,94,0.12); }
 
 /* ---------- Панель производства ---------- */
 #production {
-  position: absolute; right: 16px; top: 70px; width: 300px; max-height: 62vh;
+  position: absolute; right: 16px; top: 96px; width: 300px; max-height: 62vh;
   display: flex; flex-direction: column; background: var(--panel);
-  border: 1px solid var(--edge); border-radius: 8px; font-size: 13px; z-index: 25;
+  border: 1px solid var(--edge); border-radius: 10px; font-size: 13px; z-index: 25;
 }
 #production.hidden { display: none; }
 
@@ -287,8 +293,8 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 #defeat-banner {
   position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
   max-width: 760px; padding: 12px 26px; text-align: center; z-index: 35;
-  background: rgba(10, 6, 6, 0.94); border: 2px solid var(--aut); border-radius: 8px;
-  font-size: 16px; letter-spacing: 1px;
+  background: rgba(12, 8, 8, 0.95); border: 1px solid var(--aut); border-radius: 10px;
+  font-size: 15px; letter-spacing: 0.8px;
 }
 #defeat-banner.hidden { display: none; }
 #defeat-banner b { color: var(--aut); letter-spacing: 2px; }
@@ -313,13 +319,14 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 }
 .forces-tabs { position: absolute; right: 16px; bottom: 0; pointer-events: auto; }
 .force-card {
-  min-width: 150px; flex: 0 0 auto; padding: 8px 10px; cursor: pointer;
-  background: var(--panel); border: 1px solid var(--edge); border-radius: 7px;
-  font-size: 12px; line-height: 1.35; user-select: none;
+  min-width: 148px; flex: 0 0 auto; padding: 8px 11px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 9px;
+  font-size: 12px; line-height: 1.4; user-select: none;
+  transition: border-color .15s;
 }
-.force-card:hover { border-color: var(--se); }
-.force-card.open { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
-.force-card.multi { border-color: #fff; box-shadow: 0 0 0 1px #fff inset; }
+.force-card:hover { border-color: var(--edge-strong); }
+.force-card.open { border-color: rgba(230,194,94,0.75); }
+.force-card.multi { border-color: rgba(255,255,255,0.75); }
 .force-card.static { cursor: default; }
 .force-card.wide-card { min-width: 260px; max-width: 340px; }
 .fc-name { font-weight: 700; color: var(--se); letter-spacing: 0.5px; }
@@ -333,18 +340,19 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 }
 .forces-tabs { display: flex; flex-direction: column; gap: 6px; }
 .forces-tab {
-  width: 44px; height: 44px; font-size: 20px; line-height: 1; cursor: pointer;
-  background: #12203a; color: var(--gold); border: 1px solid var(--edge); border-radius: 7px;
+  width: 42px; height: 42px; font-size: 18px; line-height: 1; cursor: pointer;
+  background: var(--panel); color: var(--muted); border: 1px solid var(--edge); border-radius: 9px;
   display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: border-color .15s, color .15s;
 }
-.forces-tab:hover { border-color: var(--gold); }
-.forces-tab.active { background: var(--gold); color: #101010; border-color: var(--gold); }
+.forces-tab:hover { border-color: var(--edge-strong); color: var(--text); }
+.forces-tab.active { background: rgba(230,194,94,0.16); color: var(--gold); border-color: rgba(230,194,94,0.6); }
 
 /* ---------- Панель состава соединения ---------- */
 #fleet-detail {
   position: absolute; left: 16px; top: 46%; transform: translateY(-50%);
   width: 270px; background: var(--panel); border: 1px solid var(--edge);
-  border-radius: 8px; font-size: 13px; z-index: 26;
+  border-radius: 10px; font-size: 13px; z-index: 26;
   display: flex; flex-direction: column; max-height: 60vh;
 }
 #fleet-detail.hidden { display: none; }

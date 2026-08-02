@@ -164,7 +164,7 @@ export class GalaxyScene {
     const mat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.3,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -234,14 +234,14 @@ export class GalaxyScene {
       if (owners.size === 1 && alive.length > 0) {
         const color = FACTIONS[[...owners][0]!].color;
         vis.fillMat.color.set(color);
-        vis.fillMat.opacity = 0.09;
+        vis.fillMat.opacity = 0.05;
         vis.borderMat.color.set(color);
-        vis.borderMat.opacity = 0.6;
+        vis.borderMat.opacity = 0.38;
       } else {
         vis.fillMat.color.copy(NEUTRAL_SECTOR);
-        vis.fillMat.opacity = 0.03;
+        vis.fillMat.opacity = 0.02;
         vis.borderMat.color.copy(NEUTRAL_SECTOR);
-        vis.borderMat.opacity = 0.22;
+        vis.borderMat.opacity = 0.15;
       }
     }
   }
