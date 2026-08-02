@@ -259,3 +259,14 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
   border: 1px solid var(--edge); border-radius: 8px; font-size: 13px; z-index: 25;
 }
 #production.hidden { display: none; }
+
+/* ---------- Баннер поражения фракции ---------- */
+#defeat-banner {
+  position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+  max-width: 760px; padding: 12px 26px; text-align: center; z-index: 35;
+  background: rgba(10, 6, 6, 0.94); border: 2px solid var(--aut); border-radius: 8px;
+  font-size: 16px; letter-spacing: 1px;
+}
+#defeat-banner.hidden { display: none; }
+#defeat-banner b { color: var(--aut); letter-spacing: 2px; }
+.banner-sub { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }

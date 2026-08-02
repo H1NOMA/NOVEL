@@ -26,6 +26,9 @@ function boot(): void {
   const clock = new GameClock(state);
   const ui = new UI(state, scene, clock);
 
+  // Отладочный крючок для автотестов и консоли (не влияет на игру).
+  (window as unknown as Record<string, unknown>).__game = { state, scene, clock, ui };
+
   // Render loop (visuals run every frame regardless of sim speed).
   const renderLoop = (): void => {
     scene.render();

@@ -33,6 +33,10 @@ export interface GameState {
   gloomTarget: string | null;
   /** Зреющие зачатки Мрака: планета → дней до окутывания. */
   gloomSeeds: { planet: string; daysLeft: number }[];
+  /** Кто последним отнимал планету у фракции — для сводки о поражении. */
+  lastConqueror: Partial<Record<FactionId, FactionId>>;
+  /** Игрок выбыл, но наблюдает за продолжением войны. */
+  playerDefeated: boolean;
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -81,6 +85,8 @@ export function createGame(seed: number): GameState {
     spires: [],
     gloomTarget: null,
     gloomSeeds: [],
+    lastConqueror: {},
+    playerDefeated: false,
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.

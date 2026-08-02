@@ -11,6 +11,7 @@ export interface GameEvents extends Record<string, unknown> {
   stateChanged: void;
   log: { text: string };
   factionEliminated: { faction: string };
+  factionDefeated: { faction: string; by: string | null };
   superFederationRose: void;
   focusCompleted: { faction: string; id: string };
 }

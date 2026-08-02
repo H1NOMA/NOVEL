@@ -4,6 +4,7 @@ import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './stat
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
 import { drawUnits, mineE711, replenishUnits, totalUnits } from './troops';
+import { bus } from '../core/emitter';
 
 const FLEET_COST = 45;
 const INFANTRY_CAP = 45;
@@ -59,43 +60,107 @@ function eliminate(state: GameState, faction: FactionId): void {
   fs.alive = false;
   fs.activeFocus = undefined;
   for (const f of fleetsOf(state, faction)) f.order = { kind: 'idle' };
+  const by = state.lastConqueror[faction] ?? null;
   pushLog(state, {
     faction,
     text: `Фракция «${FACTIONS[faction].name}» повержена и изгнана из галактики!`,
     tone: faction === state.player ? 'bad' : 'good',
   });
+  if (faction === state.player) state.playerDefeated = true;
+  bus.emit('factionDefeated', { faction, by });
 }
 
-/** AI fleet orders for a non-player faction. */
+/**
+ * Тактический ИИ флотов. Принципы:
+ *  • цели оцениваются (слабый гарнизон, окружение, ценность, столицы),
+ *    а не берётся просто ближайшая;
+ *  • без достаточного перевеса сил ИИ копит войска, а не бросается в бой;
+ *  • при угрозе своим мирам флоты отзываются на оборону;
+ *  • потрёпанные соединения отходят в тыл на переформирование.
+ */
 export function runAI(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (!fs.alive) return;
+  const aggression = FACTIONS[faction].aggression;
+
   for (const f of fleetsOf(state, faction)) {
     if (f.transit) continue;
     const here = state.galaxy.planets.get(f.at);
     if (!here) continue;
 
-    // If stranded with no troops on a hostile world, retreat to reload.
-    if (here.owner !== faction && f.infantry < 6) {
+    const hulls = f.ships + f.dreadnoughts + f.battleships;
+
+    // Потрёпан или пуст — отход на переформирование.
+    if ((here.owner !== faction && f.infantry < 6) || hulls < 2.5) {
       const refuge = nearestOwnedWorld(state, faction, f.at);
       if (refuge) orderFleetTo(state, f, refuge, false);
       continue;
     }
-    // Already invading a hostile world with troops — hold and keep fighting.
+    // Уже штурмует вражеский мир — держит хватку.
     if (here.owner !== faction && areHostile(faction, here.owner)) continue;
 
-    // On a friendly world with troops: push to the nearest hostile frontier.
-    if (f.infantry >= 10) {
-      const target = nearestHostileWorld(state, faction, f.at);
+    // Оборона прежде всего: если наш мир под серьёзным ударом — на выручку.
+    const threat = mostThreatenedWorld(state, faction);
+    if (threat) {
+      const tp = state.galaxy.planets.get(threat)!;
+      if (tp.battle && tp.battle.liberation > 25 && threat !== f.at) {
+        orderFleetTo(state, f, threat, false);
+        continue;
+      }
+    }
+
+    // Наступление: лучшая цель в радиусе досягаемости.
+    if (f.infantry >= 12) {
+      const target = bestInvasionTarget(state, faction, f);
       if (target) {
         orderFleetTo(state, f, target, true);
         continue;
       }
     }
-    // Otherwise reinforce a threatened friendly world.
-    const threat = mostThreatenedWorld(state, faction);
+    // Сил маловато — копим на месте (докомплектация идёт в runEconomy),
+    // а тем временем прикрываем самый ценный фронтовой мир.
     if (threat && threat !== f.at) orderFleetTo(state, f, threat, false);
   }
+  void aggression;
+}
+
+/**
+ * Оценка целей вторжения: перевес сил обязателен, окружённые и слабо
+ * защищённые миры ценятся выше, столицы — лакомая добыча.
+ */
+function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): string | null {
+  const myPower = f.infantry * (1 + state.factions[faction].bonuses.combat);
+  let best: string | null = null;
+  let bestScore = 0;
+
+  // Кандидаты: вражеские миры, смежные с нашей территорией (фронтир).
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.owner === faction || p.shattered) continue;
+    if (!areHostile(faction, p.owner) || !canEnter(state, faction, p)) continue;
+    const onFrontier = p.links.some((lid) => {
+      const n = state.galaxy.planets.get(lid)!;
+      return n.owner === faction && !n.shattered;
+    });
+    if (!onFrontier) continue;
+
+    const defence = p.garrison * (1 + p.fortification * 0.12) * (p.supplied ? 1 : 0.55);
+    // Без полуторного перевеса ИИ не лезет — копит силы.
+    if (myPower < defence * 0.66) continue;
+
+    let score = myPower / (defence + 10);
+    score += p.value * 0.35;
+    if (!p.supplied) score += 3.5;          // окружённые — добить
+    if (p.isCapital) score += 3;            // обезглавить врага
+    if (p.battle && p.battle.attacker === faction) score += 2.5; // дожать штурм
+    if (p.cities.length) score += p.cities.length * 0.5;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = id;
+    }
+  }
+  return best;
 }
 
 // --- BFS helpers over supply lines -----------------------------------------
@@ -114,15 +179,6 @@ function bfsFind(state: GameState, start: string, transit: (p: Planet) => boolea
     }
   }
   return null;
-}
-
-function nearestHostileWorld(state: GameState, faction: FactionId, from: string): string | null {
-  return bfsFind(
-    state,
-    from,
-    (p) => p.owner === faction && canEnter(state, faction, p),
-    (p) => p.owner !== faction && areHostile(faction, p.owner) && canEnter(state, faction, p)
-  );
 }
 
 function nearestOwnedWorld(state: GameState, faction: FactionId, from: string): string | null {

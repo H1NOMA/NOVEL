@@ -54,39 +54,36 @@ export function advanceDay(state: GameState): void {
 function checkVictory(state: GameState): void {
   if (state.winner) return;
 
-  // Потеря или уничтожение самой Супер-Земли — немедленное поражение СЗ.
+  // Потеря или уничтожение самой Супер-Земли — гибель фракции СЗ (но война
+  // продолжается, пока в галактике больше одной живой стороны).
   const seCapital = state.galaxy.planets.get('p_super_earth');
-  if (seCapital && (seCapital.shattered || seCapital.owner !== 'superEarth')) {
-    if (state.factions.superEarth.alive) {
-      state.factions.superEarth.alive = false;
-      pushLog(state, {
-        text: seCapital.shattered
-          ? 'СУПЕР-ЗЕМЛЯ УНИЧТОЖЕНА. Сердце Управляемой Демократии обратилось в обломки.'
-          : 'СУПЕР-ЗЕМЛЯ ПАЛА. Колыбель человечества в руках врага.',
-        tone: 'bad',
-      });
-    }
-    if (state.player === 'superEarth') {
-      const foes = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
-        .filter((f) => f !== 'superEarth' && planetsOf(state, f).some((p) => !p.abyss));
-      state.winner = foes[0] ?? 'automatons';
-      state.speed = 0;
-      return;
-    }
+  if (seCapital && (seCapital.shattered || seCapital.owner !== 'superEarth') && state.factions.superEarth.alive) {
+    state.factions.superEarth.alive = false;
+    if (state.player === 'superEarth') state.playerDefeated = true;
+    pushLog(state, {
+      text: seCapital.shattered
+        ? 'СУПЕР-ЗЕМЛЯ УНИЧТОЖЕНА. Сердце Управляемой Демократии обратилось в обломки.'
+        : 'СУПЕР-ЗЕМЛЯ ПАЛА. Колыбель человечества в руках врага.',
+      tone: 'bad',
+    });
+    bus.emit('factionDefeated', {
+      faction: 'superEarth',
+      by: seCapital.shattered ? state.lastConqueror.superEarth ?? null : seCapital.owner,
+    });
   }
-  // Миры, ушедшие в Бездну, вне досягаемости — для победы они не считаются.
-  const withLand = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
-    .filter((f) => planetsOf(state, f).some((p) => !p.abyss));
 
-  if (planetsOf(state, state.player).length === 0 && fleetsOf(state, state.player).length === 0) {
-    state.winner = withLand[0] ?? 'automatons';
+  // Финал: в галактике осталась одна живая сторона (миры Бездны не в счёт).
+  const contenders = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
+    .filter((f) => state.factions[f].alive && planetsOf(state, f).some((p) => !p.abyss));
+
+  if (contenders.length === 1) {
+    state.winner = contenders[0]!;
     state.speed = 0;
-    pushLog(state, { text: 'Супер-Земля пала. Демократия умирает во тьме.', tone: 'bad' });
-    return;
-  }
-  if (withLand.length === 1 && withLand[0] === state.player) {
-    state.winner = state.player;
-    state.speed = 0;
-    pushLog(state, { text: 'Галактика освобождена! Супер-Земля торжествует. Сладкая Свобода!', tone: 'good' });
+    pushLog(state, {
+      text: state.winner === state.player
+        ? 'Галактика освобождена! Супер-Земля торжествует. Сладкая Свобода!'
+        : `Война окончена. Над галактикой властвует фракция «${state.winner}».`,
+      tone: state.winner === state.player ? 'good' : 'bad',
+    });
   }
 }

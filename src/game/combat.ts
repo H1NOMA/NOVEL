@@ -4,6 +4,7 @@ import { fleetsAt, pushLog, removeFleet, type GameState } from './state';
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
+import { bus } from '../core/emitter';
 
 // ---------------------------------------------------------------------------
 // Combat resolves in two layers each day:
@@ -214,6 +215,7 @@ export function resolveGround(state: GameState): void {
 
 function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, attackers: Fleet[]): void {
   const prev = planet.owner;
+  state.lastConqueror[prev] = attacker;
   const garrisonLost = planet.garrison;
   planet.owner = attacker;
   planet.battle = undefined;
@@ -311,6 +313,8 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
     text: `Столица пала — фракция «${FACTIONS[loser].name}» КАПИТУЛИРУЕТ! Миров перешло под контроль ${FACTION_GEN[victor]}: ${flipped}.`,
     tone: loser === state.player ? 'bad' : 'alert',
   });
+  if (loser === state.player) state.playerDefeated = true;
+  bus.emit('factionDefeated', { faction: loser, by: victor });
 }
 
 function regrowGarrison(state: GameState, planet: Planet): void {

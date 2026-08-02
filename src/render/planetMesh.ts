@@ -78,7 +78,8 @@ uniform vec3 uLand; uniform vec3 uSea; uniform vec3 uAtmo;
 uniform vec3 uTint; uniform float uWater; uniform float uRough;
 uniform float uClouds; uniform float uTime; uniform float uSeed;
 uniform float uFreq; uniform float uWarp; uniform float uBands;
-uniform float uCity; uniform float uCapSize;
+uniform float uCity; uniform float uCapSize; uniform float uContinent;
+uniform float uRidges;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
 void main(){
@@ -88,7 +89,8 @@ void main(){
   // Доменное искажение — континенты обретают естественные рваные очертания.
   vec3 w = vec3(fbm(sp + 13.1), fbm(sp + 71.7), fbm(sp + 29.3));
   vec3 q = sp + uWarp * w;
-  float h = fbm(q);
+  // Крупная низкочастотная компонента сливает сушу в настоящие континенты.
+  float h = mix(fbm(q), fbm(q * 0.42 + 5.7), uContinent);
 
   // Газовые гиганты: турбулентные широтные полосы.
   if (uBands > 0.5) {
@@ -109,7 +111,17 @@ void main(){
   float shore = smoothstep(uWater - 0.05, uWater, hn) * (1.0 - land);
   surf += uSea * shore * 0.5;
 
-  // Полярные шапки переменного размера.
+  // Хребты: тёмные жилы горных цепей (пустыни и безводные миры).
+  if (uRidges > 0.5) {
+    float ridge = 1.0 - abs(fbm(q * 2.2 + 31.0));
+    float chains = smoothstep(0.78, 0.94, ridge);
+    surf = mix(surf, surf * 0.45, chains * 0.8);
+    // подсветка гребней
+    float crest = smoothstep(0.9, 0.98, ridge);
+    surf += vec3(0.16, 0.13, 0.09) * crest;
+  }
+
+  // Полярные шапки — только там, где им положено быть (uCapSize > 1 = нет шапок).
   float lat = abs(n.y);
   float cap = smoothstep(uCapSize, uCapSize + 0.1, lat + relief * 0.05);
   surf = mix(surf, vec3(0.93, 0.96, 1.0), cap * 0.85);
@@ -235,8 +247,14 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   // Дополнительная уникальность поверхности.
   const warp = 0.35 + rand() * 0.85;                       // рваность континентов
   const bands = planet.biome === 'gas' ? 6 + rand() * 10 : 0; // полосы гигантов
-  const capSize = 0.72 + rand() * 0.2;                     // размер полярных шапок
+  // Полярные шапки — только на землеподобных и ледяных мирах.
+  const hasCaps = planet.biome === 'terran' || planet.biome === 'ice';
+  const capSize = hasCaps ? 0.72 + rand() * 0.2 : 2.0;
   const city = planet.cities.length > 0 ? 1 : 0;           // ночные огни городов
+  // Слитность суши в континенты (магма — крупные лавовые океаны и материки).
+  const continent = planet.biome === 'magma' ? 0.75 + rand() * 0.15 : 0.45 + rand() * 0.35;
+  // Горные хребты вместо воды на пустынных/бесплодных мирах.
+  const ridges = planet.biome === 'desert' || planet.biome === 'barren' ? 1 : 0;
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
@@ -256,6 +274,8 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uBands: { value: bands },
       uCity: { value: city },
       uCapSize: { value: capSize },
+      uContinent: { value: continent },
+      uRidges: { value: ridges },
     },
   });
 

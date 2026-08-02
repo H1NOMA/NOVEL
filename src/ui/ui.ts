@@ -34,6 +34,8 @@ export class UI {
   private decisionsEl!: HTMLElement;
   private productionEl!: HTMLElement;
   private menuEl!: HTMLElement;
+  private bannerEl!: HTMLElement;
+  private bannerTimer = 0;
   /** Позиция карточки планеты (сохраняется между открытиями). */
   private cardPos: { x: number; y: number } | null = null;
   private spireMode = false;
@@ -61,6 +63,7 @@ export class UI {
     this.decisionsEl = el('div'); this.decisionsEl.id = 'decisions'; this.decisionsEl.classList.add('hidden');
     this.productionEl = el('div'); this.productionEl.id = 'production'; this.productionEl.classList.add('hidden');
     this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
+    this.bannerEl = el('div'); this.bannerEl.id = 'defeat-banner'; this.bannerEl.classList.add('hidden');
     const help = el('div', undefined, `
       <b>УПРАВЛЕНИЕ</b><br>
       ЛКМ-перетаскивание — камера · Колесо — зум · ПКМ-перетаскивание — наклон<br>
@@ -69,7 +72,7 @@ export class UI {
       <b>★ Столицы:</b> захватите столицу — и фракция капитулирует.
       У терминидов её нет — выжигайте каждый улей.`);
     help.id = 'help';
-    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.logEl, this.toastEl, help);
+    this.root.append(this.hud, this.stability, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.logEl, this.toastEl, help);
   }
 
   private wire(): void {
@@ -82,6 +85,7 @@ export class UI {
       this.renderAll();
     });
     bus.on('focusCompleted', () => this.renderAll());
+    bus.on('factionDefeated', ({ faction, by }) => this.showDefeatBanner(faction as FactionId, by as FactionId | null));
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
@@ -785,11 +789,34 @@ export class UI {
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), ms);
   }
 
+  /** Верхний баннер: фракция выбита, но война продолжается — можно наблюдать. */
+  private showDefeatBanner(faction: FactionId, by: FactionId | null): void {
+    const isPlayer = faction === this.state.player;
+    const victor = by ? `фракции «${FACTIONS[by].name}»` : 'врагам';
+    this.bannerEl.innerHTML = isPlayer
+      ? `<b>ВЫ ПОВЕРЖЕНЫ</b> — фракция «${FACTIONS[faction].name}» проигрывает ${victor}.
+         <span class="banner-sub">Война продолжается — вы наблюдаете за картой.</span>`
+      : `Фракция «${FACTIONS[faction].name}» проигрывает ${victor} и выбывает из войны.`;
+    this.bannerEl.style.borderColor = FACTIONS[faction].color;
+    this.bannerEl.classList.remove('hidden');
+    clearTimeout(this.bannerTimer);
+    // Баннер игрока висит, чужой — уходит сам.
+    if (!isPlayer) {
+      this.bannerTimer = window.setTimeout(() => this.bannerEl.classList.add('hidden'), 12000);
+    }
+  }
+
   private showWinner(): void {
     if (this.toastEl.dataset.final) return;
     this.toastEl.dataset.final = '1';
     const w = this.state.winner!;
-    this.toast(w === this.state.player ? 'ПОБЕДА · ГАЛАКТИКА СВОБОДНА' : `ПОРАЖЕНИЕ · ВЕРХ ОДЕРЖИВАЕТ ФРАКЦИЯ «${FACTIONS[w].name.toUpperCase()}»`, 999999);
+    this.bannerEl.classList.add('hidden');
+    this.toast(
+      w === this.state.player
+        ? 'ПОБЕДА · ГАЛАКТИКА СВОБОДНА'
+        : `ВОЙНА ОКОНЧЕНА · НАД ГАЛАКТИКОЙ ВЛАСТВУЕТ ФРАКЦИЯ «${FACTIONS[w].name.toUpperCase()}»`,
+      999999
+    );
   }
 }
 

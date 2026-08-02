@@ -44,6 +44,8 @@ interface SaveBlob {
   spires: { planet: string; daysLeft: number }[];
   gloomTarget: string | null;
   gloomSeeds?: { planet: string; daysLeft: number }[];
+  lastConqueror?: Partial<Record<FactionId, FactionId>>;
+  playerDefeated?: boolean;
 }
 
 function storage(): Storage | null {
@@ -82,6 +84,8 @@ export function serializeState(state: GameState, slot: string, name: string): st
     spires: state.spires,
     gloomTarget: state.gloomTarget,
     gloomSeeds: state.gloomSeeds,
+    lastConqueror: state.lastConqueror,
+    playerDefeated: state.playerDefeated,
   };
   return JSON.stringify(blob);
 }
@@ -117,6 +121,8 @@ export function deserializeState(json: string): GameState {
     spires: b.spires,
     gloomTarget: b.gloomTarget,
     gloomSeeds: b.gloomSeeds ?? [],
+    lastConqueror: b.lastConqueror ?? {},
+    playerDefeated: b.playerDefeated ?? false,
   };
 }
 

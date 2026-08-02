@@ -396,11 +396,22 @@ function aiDecisions(state: GameState): void {
   }
   for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
     const fs = state.factions[faction];
-    if (!fs.alive || fs.production < 120) continue;
-    const worlds = state.galaxy.order
-      .map((id) => state.galaxy.planets.get(id)!)
-      .filter((p) => p.owner === faction && !p.depot && p.supplied)
-      .sort((a, b) => b.value - a.value);
-    if (worlds.length) buildDepot(state, faction, worlds[0]!.id);
+    if (!fs.alive) continue;
+    if (fs.production >= 120) {
+      const worlds = state.galaxy.order
+        .map((id) => state.galaxy.planets.get(id)!)
+        .filter((p) => p.owner === faction && !p.depot && p.supplied)
+        .sort((a, b) => b.value - a.value);
+      if (worlds.length) buildDepot(state, faction, worlds[0]!.id);
+    }
+    // Богатый ИИ вкладывается в тяжёлые корабли и дивизии.
+    if (fs.production >= 380) produceShips(state, faction, 'battleship');
+    else if (fs.production >= 220) produceShips(state, faction, 'dreadnought');
+    if (fs.production >= 150) {
+      const own = Object.entries(fs.units)
+        .filter(([id]) => id !== 'greatFleet')
+        .sort(([, a], [, b]) => a - b);
+      if (own.length && own[0]![1] < 60) produceDivision(state, faction, own[0]![0]);
+    }
   }
 }
