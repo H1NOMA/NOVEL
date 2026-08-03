@@ -514,8 +514,9 @@ export class GalaxyScene {
       dir.normalize();
       const n = Math.max(4, Math.floor(len / 0.42));
       const meshes: THREE.Mesh[] = [];
+      // Стрелки атаки — в заглавном цвете фракции игрока.
       const mat = new THREE.MeshBasicMaterial({
-        color: 0xffd76a,
+        color: new THREE.Color(FACTIONS[this.state.player].color),
         transparent: true,
         opacity: 0.95,
         blending: THREE.AdditiveBlending,

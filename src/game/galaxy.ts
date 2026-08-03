@@ -126,7 +126,6 @@ export function generateGalaxy(seed: number): Galaxy {
     for (let j = 0; j < count; j++) {
       const angle = (Math.PI * 2 * j) / count + rng.range(-0.1, 0.1);
       const r = baseR + rng.range(-18, 18);
-      const pos: Vec2 = { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
 
       // Ownership: inner rings mostly Super Earth; outer rings by wedge.
       let owner: FactionId = 'superEarth';
@@ -156,16 +155,25 @@ export function generateGalaxy(seed: number): Galaxy {
       }
       const sector = sectors.get(sectorId)!;
 
+      // Каждая планета — строго внутри своего сектора: клампим радиус и угол
+      // с запасом на видимый размер шара, чтобы не было «пограничных» планет.
+      const scale = rng.range(0.7, 1.25);
+      const pad = 14 * scale + 6; // видимый радиус планеты в мировых единицах + зазор
+      const rClamped = Math.max(sector.r0 + pad, Math.min(sector.r1 - pad, r));
+      const aPad = pad / rClamped;
+      const aClamped = Math.max(sector.a0 + aPad, Math.min(sector.a1 - aPad, norm(angle)));
+      const posC: Vec2 = { x: Math.cos(aClamped) * rClamped, y: Math.sin(aClamped) * rClamped };
+
       const id = `p_${idCounter++}`;
       addPlanet({
         id,
         name: planetName(rng, used),
         biome: biomeFor(owner, rng),
         sector: sector.name,
-        radius: r,
-        angle,
-        pos,
-        scale: rng.range(0.7, 1.25),
+        radius: rClamped,
+        angle: aClamped,
+        pos: posC,
+        scale,
         seed: rng.int(0, 999_999),
         owner,
         origin: owner,
