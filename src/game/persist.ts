@@ -49,6 +49,9 @@ interface SaveBlob {
   terminidsCapitulated?: boolean;
   firedEvents?: string[];
   attackPlans?: { from: string; to: string }[];
+  truces?: { a: FactionId; b: FactionId; until: number }[];
+  doneObjectives?: string[];
+  pendingChoice?: string | null;
 }
 
 function storage(): Storage | null {
@@ -92,6 +95,9 @@ export function serializeState(state: GameState, slot: string, name: string): st
     terminidsCapitulated: state.terminidsCapitulated,
     firedEvents: state.firedEvents,
     attackPlans: state.attackPlans,
+    truces: state.truces,
+    doneObjectives: state.doneObjectives,
+    pendingChoice: state.pendingChoice,
   };
   return JSON.stringify(blob);
 }
@@ -137,6 +143,9 @@ export function deserializeState(json: string): GameState {
     terminidsCapitulated: b.terminidsCapitulated ?? false,
     firedEvents: b.firedEvents ?? [],
     attackPlans: b.attackPlans ?? [],
+    truces: b.truces ?? [],
+    doneObjectives: b.doneObjectives ?? [],
+    pendingChoice: b.pendingChoice ?? null,
   };
 }
 

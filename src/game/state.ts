@@ -43,6 +43,12 @@ export interface GameState {
   firedEvents: string[];
   /** Заготовки атак игрока: с планеты-плацдарма на смежную вражескую. */
   attackPlans: { from: string; to: string }[];
+  /** Перемирия: пары фракций и день, до которого действует мир. */
+  truces: { a: FactionId; b: FactionId; until: number }[];
+  /** Выполненные цели кампании. */
+  doneObjectives: string[];
+  /** Ожидающий выбор игрока по сюжетному ивенту. */
+  pendingChoice: string | null;
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -98,6 +104,9 @@ export function createGame(seed: number): GameState {
     terminidsCapitulated: false,
     firedEvents: [],
     attackPlans: [],
+    truces: [],
+    doneObjectives: [],
+    pendingChoice: null,
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.

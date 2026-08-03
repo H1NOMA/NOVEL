@@ -184,7 +184,7 @@ export function generateGalaxy(seed: number): Galaxy {
         fortification: rng.int(0, 2),
         value: rng.int(1, 5),
         cities: rng.chance(0.42)
-          ? Array.from({ length: rng.int(1, 3) }, () => ({ name: cityName(rng, usedCities), holder: owner }))
+          ? Array.from({ length: rng.int(1, 3) }, () => ({ name: cityName(rng, usedCities), holder: owner, spec: rng.pick(['yard', 'academy', 'mine'] as const) }))
           : [],
         depot: false,
         supplied: true,

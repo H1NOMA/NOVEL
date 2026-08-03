@@ -10,6 +10,8 @@ import { recomputeSupply } from './supply';
 import { stepDecisions } from './decisions';
 import { stepShipyards } from './shipyards';
 import { stepEvents } from './events';
+import { stepTruces } from './diplomacy';
+import { checkObjectives } from './objectives';
 import { autosaveTick } from './persist';
 
 /** Continuous fleet movement — called every animation frame with elapsed days. */
@@ -48,6 +50,8 @@ export function advanceDay(state: GameState): void {
   resolveGround(state);
   stepDecisions(state);
   stepEvents(state);
+  stepTruces(state);
+  checkObjectives(state);
 
   // Заготовки атак: план живёт, пока плацдарм наш, а цель — вражеская и смежная.
   state.attackPlans = state.attackPlans.filter((plan) => {

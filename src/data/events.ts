@@ -31,6 +31,8 @@ export interface TimelineEvent {
   effects?: EventEffects;
   /** Крупный ивент — показывается баннером поверх карты. */
   major?: boolean;
+  /** Развилка: игроку даётся выбор (ИИ берёт первый вариант). */
+  choices?: { label: string; effects: EventEffects }[];
 }
 
 export const TIMELINE_EVENTS: TimelineEvent[] = [
@@ -39,14 +41,20 @@ export const TIMELINE_EVENTS: TimelineEvent[] = [
   { id: 'ev_bot_broadcast', day: 150, faction: 'automatons', title: 'Передача РАЗУМ-9', text: 'Каждый приёмник галактики сутки транслирует машинный гимн. Легионы ускоряют шаг.', effects: { warSupport: 6, production: 40 } },
   { id: 'ev_bug_bloom', day: 210, faction: 'terminids', title: 'Великий нерест', text: 'Биологи фиксируют вспышку кладок по всему рою. Туннели планет дрожат.', effects: { mass: 60 } },
   { id: 'ev_squid_omen', day: 270, faction: 'illuminate', title: 'Знамение Пророка', text: 'Ат\'уул объявляет: звёзды сложились в узор Великого Возвращения.', effects: { warSupport: 8 } },
-  { id: 'ev_tax_reform', day: 330, faction: 'superEarth', title: 'Военный заём Свободы', text: 'Каждый гражданин обязан... то есть счастлив вложиться в победу.', effects: { production: 60, stability: -3 } },
+  { id: 'ev_tax_reform', day: 330, faction: 'superEarth', title: 'Военный заём Свободы', text: 'Каждый гражданин обязан... то есть счастлив вложиться в победу. Как оформить заём?', major: true, choices: [
+    { label: 'Принудительно (+80 пр., −6 стаб.)', effects: { production: 80, stability: -6 } },
+    { label: 'Добровольно (+35 пр., +2 поддержки)', effects: { production: 35, warSupport: 2 } },
+  ] },
 
   // --- Год 2 ---
   { id: 'ev_meteor_storm', day: 430, title: 'Метеорный шторм Мериды', text: 'Рой метеоров рвёт торговые трассы. Конвои идут в обход — все теряют темп.', effects: { production: -30 }, major: true },
   { id: 'ev_helldiver_day', day: 520, faction: 'superEarth', title: 'День Адского Десантника', text: 'Открыт мемориал павшим. Очереди в военкоматы бьют рекорды.', effects: { mass: 40, warSupport: 5 } },
   { id: 'ev_bot_foundries', day: 600, faction: 'automatons', title: 'Ночь литейных', text: 'Заводы Вальдиса переходят на непрерывный цикл. Шлак льётся реками.', effects: { minerals: 50, production: 30 } },
   { id: 'ev_spore_drift', day: 680, faction: 'terminids', title: 'Споровый дрейф', text: 'Ветра солнечных бурь разносят споры на соседние системы.', effects: { mass: 50 } },
-  { id: 'ev_black_market', day: 720, title: 'Чёрный рынок Е-711', text: 'Контрабандисты наладили каналы. У всех фракций чуть больше топлива и чуть меньше порядка.', effects: { production: 25 } },
+  { id: 'ev_black_market', day: 720, faction: 'superEarth', title: 'Чёрный рынок Е-711', text: 'Контрабандисты наладили каналы поставок топлива. Как поступить?', major: true, choices: [
+    { label: 'Крышевать (+50 пр., −5 стаб.)', effects: { production: 50, stability: -5 } },
+    { label: 'Разогнать (+40 ПВ)', effects: { politicalPower: 40 } },
+  ] },
 
   // --- Год 3 ---
   { id: 'ev_propaganda_war', day: 840, faction: 'superEarth', title: 'Война эфиров', text: 'Голосеть забита агитацией. Даже терминиды, кажется, слушают.', effects: { politicalPower: 40 } },
@@ -66,11 +74,17 @@ export const TIMELINE_EVENTS: TimelineEvent[] = [
 
   // --- Год 6 ---
   { id: 'ev_plague', day: 1900, title: 'Чума гниль-споры', text: 'Эпидемия косит гарнизоны всех фракций. Госпитали переполнены.', effects: { mass: -40 }, major: true },
-  { id: 'ev_mineral_rush', day: 2000, title: 'Платиновая лихорадка', text: 'Разведка вскрыла новые жилы на магмовых мирах. Шахтёры стекаются толпами.', effects: { minerals: 60 } },
+  { id: 'ev_mineral_rush', day: 2000, faction: 'superEarth', title: 'Платиновая лихорадка', text: 'Разведка вскрыла новые жилы на магмовых мирах. Кому отдать разработку?', major: true, choices: [
+    { label: 'Госконцерну (+70 руды)', effects: { minerals: 70 } },
+    { label: 'Частникам (+40 пр., +20 руды)', effects: { production: 40, minerals: 20 } },
+  ] },
   { id: 'ev_bug_evolution', day: 2150, faction: 'terminids', title: 'Новый штамм', text: 'Рой отращивает хитин, о который ломаются штыки.', effects: { mass: 70 } },
 
   // --- Год 7 ---
-  { id: 'ev_referendum', day: 2300, faction: 'superEarth', title: 'Референдум о продолжении войны', text: '99.9% граждан проголосовали «за». Остальные 0.1% голосуют повторно.', effects: { warSupport: 10, stability: -4 } },
+  { id: 'ev_referendum', day: 2300, faction: 'superEarth', title: 'Референдум о продолжении войны', text: '99.9% граждан проголосовали «за». Что делать с остальными 0.1%?', major: true, choices: [
+    { label: 'Повторное голосование (+10 поддержки, −4 стаб.)', effects: { warSupport: 10, stability: -4 } },
+    { label: 'Курс на мир (+8 стаб., −6 поддержки)', effects: { stability: 8, warSupport: -6 } },
+  ] },
   { id: 'ev_ghost_fleet', day: 2450, title: 'Флот-призрак', text: 'Дрейфующая эскадра Первой войны найдена на краю карты. Металл разбирают все.', effects: { minerals: 45 }, major: true },
   { id: 'ev_squid_communion', day: 2600, faction: 'illuminate', title: 'Великое Причастие', text: 'Безмозглые массы на неделю обретают строй и дисциплину.', effects: { mass: 60 } },
 

@@ -3,7 +3,10 @@ import type { GameState } from '../game/state';
 import { FACTIONS } from '../data/factions';
 import { bus } from '../core/emitter';
 import { createPlanetVisual, type PlanetVisual } from './planetMesh';
-import { createNebulaDisc, createStarfield } from './starfield';
+import { createComets, createFactionNebulae, createNebulaDisc, createStarfield, type CometLayer } from './starfield';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { FleetLayer } from './fleets';
 import { emblemSprite } from './emblems';
 import type { FactionId } from '../core/types';
@@ -42,6 +45,15 @@ export class GalaxyScene {
   private clock = new THREE.Clock();
   private radiusWorld: number;
 
+  // Постобработка: мягкое свечение ярких элементов (bloom).
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
+  private comets!: CometLayer;
+
+  // Пульс захвата: расходящееся кольцо цвета нового владельца.
+  private prevOwners = new Map<string, FactionId>();
+  private pulses: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number }[] = [];
+
   constructor(private canvas: HTMLCanvasElement, private state: GameState) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
@@ -61,6 +73,17 @@ export class GalaxyScene {
     this.buildHomeworldMarkers();
     this.scene.add(this.fleets.group);
 
+    // Стартовая карта владений — чтобы первый refreshOwners не дал ложных пульсов.
+    for (const id of state.galaxy.order) {
+      this.prevOwners.set(id, state.galaxy.planets.get(id)!.owner);
+    }
+
+    // Композер: обычный проход + лёгкий bloom для неона эмблем, стрел и огней.
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.35, 0.55, 0.85);
+    this.composer.addPass(this.bloom);
+
     this.resize();
     this.attachInput();
     window.addEventListener('resize', () => this.resize());
@@ -71,6 +94,10 @@ export class GalaxyScene {
   private buildBackground(): void {
     this.scene.add(createStarfield(3200, this.radiusWorld * 16));
     this.scene.add(createNebulaDisc(this.radiusWorld));
+    // Живой фон: цветные туманности у границ фракций и редкие кометы.
+    this.scene.add(createFactionNebulae(this.radiusWorld));
+    this.comets = createComets(this.radiusWorld);
+    this.scene.add(this.comets.group);
     const amb = new THREE.AmbientLight(0x8899bb, 0.6);
     const key = new THREE.DirectionalLight(0xffffff, 1.1);
     key.position.set(6, 10, 8);
@@ -265,9 +292,52 @@ export class GalaxyScene {
       vis.setGloom(p.gloom);
       vis.setAbyss(p.abyss);
       vis.setShattered(p.shattered);
+      // Погода войны: пожары на сражающихся мирах, осаждённые меркнут.
+      vis.setBattle(!!p.battle && !p.gloom && !p.abyss && !p.shattered);
+      vis.setDim(p.supplied ? 1 : 0.72);
+      // Смена владельца → расходящийся пульс цвета нового хозяина.
+      const prev = this.prevOwners.get(id);
+      if (prev !== undefined && prev !== p.owner && !p.abyss && !p.shattered) {
+        this.spawnCapturePulse(p.pos.x * GALAXY_SCALE, p.pos.y * GALAXY_SCALE, FACTIONS[p.owner].color);
+      }
+      this.prevOwners.set(id, p.owner);
     }
     this.refreshSupplyColors();
     this.refreshSectors();
+  }
+
+  private spawnCapturePulse(x: number, z: number, hex: string): void {
+    const geo = new THREE.RingGeometry(0.86, 1.0, 48);
+    const mat = new THREE.MeshBasicMaterial({
+      color: hex,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.05, z);
+    mesh.scale.setScalar(0.2);
+    this.scene.add(mesh);
+    this.pulses.push({ mesh, mat, life: 0 });
+  }
+
+  private updatePulses(dt: number): void {
+    for (let i = this.pulses.length - 1; i >= 0; i--) {
+      const p = this.pulses[i]!;
+      p.life += dt;
+      const k = p.life / 2.2; // полный цикл ~2.2 с
+      p.mesh.scale.setScalar(0.2 + k * 2.4);
+      p.mat.opacity = Math.max(0, 0.9 * (1 - k));
+      if (k >= 1) {
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mat.dispose();
+        this.pulses.splice(i, 1);
+      }
+    }
   }
 
   // --- selection -----------------------------------------------------------
@@ -587,15 +657,18 @@ export class GalaxyScene {
     this.fleets.update(this.state, dt);
     this.syncAttackArrows();
     this.animateAttackArrows(t);
+    this.comets.update(t);
+    this.updatePulses(dt);
     this.applyKeyPan(dt);
     this.updateCamera();
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   resize(): void {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.composer?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }

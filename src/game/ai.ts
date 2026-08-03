@@ -3,6 +3,7 @@ import { areHostile, FACTIONS } from '../data/factions';
 import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
+import { hostileNow } from './diplomacy';
 import { drawUnits, mineE711, mineMinerals, replenishUnits, totalUnits } from './troops';
 import { accruePower } from './politics';
 import { bus } from '../core/emitter';
@@ -256,6 +257,17 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
   const myPower = f.infantry * (1 + fs.bonuses.combat);
   const plan = fs.aiPlan;
   const planSector = plan?.target ? state.galaxy.planets.get(plan.target)?.sector : undefined;
+  // Гегемон: фракция, держащая больше 38% живых планет галактики.
+  const totals = new Map<FactionId, number>();
+  let living = 0;
+  for (const pid of state.galaxy.order) {
+    const pl = state.galaxy.planets.get(pid)!;
+    if (pl.shattered || pl.abyss) continue;
+    living++;
+    totals.set(pl.owner, (totals.get(pl.owner) ?? 0) + 1);
+  }
+  let leader: FactionId | null = null;
+  for (const [f2, n] of totals) if (f2 !== faction && n / Math.max(1, living) > 0.38) leader = f2;
   let best: string | null = null;
   let bestScore = 0;
 
@@ -263,7 +275,7 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
   for (const id of state.galaxy.order) {
     const p = state.galaxy.planets.get(id)!;
     if (p.owner === faction || p.shattered) continue;
-    if (!areHostile(faction, p.owner) || !canEnter(state, faction, p)) continue;
+    if (!hostileNow(state, faction, p.owner) || !canEnter(state, faction, p)) continue;
     const onFrontier = p.links.some((lid) => {
       const n = state.galaxy.planets.get(lid)!;
       return n.owner === faction && !n.shattered;
@@ -279,6 +291,8 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
     // Все фракции рвутся к Супер-Земле и центру галактики — важные точки.
     score += (1 - p.radius / state.galaxy.radiusMax) * 2.5;
     if (p.id === 'p_super_earth') score += 6;
+    // Коалиция против гегемона: лидера по планетам бьют в первую очередь.
+    if (leader && p.owner === leader) score += 2.5;
     if (!p.supplied) score += 3.5;          // окружённые — добить
     if (p.isCapital) score += 3;            // обезглавить врага
     if (p.battle && p.battle.attacker === faction) score += 2.5; // дожать штурм

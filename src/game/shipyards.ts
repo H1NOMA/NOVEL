@@ -75,7 +75,8 @@ export function stepShipyards(state: GameState): void {
     if (!yard || p.shattered) continue;
     // Верфь без снабжения не работает.
     if (!yard.queue || !p.supplied) continue;
-    yard.queue.daysLeft--;
+    // Город-верфь ускоряет стапель на четверть.
+    yard.queue.daysLeft -= p.cities.some((c) => c.spec === 'yard' && c.holder === p.owner) ? 1.25 : 1;
     if (yard.queue.daysLeft <= 0) {
       const def = SHIP_CLASSES.find((c) => c.id === yard.queue!.cls);
       yard.queue = null;
@@ -88,6 +89,8 @@ export function stepShipyards(state: GameState): void {
         text: `Верфь ${p.name}: ${def.name.toLowerCase()} сходит со стапелей и встаёт на прикол.`,
         tone: p.owner === state.player ? 'good' : 'info',
       });
+      // Повтор заказа: та же серия закладывается снова, пока хватает ресурсов.
+      if (yard.repeat) queueShip(state, p.owner, p.id, yard.repeat as never);
     }
   }
 }

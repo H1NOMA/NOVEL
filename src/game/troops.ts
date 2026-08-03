@@ -71,7 +71,10 @@ export function mineMinerals(state: GameState, faction: FactionId): number {
   const rate = faction === 'automatons' ? 0.22 : 0.11;
   let income = 0;
   for (const p of planetsOf(state, faction)) {
-    if (p.supplied && p.minerals > 0) income += p.minerals * rate;
+    if (!p.supplied) continue;
+    if (p.minerals > 0) income += p.minerals * rate;
+    // Город-шахта даёт руду даже на бедных мирах.
+    income += p.cities.filter((c) => c.spec === 'mine' && c.holder === faction).length * 0.06;
   }
   state.factions[faction].resources.minerals += income;
   return income;

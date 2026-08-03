@@ -5,6 +5,8 @@ import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
 import { scuttleYard } from './shipyards';
+import { hostileNow } from './diplomacy';
+import { commanderOf } from './commanders';
 import { bus } from '../core/emitter';
 
 // ---------------------------------------------------------------------------
@@ -109,7 +111,7 @@ export function resolveGround(state: GameState): void {
     const planet = state.galaxy.planets.get(id)!;
     if (planet.shattered) continue;
     // fleetsAt already excludes fleets still in transit.
-    const attackers = fleetsAt(state, id).filter((f) => areHostile(f.faction, planet.owner));
+    const attackers = fleetsAt(state, id).filter((f) => hostileNow(state, f.faction, planet.owner));
 
     if (attackers.length === 0) {
       // ОКРУЖЕНИЕ: отрезанная планета медленно душится — гарнизон тает,
@@ -117,7 +119,7 @@ export function resolveGround(state: GameState): void {
       if (!planet.supplied && !planet.puppetOf) {
         const besieger = planet.links
           .map((lid) => state.galaxy.planets.get(lid)!)
-          .find((n) => !n.shattered && areHostile(n.owner, planet.owner))?.owner;
+          .find((n) => !n.shattered && hostileNow(state, n.owner, planet.owner))?.owner;
         if (besieger) {
           if (!planet.battle || planet.battle.attacker !== besieger) {
             planet.battle = {
@@ -154,7 +156,7 @@ export function resolveGround(state: GameState): void {
     // Determine the lead attacking faction (strongest present).
     const attackPower = new Map<FactionId, number>();
     for (const f of attackers) {
-      attackPower.set(f.faction, (attackPower.get(f.faction) ?? 0) + f.infantry * combatMult(state, f.faction));
+      attackPower.set(f.faction, (attackPower.get(f.faction) ?? 0) + f.infantry * combatMult(state, f.faction) * (commanderOf(f)?.combat ?? 1));
     }
     let lead: FactionId = attackers[0]!.faction;
     let leadVal = 0;
@@ -211,7 +213,8 @@ export function resolveGround(state: GameState): void {
     // Супероружие на орбите (DSS, ASS, Монолит, Суперколония) ломает оборону
     // с орбиты — планета захватывается заметно быстрее.
     const hasSuperweapon = attackers.some((f) => f.faction === lead && f.special);
-    const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1);
+    const cmdCapture = Math.max(1, ...attackers.filter((f) => f.faction === lead).map((f) => commanderOf(f)?.capture ?? 1));
+    const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1) * cmdCapture;
     b.liberation = clamp(b.liberation + (ratio - 0.5) * 22 * captureRate + citiesHeld * 0.9, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
@@ -360,6 +363,8 @@ function regrowGarrison(state: GameState, planet: Planet): void {
   const cap = planet.isCapital ? 140 : 40 + planet.value * 8;
   if (planet.garrison < cap) {
     let growth = 0.4 + state.factions[planet.owner].bonuses.recruitment * 0.04;
+    // Город-академия готовит пополнение быстрее.
+    if (planet.cities.some((cc) => cc.spec === 'academy' && cc.holder === planet.owner)) growth *= 1.35;
     // Точка снабжения здесь или на соседней своей планете ускоряет пополнение.
     if (depotBonus(state, planet)) growth *= 1.8;
     // Пополнение гарнизона идёт из реальных пулов войск фракции.

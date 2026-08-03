@@ -22,6 +22,11 @@ function boot(): void {
       }
     }
   }
+  // Кинематографичная виньетка поверх сцены (чистый CSS-оверлей).
+  const vignette = document.createElement('div');
+  vignette.id = 'vignette';
+  document.body.appendChild(vignette);
+
   const scene = new GalaxyScene(canvas, state);
   const clock = new GameClock(state);
   const ui = new UI(state, scene, clock);

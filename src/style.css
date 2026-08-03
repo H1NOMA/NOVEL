@@ -415,3 +415,9 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 }
 #event-banner.hidden { display: none; }
 #event-banner b { color: var(--gold); letter-spacing: 1.6px; }
+
+.ev-choices { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+#vignette {
+  position: fixed; inset: 0; pointer-events: none; z-index: 15;
+  background: radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,0.34) 100%);
+}

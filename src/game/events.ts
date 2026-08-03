@@ -37,8 +37,29 @@ function triggerable(state: GameState, ev: TimelineEvent): boolean {
   return false;
 }
 
+export function resolveChoice(state: GameState, eventId: string, idx: number): void {
+  const ev = TIMELINE_EVENTS.find((t) => t.id === eventId);
+  if (!ev?.choices || state.pendingChoice !== eventId) return;
+  const ch = ev.choices[idx] ?? ev.choices[0]!;
+  applyEffects(state, ev.faction ?? state.player, ch.effects);
+  state.pendingChoice = null;
+  pushLog(state, { faction: ev.faction, text: `Решение: «${ch.label}» (${ev.title}).`, tone: 'good' });
+}
+
 function fire(state: GameState, ev: TimelineEvent): void {
   state.firedEvents.push(ev.id);
+  // Развилка: игрок выбирает сам (пауза + кнопки), ИИ берёт первый вариант.
+  if (ev.choices) {
+    if (ev.faction === state.player || (!ev.faction && state.factions[state.player].alive)) {
+      state.pendingChoice = ev.id;
+      state.speed = 0;
+      pushLog(state, { faction: ev.faction, text: `📰 ${ev.title}. ${ev.text}`, tone: 'alert' });
+      bus.emit('gameEvent', { title: ev.title, text: ev.text });
+      return;
+    }
+    applyEffects(state, ev.faction ?? 'automatons', ev.choices[0]!.effects);
+    return;
+  }
   if (ev.effects) {
     if (ev.faction) applyEffects(state, ev.faction, ev.effects);
     else for (const fid of FACTION_IDS) applyEffects(state, fid, ev.effects);

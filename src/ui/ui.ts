@@ -15,6 +15,11 @@ import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '..
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
 import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
+import { buyTruce, truceActive, TRUCE_COST, TRUCE_DAYS } from '../game/diplomacy';
+import { OBJECTIVES } from '../game/objectives';
+import { commanderOf, cycleCommander } from '../game/commanders';
+import { resolveChoice } from '../game/events';
+import { TIMELINE_EVENTS } from '../data/events';
 import { emblemDataURL } from '../render/emblems';
 import { portraitDataURL, RULERS } from '../render/portraits';
 import type { GameClock } from '../game/clock';
@@ -327,6 +332,19 @@ export class UI {
           ${this.bonusesOpen ? '▾' : '▸'} Политические решения <span style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)} ПВ</span>
         </div>
         <div id="dos-bonuses" ${this.bonusesOpen ? '' : 'style="display:none"'}>${bonuses}</div>
+        <div class="pp-section">Дипломатия</div>
+        ${FACTION_IDS.filter((f2) => f2 !== f && s.factions[f2].alive).map((f2) => {
+          const active = truceActive(s, f, f2);
+          const can = fs.politicalPower >= TRUCE_COST && !active;
+          return `<div class="bonus-row"><div class="grow"><b style="color:${FACTIONS[f2].color}">${FACTIONS[f2].name}</b>
+            <div class="hint" style="margin-top:2px">${active ? 'Перемирие действует' : `Перемирие на ${TRUCE_DAYS} дн — ${TRUCE_COST} ПВ`}</div></div>
+            ${active ? '<span style="color:#6fe39a">✓</span>' : `<button class="mini-btn ${can ? '' : 'off'}" data-truce="${f2}" ${can ? '' : 'disabled'}>МИР</button>`}</div>`;
+        }).join('')}
+        <div class="pp-section">Цели кампании</div>
+        ${OBJECTIVES.map((o) => {
+          const done = s.doneObjectives.includes(o.id);
+          return `<div class="pp-stat"><span title="${o.desc}">${done ? '✓' : '◇'} ${o.title}</span><b style="color:${done ? '#6fe39a' : 'var(--muted)'}">${done ? 'выполнено' : '+' + o.reward + ' ПВ'}</b></div>`;
+        }).join('')}
       </div>`;
 
     this.dossierEl.querySelector('#dos-close')?.addEventListener('click', () => this.dossierEl.classList.add('hidden'));
@@ -338,6 +356,14 @@ export class UI {
       this.bonusesOpen = !this.bonusesOpen;
       this.renderDossier();
     });
+    this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-truce]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (buyTruce(this.state, b.dataset.truce as FactionId)) {
+          this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
+          this.renderDossier();
+          this.renderHud();
+        }
+      }));
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-bonus]').forEach((b) =>
       b.addEventListener('click', () => {
         if (buyBonus(this.state, this.state.player, b.dataset.bonus!)) {
@@ -476,7 +502,8 @@ export class UI {
     if (p.cities.length) {
       html += `<div class="pp-section">Города</div>`;
       p.cities.forEach((c) => {
-        html += `<div class="pp-stat"><span>🏙 ${c.name}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
+        const spec = c.spec === 'yard' ? '⚓ верфь −25% срока' : c.spec === 'academy' ? '🎓 академия +пополнение' : c.spec === 'mine' ? '⛏ шахта +руда' : '';
+        html += `<div class="pp-stat"><span>🏙 ${c.name}${spec ? ` <span style="color:var(--muted);font-size:11px">· ${spec}</span>` : ''}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
       });
     }
 
@@ -737,7 +764,7 @@ export class UI {
           const multi = this.selectedFleets.has(f.id);
           const open = this.detailFleet === f.id;
           return `<div class="force-card ${open ? 'open' : ''} ${multi ? 'multi' : ''}" data-card-fleet="${f.id}">
-            <div class="fc-name">${f.special ? '◆ ' : ''}${this.fleetName(f.id)}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
+            <div class="fc-name">${f.special ? '◆ ' : ''}${f.commander ? '★ ' : ''}${this.fleetName(f.id)}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
             <div class="fc-comp">ЭСМ ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}</div>
             <div class="fc-comp">Пехота ${f.infantry.toFixed(0)}</div>
             <div class="fc-loc">${f.transit ? '⇢ ' : '⚓ '}${where}</div>
@@ -828,7 +855,9 @@ export class UI {
         <div class="pp-stat"><span>Линкоры-флагманы</span><b>${f.battleships.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Пехота на борту</span><b>${f.infantry.toFixed(0)}</b></div>
         ${f.special ? `<div class="hint">◆ Несёт супероружие фракции.</div>` : ''}
+        ${(() => { const c = commanderOf(f); return c ? `<div class="pp-stat"><span>Командир</span><b style="color:var(--gold)">${c.name}</b></div><div class="hint" style="margin-top:2px">${c.perk}</div>` : ''; })()}
         <div class="pp-section">Операции</div>
+        <button class="mini-btn wide" id="fd-commander">★ ${commanderOf(f) ? 'Сменить/снять командира' : 'Назначить командира'}</button>
         <button class="mini-btn wide ${hulls >= 2 && !f.transit ? '' : 'off'}" id="fd-split" ${hulls >= 2 && !f.transit ? '' : 'disabled'}>⑂ Разделить пополам</button>
         ${yard && storedHulls(yard) > 0 ? `<button class="mini-btn wide" id="fd-take">⚓ Принять корабли с верфи (${storedHulls(yard)} корп.)</button>` : ''}
         <button class="mini-btn wide ${!f.transit && !f.special && at?.owner === s.player ? '' : 'off'}" id="fd-disband" ${!f.transit && !f.special && at?.owner === s.player ? '' : 'disabled'}>✕ Расформировать</button>
@@ -837,6 +866,12 @@ export class UI {
 
     this.fleetDetailEl.querySelector('#fd-close')?.addEventListener('click', () => {
       this.detailFleet = null;
+      this.renderFleetDetail();
+      this.renderForces();
+    });
+    this.fleetDetailEl.querySelector('#fd-commander')?.addEventListener('click', () => {
+      const c = cycleCommander(s, f);
+      this.toast(c ? `КОМАНДИР: ${c.name.toUpperCase()}` : 'КОМАНДИР СНЯТ');
       this.renderFleetDetail();
       this.renderForces();
     });
@@ -1278,6 +1313,7 @@ export class UI {
       if (storedHulls(y) > 0) {
         html += `<button class="mini-btn" data-form="${p.id}">➕ СОЕДИНЕНИЕ</button>`;
       }
+      html += `<button class="mini-btn ${y.repeat ? 'sel' : ''}" data-repeat="${p.id}" title="Автоматически закладывать ту же серию, пока хватает ресурсов">${y.repeat ? '🔁 ПОВТОР: ВКЛ' : '🔁 ПОВТОР'}</button>`;
       html += `</div></div>`;
     }
     html += `</div></div>`;
@@ -1306,6 +1342,14 @@ export class UI {
           this.toast('ЗАКАЗ ОТМЕНЁН (ВОЗВРАТ 50%)');
           this.renderProduction();
         }
+      }));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-repeat]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const p = this.state.galaxy.planets.get(b.dataset.repeat!);
+        if (!p?.shipyard) return;
+        // Повторяется последний заложенный класс (или эсминцы по умолчанию).
+        p.shipyard.repeat = p.shipyard.repeat ? undefined : (p.shipyard.queue?.cls ?? 'destroyer');
+        this.renderProduction();
       }));
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-form]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -1430,8 +1474,26 @@ export class UI {
     }
   }
 
-  /** Сюжетный ивент: золотой баннер, уходит сам. */
+  /** Сюжетный ивент: золотой баннер. Развилка — кнопки выбора и пауза. */
   private showEventBanner(title: string, text: string): void {
+    const pending = this.state.pendingChoice;
+    const ev = pending ? TIMELINE_EVENTS.find((t) => t.id === pending) : null;
+    if (ev?.choices) {
+      // Пока развилка не решена, баннер держит именно её — параллельные ивенты не перекрывают выбор.
+      this.eventEl.innerHTML = `<b>${ev.title}</b><span class="banner-sub">${ev.text}</span>
+        <div class="ev-choices">${ev.choices.map((c, i) =>
+          `<button class="mini-btn" data-choice="${i}">${c.label}</button>`).join('')}</div>`;
+      this.eventEl.classList.remove('hidden');
+      clearTimeout(this.eventTimer);
+      this.renderClock();
+      this.eventEl.querySelectorAll<HTMLButtonElement>('[data-choice]').forEach((b) =>
+        b.addEventListener('click', () => {
+          resolveChoice(this.state, ev.id, Number(b.dataset.choice));
+          this.eventEl.classList.add('hidden');
+          this.renderHud();
+        }));
+      return;
+    }
     this.eventEl.innerHTML = `<b>${title}</b><span class="banner-sub">${text}</span>`;
     this.eventEl.classList.remove('hidden');
     clearTimeout(this.eventTimer);

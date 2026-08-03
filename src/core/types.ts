@@ -109,6 +109,8 @@ export interface Planet {
 export interface Shipyard {
   /** Текущий заказ на стапеле (одновременно строится один корабль). */
   queue: { cls: string; daysLeft: number } | null;
+  /** Повторять заказ автоматически, пока хватает ресурсов. */
+  repeat?: string;
   /** Готовые корпуса, ожидающие передачи соединению. */
   stored: { ships: number; dreadnoughts: number; battleships: number };
 }
@@ -116,6 +118,8 @@ export interface Shipyard {
 export interface City {
   name: string;
   holder: FactionId;
+  /** Специализация: верфь (стройка быстрее), академия (пополнение), шахта (руда). */
+  spec?: 'yard' | 'academy' | 'mine';
 }
 
 export interface SupplyLine {
@@ -151,6 +155,8 @@ export interface Fleet {
   special?: string;
   /** Планета-плацдарм, с которой флот начал вторжение (снабжение атаки). */
   origin?: string;
+  /** Назначенный командир соединения (id из списка COMMANDERS). */
+  commander?: string;
   /** Player/AI order the fleet is executing. */
   order?: FleetOrder;
 }

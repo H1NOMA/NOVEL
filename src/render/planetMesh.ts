@@ -80,6 +80,7 @@ uniform float uClouds; uniform float uTime; uniform float uSeed;
 uniform float uFreq; uniform float uWarp; uniform float uBands;
 uniform float uCity; uniform float uCapSize; uniform float uContinent;
 uniform float uRidges; uniform float uCraters;
+uniform float uBattle; uniform float uDim;
 uniform sampler2D uMask; uniform float uUseMask;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
@@ -172,6 +173,17 @@ void main(){
     col += vec3(1.0, 0.82, 0.45) * lights * night * land * (1.0 - clouds) * 0.9;
   }
 
+  // Погода войны: на сражающейся планете тлеют пожары и стелется гарь.
+  if (uBattle > 0.5) {
+    float fire = smoothstep(0.74, 0.94, fbm(q * 6.0 + vec3(uTime * 0.25)) * 0.5 + 0.5);
+    float flicker = 0.7 + 0.3 * sin(uTime * 5.0 + uSeed * 40.0 + n.x * 9.0);
+    col += vec3(1.0, 0.42, 0.1) * fire * land * flicker * 0.9;
+    float smoke = smoothstep(0.5, 0.85, fbm(q * 2.4 + vec3(-uTime * 0.06, uTime * 0.04, 0.0)) * 0.5 + 0.5);
+    col = mix(col, vec3(0.16, 0.14, 0.13), smoke * 0.35);
+  }
+  // Осада: отрезанный от снабжения мир меркнет.
+  col *= uDim;
+
   // Фракционный ободок — единственная цветовая кодировка на сфере.
   float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 3.0);
   col += uTint * fres * 1.15;
@@ -238,6 +250,10 @@ export interface PlanetVisual {
   setGloom(on: boolean): void;
   setAbyss(on: boolean): void;
   setShattered(on: boolean): void;
+  /** Пожары войны на поверхности сражающейся планеты. */
+  setBattle(on: boolean): void;
+  /** Затемнение осаждённого мира (1 — норма, <1 — меркнет). */
+  setDim(v: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -378,6 +394,8 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uContinent: { value: continent },
       uRidges: { value: ridges },
       uCraters: { value: craters },
+      uBattle: { value: 0 },
+      uDim: { value: 1 },
       uMask: { value: mask.tex },
       uUseMask: { value: mask.use },
     },
@@ -530,6 +548,12 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
         gloomShell.visible = false;
         abyssShell.visible = false;
       }
+    },
+    setBattle(on: boolean) {
+      material.uniforms.uBattle.value = on ? 1 : 0;
+    },
+    setDim(v: number) {
+      material.uniforms.uDim.value = v;
     },
   };
 }
