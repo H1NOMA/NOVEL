@@ -75,6 +75,12 @@ function checkTerminidCapitulation(state: GameState): void {
   if (!term.alive || !state.factions.superEarth.alive) return;
   const hives = planetsOf(state, 'terminids').filter((p) => !p.abyss);
   if (hives.length === 0 || hives.length > 2) return;
+  // Рой сдаётся, только если последние ульи — в его ГЛАВНОМ секторе
+  // (сектор Кеплер Прайм). Загнанные в чужие углы остатки бьются до конца.
+  const mainSector = state.galaxy.order
+    .map((id) => state.galaxy.planets.get(id)!)
+    .find((p) => p.name === 'Кеплер Прайм')?.sector;
+  if (mainSector && !hives.every((p) => p.sector === mainSector)) return;
 
   state.terminidsCapitulated = true;
   term.alive = false;

@@ -491,8 +491,38 @@ export class GalaxyScene {
   private arrowRuns: { from: THREE.Vector3; to: THREE.Vector3; meshes: THREE.Mesh[] }[] = [];
   private static arrowGeo = new THREE.ConeGeometry(0.085, 0.24, 4);
 
+  /** Все линии атак: планы игрока + видимые вражеские вторжения (с плацдармов). */
+  private collectArrowRuns(): { from: string; to: string; color: string }[] {
+    const runs: { from: string; to: string; color: string }[] = [];
+    const playerColor = FACTIONS[this.state.player].color;
+    for (const p of this.state.attackPlans) runs.push({ from: p.from, to: p.to, color: playerColor });
+    // Вражеские вторжения: у планеты с битвой видно, С КАКОГО плацдарма бьют.
+    const seen = new Set<string>(runs.map((r) => `${r.from}>${r.to}`));
+    const viewer = this.state.player;
+    const revealAll = this.state.playerDefeated || !!this.state.winner;
+    for (const id of this.state.galaxy.order) {
+      const p = this.state.galaxy.planets.get(id)!;
+      if (!p.battle) continue;
+      // Туман войны: чужие линии атак видны на СВОИХ планетах (и наблюдателю).
+      if (!revealAll && p.owner !== viewer && p.battle.attacker !== viewer) continue;
+      for (const fid of this.state.fleetOrder) {
+        const f = this.state.fleets.get(fid);
+        if (!f || f.transit || f.at !== id || !f.origin) continue;
+        if (f.faction !== p.battle.attacker) continue;
+        const o = this.state.galaxy.planets.get(f.origin);
+        if (!o || !p.links.includes(o.id)) continue;
+        const key = `${f.origin}>${id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        runs.push({ from: f.origin, to: id, color: FACTIONS[f.faction].color });
+      }
+    }
+    return runs;
+  }
+
   private syncAttackArrows(): void {
-    const sig = this.state.attackPlans.map((p) => `${p.from}>${p.to}`).join('|');
+    const runsData = this.collectArrowRuns();
+    const sig = runsData.map((r) => `${r.from}>${r.to}:${r.color}`).join('|');
     if (sig === this.arrowSig) return;
     this.arrowSig = sig;
     if (this.arrowGroup) {
@@ -503,7 +533,7 @@ export class GalaxyScene {
     }
     this.arrowRuns = [];
     this.arrowGroup = new THREE.Group();
-    for (const plan of this.state.attackPlans) {
+    for (const plan of runsData) {
       const a = this.state.galaxy.planets.get(plan.from);
       const b = this.state.galaxy.planets.get(plan.to);
       if (!a || !b) continue;
@@ -514,9 +544,9 @@ export class GalaxyScene {
       dir.normalize();
       const n = Math.max(4, Math.floor(len / 0.42));
       const meshes: THREE.Mesh[] = [];
-      // Стрелки атаки — в заглавном цвете фракции игрока.
+      // Стрелки атаки — в заглавном цвете атакующей фракции.
       const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(FACTIONS[this.state.player].color),
+        color: new THREE.Color(plan.color),
         transparent: true,
         opacity: 0.95,
         blending: THREE.AdditiveBlending,

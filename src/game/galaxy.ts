@@ -67,6 +67,7 @@ export function generateGalaxy(seed: number): Galaxy {
   const sectors = new Map<string, Sector>();
   const used = new Set<string>();
   const usedCities = new Set<string>();
+  const usedSectors = new Set<string>();
   let idCounter = 0;
 
   const addPlanet = (p: Planet) => {
@@ -143,7 +144,7 @@ export function generateGalaxy(seed: number): Galaxy {
       if (!sectors.has(sectorId)) {
         sectors.set(sectorId, {
           id: sectorId,
-          name: sectorName(rng),
+          name: sectorName(rng, usedSectors),
           ring,
           bucket,
           planets: [],

@@ -35,13 +35,16 @@ export function planetName(rng: { int(a: number, b: number): number; pick<T>(a: 
   return fallback;
 }
 
-const usedSectors = new Set<string>();
-
-export function sectorName(rng: { pick<T>(a: readonly T[]): T; int(a: number, b: number): number }): string {
+export function sectorName(
+  rng: { pick<T>(a: readonly T[]): T; int(a: number, b: number): number },
+  used: Set<string>
+): string {
+  // used-набор передаётся генератором галактики: без модульного состояния
+  // карта по одному сиду всегда одинакова, сколько бы игр ни создавалось.
   for (let attempt = 0; attempt < 30; attempt++) {
     const n = `Сектор ${rng.pick(SECTOR_NAMES)}`;
-    if (!usedSectors.has(n)) {
-      usedSectors.add(n);
+    if (!used.has(n)) {
+      used.add(n);
       return n;
     }
   }

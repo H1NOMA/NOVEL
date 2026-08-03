@@ -112,6 +112,32 @@ export function resolveGround(state: GameState): void {
     const attackers = fleetsAt(state, id).filter((f) => areHostile(f.faction, planet.owner));
 
     if (attackers.length === 0) {
+      // ОКРУЖЕНИЕ: отрезанная планета медленно душится — гарнизон тает,
+      // контроль утекает к осаждающему соседу, пока мир не падёт без боя.
+      if (!planet.supplied && !planet.puppetOf) {
+        const besieger = planet.links
+          .map((lid) => state.galaxy.planets.get(lid)!)
+          .find((n) => !n.shattered && areHostile(n.owner, planet.owner))?.owner;
+        if (besieger) {
+          if (!planet.battle || planet.battle.attacker !== besieger) {
+            planet.battle = {
+              attacker: besieger,
+              defender: planet.owner,
+              attackerForce: 0,
+              defenderForce: planet.garrison,
+              liberation: planet.battle?.liberation ?? 0,
+              days: 0,
+            };
+          }
+          planet.battle.days++;
+          planet.battle.liberation = clamp(planet.battle.liberation + 0.6, 0, 100);
+          planet.garrison = Math.max(0, planet.garrison - 0.8);
+          if (planet.battle.liberation >= 100 || planet.garrison <= 0.5) {
+            capturePlanet(state, planet, besieger, []);
+          }
+          continue;
+        }
+      }
       // No invaders — decay any stale battle and slowly regrow garrison.
       if (planet.battle) {
         planet.battle.liberation = Math.max(0, planet.battle.liberation - 6);
@@ -143,12 +169,14 @@ export function resolveGround(state: GameState): void {
     // Тень Бездны: миры иллюминатов рядом с погруженными обороняются упорнее.
     if (planet.owner === 'illuminate' &&
         planet.links.some((lid) => state.galaxy.planets.get(lid)!.abyss)) defBonus *= 1.3;
-    // Атакующий без смежной снабжаемой территории воюет с плеча — штраф.
-    const hasSupplyLine = planet.links.some((lid) => {
-      const n = state.galaxy.planets.get(lid)!;
-      return n.owner === lead && n.supplied && !n.shattered;
+    // Снабжение атаки идёт С ПЛАЦДАРМА: планеты, с которой флот вторгся.
+    // Если плацдарм потерян/отрезан или не смежен с целью — штраф атакующему.
+    const hasSupplyLine = attackers.some((f) => {
+      if (f.faction !== lead || !f.origin) return false;
+      const o = state.galaxy.planets.get(f.origin);
+      return !!o && o.owner === lead && o.supplied && !o.shattered && planet.links.includes(o.id);
     });
-    if (!hasSupplyLine) attackerForce *= 0.8;
+    if (!hasSupplyLine) attackerForce *= 0.75;
     // Термицид выкашивает атакующий рой.
     if (lead === 'terminids' && planet.buildings.includes('termicide')) attackerForce *= 0.45;
     const defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;

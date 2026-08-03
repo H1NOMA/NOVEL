@@ -165,7 +165,18 @@ export function updatePlan(state: GameState, faction: FactionId): void {
     const t = state.galaxy.planets.get(best.target)!;
     fs.aiPlan = { goal, target: best.target, note: `зачистка сектора ${t.sector}` };
   } else {
-    fs.aiPlan = { goal: 'consolidate', target: null, note: 'экспансия' };
+    // Нет недобитых секторов — курс на Супер-Землю: ближайший к центру
+    // фронтирный вражеский мир становится целью кампании.
+    const push = state.galaxy.order
+      .map((id) => state.galaxy.planets.get(id)!)
+      .filter((p) => areHostile(faction, p.owner) && !p.shattered && !p.abyss &&
+        p.links.some((l) => state.galaxy.planets.get(l)!.owner === faction))
+      .sort((a, b) => a.radius - b.radius)[0];
+    if (push) {
+      fs.aiPlan = { goal: 'consolidate', target: push.id, note: `наступление к центру: ${push.name}` };
+    } else {
+      fs.aiPlan = { goal: 'consolidate', target: null, note: 'экспансия' };
+    }
   }
 }
 
@@ -219,7 +230,9 @@ export function runAI(state: GameState, faction: FactionId): void {
     }
 
     // Наступление: лучшая цель в радиусе досягаемости.
-    if (f.infantry >= 12) {
+    // Рой не копит резервы поколениями — бросается в атаку раньше прочих.
+    const minInfantry = faction === 'terminids' ? 7 : 12;
+    if (f.infantry >= minInfantry) {
       const target = bestInvasionTarget(state, faction, f);
       if (target) {
         orderFleetTo(state, f, target, true);
@@ -258,11 +271,14 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
     if (!onFrontier) continue;
 
     const defence = p.garrison * (1 + p.fortification * 0.12) * (p.supplied ? 1 : 0.55);
-    // Без полуторного перевеса ИИ не лезет — копит силы.
-    if (myPower < defence * 0.66) continue;
+    // Без перевеса ИИ не лезет — копит силы (рой безрассуднее прочих).
+    if (myPower < defence * (faction === 'terminids' ? 0.45 : 0.66)) continue;
 
     let score = myPower / (defence + 10);
     score += p.value * 0.35;
+    // Все фракции рвутся к Супер-Земле и центру галактики — важные точки.
+    score += (1 - p.radius / state.galaxy.radiusMax) * 2.5;
+    if (p.id === 'p_super_earth') score += 6;
     if (!p.supplied) score += 3.5;          // окружённые — добить
     if (p.isCapital) score += 3;            // обезглавить врага
     if (p.battle && p.battle.attacker === faction) score += 2.5; // дожать штурм

@@ -149,6 +149,8 @@ export interface Fleet {
   infantry: number;
   /** If set, this fleet carries the faction's special unit. */
   special?: string;
+  /** Планета-плацдарм, с которой флот начал вторжение (снабжение атаки). */
+  origin?: string;
   /** Player/AI order the fleet is executing. */
   order?: FleetOrder;
 }

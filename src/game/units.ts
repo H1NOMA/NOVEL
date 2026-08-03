@@ -30,6 +30,8 @@ export function orderFleetTo(state: GameState, fleet: Fleet, target: string, inv
   if (!path || path.length < 2) return false;
   fleet.transit = { from, to: target, path, progress: 0, legIndex: 0 };
   fleet.order = invade ? { kind: 'invade', target } : { kind: 'move', target };
+  // Плацдарм: последняя СВОЯ планета на пути — с неё идёт снабжение атаки.
+  fleet.origin = invade ? path[path.length - 2] : undefined;
   return true;
 }
 

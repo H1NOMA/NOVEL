@@ -351,17 +351,8 @@ export class UI {
   // ---------------- Planet panel ----------------
 
   private onPlanetSelected(id: string | null): void {
+    // ЛКМ — только информация о планете. Все приказы флотам — через ПКМ.
     const s = this.state;
-    if (id) {
-      const sel = s.selectedFleet ? s.fleets.get(s.selectedFleet) : null;
-      if (sel && sel.faction === s.player && !sel.transit && sel.at !== id) {
-        const dest = s.galaxy.planets.get(id)!;
-        const invade = areHostile(s.player, dest.owner) && dest.owner !== s.player;
-        const ok = orderFleetTo(s, sel, id, invade);
-        this.toast(ok ? `ПРИКАЗ: ${invade ? 'ВТОРЖЕНИЕ' : 'ПЕРЕЛЁТ'} · ${dest.name}` : 'НЕТ МАРШРУТА СНАБЖЕНИЯ');
-        s.selectedFleet = null;
-      }
-    }
     s.selectedPlanet = id;
     this.scene.setSelected(id);
     this.renderPanel();
@@ -389,7 +380,7 @@ export class UI {
       hereFleets.forEach((f) => {
         sh += `<div class="fleet-row ${s.selectedFleet === f.id ? 'sel' : ''}">
           <div class="grow"><div>${f.special ? '◆ ' + SPECIALS[f.faction].name : '🚀 Супер-эсминец'}</div></div>
-          <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
+          <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         </div>`;
       });
       sh += `</div>`;
@@ -516,12 +507,12 @@ export class UI {
     html += `<div class="pp-section">Ваши силы здесь</div>`;
     if (playerFleets.length === 0) html += `<div class="hint">Флотов Супер-Земли на орбите нет.</div>`;
     playerFleets.forEach((f) => {
-      const selCls = s.selectedFleet === f.id ? 'sel' : '';
+      const selCls = s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? 'sel' : '';
       const badge = f.special ? `<span style="color:var(--gold)">◆ ${f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}</div>
           <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
-        <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
+        <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
         ${p.owner === s.player && p.shipyard && storedHulls(p.shipyard) > 0 ? `<button class="mini-btn" data-act="takeyard" data-fleet="${f.id}">⚓ С ВЕРФИ</button>` : ''}
       </div>`;
@@ -536,7 +527,9 @@ export class UI {
       });
     }
 
-    html += `<div class="hint">${s.selectedFleet ? 'Флот выбран — кликните планету назначения.' : 'Выберите флот, затем кликните целевую планету для перелёта или вторжения.'}</div>
+    html += `<div class="hint">${s.selectedFleet || this.selectedFleets.size
+      ? 'Силы выбраны — ПКМ по планете отдаст приказ на перелёт/вторжение.'
+      : 'ВЫБРАТЬ — один флот, Shift+ВЫБРАТЬ — несколько. Приказ — ПКМ по цели. ЛКМ только открывает информацию.'}</div>
       </div>`;
 
     this.panel.innerHTML = html;
@@ -691,8 +684,15 @@ export class UI {
         const fleet = s.fleets.get(fid);
         if (!fleet) return;
         if (act === 'select') {
-          s.selectedFleet = s.selectedFleet === fid ? null : fid;
+          if ((e as MouseEvent).shiftKey) {
+            // Shift+ЛКМ: набираем несколько соединений, затем ПКМ по цели.
+            if (this.selectedFleets.has(fid)) this.selectedFleets.delete(fid);
+            else this.selectedFleets.add(fid);
+          } else {
+            s.selectedFleet = s.selectedFleet === fid ? null : fid;
+          }
           this.renderPanel();
+          this.renderForces();
         } else if (act === 'deploy') {
           garrisonReinforce(s, fleet);
           this.scene.refreshOwners();
