@@ -49,6 +49,14 @@ export function advanceDay(state: GameState): void {
   stepDecisions(state);
   stepEvents(state);
 
+  // Заготовки атак: план живёт, пока плацдарм наш, а цель — вражеская и смежная.
+  state.attackPlans = state.attackPlans.filter((plan) => {
+    const from = state.galaxy.planets.get(plan.from);
+    const to = state.galaxy.planets.get(plan.to);
+    return !!from && !!to && from.owner === state.player && to.owner !== state.player &&
+      !to.shattered && !from.shattered && from.links.includes(plan.to);
+  });
+
   checkVictory(state);
   autosaveTick(state);
   bus.emit('dayPassed', { day: state.day });

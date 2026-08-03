@@ -400,7 +400,9 @@ export class UI {
 
     const here = fleetsAt(s, id);
     const playerFleets = here.filter((f) => f.faction === s.player);
-    const enemyFleets = here.filter((f) => f.faction !== s.player);
+    // Туман войны: чужие флоты известны лишь на своих планетах и в битвах.
+    const intel = p.owner === s.player || !!p.battle || s.playerDefeated || !!s.winner;
+    const enemyFleets = intel ? here.filter((f) => f.faction !== s.player) : [];
 
     // Контроль над планетой: при битве — шкала освобождения, иначе 100% владельца.
     const b = p.battle;
@@ -431,7 +433,7 @@ export class UI {
       <div class="pp-stat"><span>Гарнизон</span><b>${p.garrison.toFixed(0)}</b></div>
       <div class="pp-stat"><span>Укрепления</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
       <div class="pp-stat"><span>Стратегическая ценность</span><b>${p.value}</b></div>
-      <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${enemyFleets.length}</span></b></div>
+      <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${intel ? enemyFleets.length : '?'}</span></b></div>
       ${p.puppetOf ? `<div class="pp-stat"><span>Статус</span><b style="color:var(--gold)">Марионетка ${FACTIONS[p.puppetOf].name === 'Супер-Земля' ? 'Супер-Земли' : FACTIONS[p.puppetOf].name} — сопротивления нет</b></div>` : ''}
       ${p.minerals > 0 ? `<div class="pp-stat"><span>Ископаемые</span><b>${'⛏'.repeat(p.minerals)} +${(p.minerals * (p.owner === 'automatons' ? 0.22 : 0.11)).toFixed(2)}/д${p.biome === 'magma' ? ' · магмовый мир' : ''}</b></div>` : ''}
       ${p.e711Rich ? `<div class="pp-stat"><span>Е-711</span><b style="color:var(--gold)">Богатые залежи</b></div>` : p.origin === 'terminids' && p.owner === 'superEarth' ? `<div class="pp-stat"><span>Е-711</span><b>Следы залежей</b></div>` : ''}
@@ -484,6 +486,30 @@ export class UI {
       p.cities.forEach((c) => {
         html += `<div class="pp-stat"><span>🏙 ${c.name}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
       });
+    }
+
+    // Заготовка атаки: со своего мира на смежный вражеский.
+    if (p.owner === s.player) {
+      const hostiles = p.links
+        .map((lid) => s.galaxy.planets.get(lid)!)
+        .filter((n) => n && areHostile(s.player, n.owner) && !n.shattered && canEnter(s, s.player, n));
+      const plansFrom = s.attackPlans.filter((pl) => pl.from === p.id);
+      if (hostiles.length || plansFrom.length) {
+        html += `<div class="pp-section">Заготовка атаки</div>`;
+        for (const pl of plansFrom) {
+          const t = s.galaxy.planets.get(pl.to)!;
+          html += `<div class="fleet-row"><div class="grow">⇶ План: <b style="color:${FACTIONS[t.owner].color}">${t.name}</b></div>
+            <button class="mini-btn" data-act="launch" data-target="${pl.to}">▶ АТАКА</button>
+            <button class="mini-btn" data-act="unplan" data-target="${pl.to}">✕</button></div>`;
+        }
+        for (const h of hostiles) {
+          if (plansFrom.some((pl) => pl.to === h.id)) continue;
+          html += `<button class="mini-btn wide" data-act="plan" data-target="${h.id}">⇶ Планировать атаку: ${h.name} (${FACTIONS[h.owner].short})</button>`;
+        }
+        if (playerFleets.length === 0) {
+          html += `<div class="hint">Разместите здесь соединения — атака пойдёт с этого плацдарма.</div>`;
+        }
+      }
     }
 
     html += `<div class="pp-section">Ваши силы здесь</div>`;
@@ -596,6 +622,36 @@ export class UI {
             this.renderPanel();
             this.renderHud();
           }
+          return;
+        }
+        if (act === 'plan') {
+          const to = btn.dataset.target!;
+          if (!s.attackPlans.some((pl) => pl.from === p.id && pl.to === to)) {
+            s.attackPlans.push({ from: p.id, to });
+            this.toast('АТАКА ЗАГОТОВЛЕНА · РАЗМЕЩАЙТЕ СИЛЫ НА ПЛАЦДАРМЕ');
+          }
+          this.renderPanel();
+          return;
+        }
+        if (act === 'unplan') {
+          s.attackPlans = s.attackPlans.filter((pl) => !(pl.from === p.id && pl.to === btn.dataset.target));
+          this.toast('ПЛАН АТАКИ ОТМЕНЁН');
+          this.renderPanel();
+          return;
+        }
+        if (act === 'launch') {
+          const to = btn.dataset.target!;
+          const dest = s.galaxy.planets.get(to);
+          if (!dest) return;
+          let sent = 0;
+          for (const f of fleetsAt(s, p.id).filter((fl) => fl.faction === s.player)) {
+            if (orderFleetTo(s, f, to, true)) sent++;
+          }
+          this.toast(sent
+            ? `АТАКА НАЧАЛАСЬ: ${sent} СОЕД. → ${dest.name}`
+            : 'НА ПЛАЦДАРМЕ НЕТ СОЕДИНЕНИЙ');
+          this.renderPanel();
+          this.renderForces();
           return;
         }
         if (act === 'fire') {

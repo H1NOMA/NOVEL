@@ -484,6 +484,68 @@ export class GalaxyScene {
     this.camera.lookAt(this.target);
   }
 
+  // --- Стрелки заготовленных атак: «эскалатор» вдоль линии снабжения ---
+
+  private arrowGroup: THREE.Group | null = null;
+  private arrowSig = '';
+  private arrowRuns: { from: THREE.Vector3; to: THREE.Vector3; meshes: THREE.Mesh[] }[] = [];
+  private static arrowGeo = new THREE.ConeGeometry(0.085, 0.24, 4);
+
+  private syncAttackArrows(): void {
+    const sig = this.state.attackPlans.map((p) => `${p.from}>${p.to}`).join('|');
+    if (sig === this.arrowSig) return;
+    this.arrowSig = sig;
+    if (this.arrowGroup) {
+      this.scene.remove(this.arrowGroup);
+      this.arrowGroup.traverse((o) => {
+        if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose();
+      });
+    }
+    this.arrowRuns = [];
+    this.arrowGroup = new THREE.Group();
+    for (const plan of this.state.attackPlans) {
+      const a = this.state.galaxy.planets.get(plan.from);
+      const b = this.state.galaxy.planets.get(plan.to);
+      if (!a || !b) continue;
+      const from = new THREE.Vector3(a.pos.x * GALAXY_SCALE, 0.1, a.pos.y * GALAXY_SCALE);
+      const to = new THREE.Vector3(b.pos.x * GALAXY_SCALE, 0.1, b.pos.y * GALAXY_SCALE);
+      const dir = to.clone().sub(from);
+      const len = dir.length();
+      dir.normalize();
+      const n = Math.max(4, Math.floor(len / 0.42));
+      const meshes: THREE.Mesh[] = [];
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffd76a,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(GalaxyScene.arrowGeo, mat);
+        // остриё конуса (+Y) разворачиваем по направлению атаки
+        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        this.arrowGroup.add(m);
+        meshes.push(m);
+      }
+      this.arrowRuns.push({ from, to, meshes });
+    }
+    this.scene.add(this.arrowGroup);
+  }
+
+  private animateAttackArrows(t: number): void {
+    for (const run of this.arrowRuns) {
+      const n = run.meshes.length;
+      const shift = (t * 0.22) % (1 / n);
+      run.meshes.forEach((m, i) => {
+        const k = (i / n + shift) % 1;
+        // не наезжаем на сами планеты — небольшой отступ с обеих сторон
+        const kk = 0.08 + k * 0.84;
+        m.position.lerpVectors(run.from, run.to, kk);
+      });
+    }
+  }
+
   render(): void {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
@@ -492,6 +554,8 @@ export class GalaxyScene {
       m.sprite.position.y = m.baseY + Math.sin(t * 1.1 + m.phase) * 0.05;
     }
     this.fleets.update(this.state, dt);
+    this.syncAttackArrows();
+    this.animateAttackArrows(t);
     this.applyKeyPan(dt);
     this.updateCamera();
     this.renderer.render(this.scene, this.camera);

@@ -41,6 +41,8 @@ export interface GameState {
   terminidsCapitulated: boolean;
   /** Идентификаторы уже случившихся ивентов таймлайна. */
   firedEvents: string[];
+  /** Заготовки атак игрока: с планеты-плацдарма на смежную вражескую. */
+  attackPlans: { from: string; to: string }[];
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -95,6 +97,7 @@ export function createGame(seed: number): GameState {
     playerDefeated: false,
     terminidsCapitulated: false,
     firedEvents: [],
+    attackPlans: [],
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.
