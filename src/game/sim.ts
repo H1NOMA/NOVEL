@@ -9,6 +9,7 @@ import { garrisonReinforce, stepFleets } from './units';
 import { recomputeSupply } from './supply';
 import { stepDecisions } from './decisions';
 import { stepShipyards } from './shipyards';
+import { stepEvents } from './events';
 import { autosaveTick } from './persist';
 
 /** Continuous fleet movement — called every animation frame with elapsed days. */
@@ -46,6 +47,7 @@ export function advanceDay(state: GameState): void {
   resolveOrbital(state);
   resolveGround(state);
   stepDecisions(state);
+  stepEvents(state);
 
   checkVictory(state);
   autosaveTick(state);
@@ -114,8 +116,14 @@ function checkVictory(state: GameState): void {
   }
 
   // Финал: в галактике осталась одна живая сторона (миры Бездны не в счёт).
+  // Призрак «Ковчега» — всё ещё претендент: машины могут вернуться.
   const contenders = FACTION_IDS.concat(state.superFederationRisen ? ['superFederation'] : [])
-    .filter((f) => state.factions[f].alive && planetsOf(state, f).some((p) => !p.abyss));
+    .filter((f) => {
+      const fs = state.factions[f];
+      if (!fs.alive) return false;
+      if (f === 'automatons' && fs.flags.arkPrepared && !fs.flags.arkDone) return true;
+      return planetsOf(state, f).some((p) => !p.abyss);
+    });
 
   if (contenders.length === 1) {
     state.winner = contenders[0]!;

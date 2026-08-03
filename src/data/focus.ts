@@ -126,6 +126,10 @@ const automatons: FocusNode[] = [
   { id: 'aut_ter_curtain', faction: 'automatons', title: 'Железный занавес', desc: 'Граница из стали от полюса до полюса.', cost: 60, x: 6, y: 4, requires: ['aut_core'], effects: [{ kind: 'fortify', amount: 2 }] },
   { id: 'aut_ter_grid', faction: 'automatons', title: 'Оборонная сеть', desc: 'Каждая планета — узел единой машины войны.', cost: 60, x: 7, y: 4, requires: ['aut_encircle'], effects: [{ kind: 'fortify', amount: 1 }, { kind: 'combat', amount: 0.08 }] },
   { id: 'aut_ter_bastion', faction: 'automatons', title: 'Бастион Вальдиса', desc: 'Неприступный опорный сектор на дальнем рубеже.', cost: 65, x: 6, y: 5, requires: ['aut_ter_curtain'], effects: [{ kind: 'combat', amount: 0.1 }, { kind: 'fortify', amount: 1 }] },
+
+  // --- Альтернативная ветка «Проект Ковчег» (появляется с падением Киберстана) ---
+  { id: 'aut_ark_blueprints', faction: 'automatons', title: 'Чертежи «Ковчега»', desc: 'Киберстан пал — РАЗУМ-9 переносит резервные мощности во тьму за краем карты. Начата постройка корабля-исхода.', cost: 15, x: 8, y: 0, requires: [], gate: 'cyberstanLost', branch: 'ark', effects: [{ kind: 'flag', flag: 'arkPrepared' }] },
+  { id: 'aut_ark_project', faction: 'automatons', title: 'ПРОЕКТ «КОВЧЕГ»', desc: 'Последний ход машин: когда всё потеряно, из тьмы космоса возвращается Ковчег — флагман, равный целому флоту. Гордость машинного флота.', cost: 30, x: 8, y: 1, requires: ['aut_ark_blueprints'], gate: 'arkReady', branch: 'ark', effects: [{ kind: 'arkArrival' }] },
 ];
 
 // ============================ ИЛЛЮМИНАТЫ ===================================

@@ -47,6 +47,7 @@ interface SaveBlob {
   lastConqueror?: Partial<Record<FactionId, FactionId>>;
   playerDefeated?: boolean;
   terminidsCapitulated?: boolean;
+  firedEvents?: string[];
 }
 
 function storage(): Storage | null {
@@ -88,6 +89,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     lastConqueror: state.lastConqueror,
     playerDefeated: state.playerDefeated,
     terminidsCapitulated: state.terminidsCapitulated,
+    firedEvents: state.firedEvents,
   };
   return JSON.stringify(blob);
 }
@@ -131,6 +133,7 @@ export function deserializeState(json: string): GameState {
     lastConqueror: b.lastConqueror ?? {},
     playerDefeated: b.playerDefeated ?? false,
     terminidsCapitulated: b.terminidsCapitulated ?? false,
+    firedEvents: b.firedEvents ?? [],
   };
 }
 

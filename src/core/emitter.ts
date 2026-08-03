@@ -16,6 +16,8 @@ export interface GameEvents extends Record<string, unknown> {
   log: { text: string };
   factionEliminated: { faction: string };
   factionDefeated: { faction: string; by: string | null };
+  /** Сюжетный ивент таймлайна (крупный — показывается баннером). */
+  gameEvent: { title: string; text: string };
   superFederationRose: void;
   focusCompleted: { faction: string; id: string };
 }

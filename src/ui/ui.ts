@@ -3,7 +3,7 @@ import { bus } from '../core/emitter';
 import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, areHostile } from '../data/factions';
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
-import { canSelectFocus, selectFocus } from '../game/focus';
+import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
 import { orderFleetTo, garrisonReinforce, splitFleet, disbandFleet } from '../game/units';
 import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, takeStoredShips, yardsOf, SHIPYARD_COST } from '../game/shipyards';
 import { canEnter } from '../game/supply';
@@ -45,6 +45,8 @@ export class UI {
   private menuEl!: HTMLElement;
   private bannerEl!: HTMLElement;
   private bannerTimer = 0;
+  private eventEl!: HTMLElement;
+  private eventTimer = 0;
   /** Позиция карточки планеты (сохраняется между открытиями). */
   private cardPos: { x: number; y: number } | null = null;
   private spireMode = false;
@@ -87,6 +89,7 @@ export class UI {
     this.productionEl = el('div'); this.productionEl.id = 'production'; this.productionEl.classList.add('hidden');
     this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
     this.bannerEl = el('div'); this.bannerEl.id = 'defeat-banner'; this.bannerEl.classList.add('hidden');
+    this.eventEl = el('div'); this.eventEl.id = 'event-banner'; this.eventEl.classList.add('hidden');
     this.forcesEl = el('div'); this.forcesEl.id = 'forces-dock';
     this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
@@ -100,7 +103,7 @@ export class UI {
     this.sideBtns.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
     this.sideBtns.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -114,6 +117,7 @@ export class UI {
     });
     bus.on('focusCompleted', () => this.renderAll());
     bus.on('factionDefeated', ({ faction, by }) => this.showDefeatBanner(faction as FactionId, by as FactionId | null));
+    bus.on('gameEvent', ({ title, text }) => this.showEventBanner(title, text));
     bus.on('planetsBoxSelected', ({ ids }) => this.onBoxSelected(ids));
     bus.on('planetRightClicked', ({ id }) => this.onPlanetRightClicked(id));
 
@@ -486,7 +490,7 @@ export class UI {
     if (playerFleets.length === 0) html += `<div class="hint">Флотов Супер-Земли на орбите нет.</div>`;
     playerFleets.forEach((f) => {
       const selCls = s.selectedFleet === f.id ? 'sel' : '';
-      const badge = f.special ? `<span style="color:var(--gold)">◆ ${SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
+      const badge = f.special ? `<span style="color:var(--gold)">◆ ${f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}</div>
           <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
@@ -500,7 +504,7 @@ export class UI {
       html += `<div class="pp-section">Противник на орбите</div>`;
       enemyFleets.forEach((f) => {
         html += `<div class="fleet-row"><div class="grow"><div style="color:${FACTIONS[f.faction].color}">
-          ${f.special ? '◆ ' + SPECIALS[f.faction].name : 'Флот ' + FACTION_GEN[f.faction]}</div>
+          ${f.special ? '◆ ' + (f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name) : 'Флот ' + FACTION_GEN[f.faction]}</div>
           <div style="color:var(--muted);font-size:11px">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div></div>`;
       });
     }
@@ -653,6 +657,7 @@ export class UI {
   private fleetName(fid: string): string {
     const f = this.state.fleets.get(fid);
     if (!f) return fid;
+    if (f.special === 'ark') return 'КОВЧЕГ АВТОМАТОНОВ';
     if (f.special) return SPECIALS[f.faction].name;
     const n = Number(fid.replace('f_', ''));
     return `Соединение №${Number.isFinite(n) ? n + 1 : '?'}`;
@@ -1038,7 +1043,9 @@ export class UI {
       <button class="hud-btn" id="focus-close" style="margin-left:auto">✕ ЗАКРЫТЬ</button>
     </div><div class="focus-scroll"><div class="focus-canvas" style="width:${cw}px;height:${ch}px">${svg}`;
 
+    const arkVisible = cyberstanLost(this.state);
     for (const n of nodes) {
+      if (n.branch === 'ark' && !arkVisible) continue;
       const done = fs.completedFocus.includes(n.id);
       const active = fs.activeFocus?.id === n.id;
       const selectable = this.focusTab === this.state.player && canSelectFocus(this.state, this.focusTab, n);
@@ -1268,6 +1275,14 @@ export class UI {
     if (!isPlayer) {
       this.bannerTimer = window.setTimeout(() => this.bannerEl.classList.add('hidden'), 12000);
     }
+  }
+
+  /** Сюжетный ивент: золотой баннер, уходит сам. */
+  private showEventBanner(title: string, text: string): void {
+    this.eventEl.innerHTML = `<b>${title}</b><span class="banner-sub">${text}</span>`;
+    this.eventEl.classList.remove('hidden');
+    clearTimeout(this.eventTimer);
+    this.eventTimer = window.setTimeout(() => this.eventEl.classList.add('hidden'), 11000);
   }
 
   private showWinner(): void {

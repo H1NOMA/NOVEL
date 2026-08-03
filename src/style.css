@@ -374,3 +374,13 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 .yard-head { font-size: 13px; }
 .yard-status { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; gap: 8px; align-items: center; }
 .yard-btns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+
+/* ---------- Баннер сюжетного ивента ---------- */
+#event-banner {
+  position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+  max-width: 680px; padding: 11px 24px; text-align: center; z-index: 34;
+  background: rgba(14, 12, 6, 0.95); border: 1px solid rgba(230,194,94,0.6); border-radius: 10px;
+  font-size: 14px; letter-spacing: 0.6px;
+}
+#event-banner.hidden { display: none; }
+#event-banner b { color: var(--gold); letter-spacing: 1.6px; }

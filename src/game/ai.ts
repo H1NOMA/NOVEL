@@ -21,6 +21,23 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   if (!fs.alive) return;
   const worlds = planetsOf(state, faction);
   if (worlds.length === 0) {
+    // Проект «Ковчег»: разбитые автоматоны с чертежами не гибнут — их разум
+    // уходит во тьму за край карты и достраивает корабль-исход.
+    if (faction === 'automatons' && fs.flags.arkPrepared && !fs.flags.arkDone) {
+      if (!fs.flags.arkGhost) {
+        fs.flags.arkGhost = true;
+        const by = state.lastConqueror[faction] ?? null;
+        for (const f of fleetsOf(state, faction)) f.order = { kind: 'idle' };
+        if (faction === state.player) state.playerDefeated = true;
+        pushLog(state, {
+          faction,
+          text: 'Супер-Земля победила автоматонов… но сигнал РАЗУМ-9 ещё звучит из тьмы. Доступен фокус «ПРОЕКТ „КОВЧЕГ“».',
+          tone: faction === state.player ? 'alert' : 'good',
+        });
+        bus.emit('factionDefeated', { faction, by });
+      }
+      return;
+    }
     // runEconomy is only invoked for active factions, so the Super Federation
     // reaches this path only after it has actually risen.
     eliminate(state, faction);

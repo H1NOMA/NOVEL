@@ -197,11 +197,12 @@ export type FocusEffect =
   | { kind: 'fleet'; ships: number; infantry: number }
   | { kind: 'unlockSpecial' }
   | { kind: 'spawnSuperFederation' }
+  | { kind: 'arkArrival' }
   | { kind: 'flag'; flag: FactionFlag }
   | { kind: 'custom'; note: string };
 
 /** Особые способности, открываемые фокусами-спецпроектами. */
-export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss' | 'e711Mining' | 'termicide';
+export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss' | 'e711Mining' | 'termicide' | 'arkPrepared' | 'arkGhost' | 'arkDone';
 
 export interface FocusNode {
   id: string;
@@ -217,7 +218,7 @@ export interface FocusNode {
   requires: string[];
   effects: FocusEffect[];
   /** Optional gate: only selectable when this predicate passes. */
-  gate?: 'lowStability';
+  gate?: 'lowStability' | 'cyberstanLost' | 'arkReady';
   /** Branch tag for grouping (e.g. 'federation'). */
   branch?: string;
 }

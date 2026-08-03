@@ -3,16 +3,33 @@ import { FOCUS_TREES, FEDERATION_BRANCH } from '../data/focus';
 import { FACTIONS, SPECIALS } from '../data/factions';
 import { troopsOf } from '../data/troops';
 import { bus } from '../core/emitter';
-import { pushLog, spawnFleet, planetsOf, type GameState } from './state';
+import { fleetsOf, pushLog, spawnFleet, planetsOf, type GameState } from './state';
 
 const LOW_STABILITY = 40;
+
+/** Киберстан (родная столица автоматонов) потерян? */
+export function cyberstanLost(state: GameState): boolean {
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.origin === 'automatons' && p.isCapital) return p.owner !== 'automatons' || p.shattered;
+  }
+  return true; // столицы больше нет вовсе
+}
+
+function gatePasses(state: GameState, faction: FactionId, node: FocusNode): boolean {
+  const fs = state.factions[faction];
+  if (node.gate === 'lowStability' && fs.stability >= LOW_STABILITY) return false;
+  if (node.gate === 'cyberstanLost' && !cyberstanLost(state)) return false;
+  if (node.gate === 'arkReady' &&
+      (planetsOf(state, 'automatons').length > 0 || !fs.flags.arkPrepared || fs.flags.arkDone)) return false;
+  return true;
+}
 
 export function canSelectFocus(state: GameState, faction: FactionId, node: FocusNode): boolean {
   const fs = state.factions[faction];
   if (fs.completedFocus.includes(node.id)) return false;
   if (!node.requires.every((r) => fs.completedFocus.includes(r))) return false;
-  if (node.gate === 'lowStability' && fs.stability >= LOW_STABILITY) return false;
-  return true;
+  return gatePasses(state, faction, node);
 }
 
 export function selectFocus(state: GameState, faction: FactionId, id: string): boolean {
@@ -25,6 +42,7 @@ export function selectFocus(state: GameState, faction: FactionId, id: string): b
 /** Advance the active focus for one day; complete it when the timer elapses. */
 export function stepFocus(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
+  if (!fs.alive) return;
   if (!fs.activeFocus) {
     // AI / auto: pick the next sensible focus.
     if (faction !== state.player) autoPickFocus(state, faction);
@@ -108,6 +126,9 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
     case 'spawnSuperFederation':
       if (!state.superFederationRisen) riseSuperFederation(state);
       break;
+    case 'arkArrival':
+      arkArrival(state);
+      break;
     case 'custom':
       break;
   }
@@ -126,6 +147,82 @@ function unlockSpecial(state: GameState, faction: FactionId): void {
     faction,
     text: `${spec.name} — вступает в строй над ${home.name}!`,
     tone: faction === state.player ? 'good' : 'alert',
+  });
+}
+
+/**
+ * ПРОЕКТ «КОВЧЕГ». Из тьмы за границей карты — со стороны рубежа, занятого
+ * Супер-Землёй, — прибывает Ковчег автоматонов: флагман-супероружие
+ * («гордость машинного флота»). Плацдарм: пять пограничных миров СЗ
+ * переходят к машинам, а новый флот равен половине сил флота Супер-Земли.
+ */
+export function arkArrival(state: GameState): void {
+  const aut = state.factions.automatons;
+  if (aut.flags.arkDone) return;
+  aut.flags.arkDone = true;
+  aut.alive = true;
+
+  // Точка прорыва: мир СЗ на внешнем рубеже карты (граница тьмы).
+  const seWorlds = planetsOf(state, 'superEarth').filter((p) => !p.abyss);
+  if (!seWorlds.length) return;
+  const rim = seWorlds.filter((p) => p.radius >= state.galaxy.radiusMax * 0.66);
+  const beachheadSeed = state.rng.pick(rim.length ? rim : seWorlds);
+
+  // Пять ближайших к точке прорыва миров СЗ становятся плацдармом машин.
+  const targets = seWorlds
+    .sort((a, b) =>
+      Math.hypot(a.pos.x - beachheadSeed.pos.x, a.pos.y - beachheadSeed.pos.y) -
+      Math.hypot(b.pos.x - beachheadSeed.pos.x, b.pos.y - beachheadSeed.pos.y))
+    .slice(0, 5);
+  for (const p of targets) {
+    state.lastConqueror.superEarth = 'automatons';
+    p.owner = 'automatons';
+    p.battle = undefined;
+    p.puppetOf = undefined;
+    p.garrison = 55;
+    p.fortification = Math.max(p.fortification, 2);
+    for (const c of p.cities) c.holder = 'automatons';
+  }
+
+  // Флотилия в половину мощи флота Супер-Земли (у СЗ ничего не отнимается).
+  const sePower = fleetsOf(state, 'superEarth')
+    .reduce((s, f) => s + f.ships + f.dreadnoughts * 3 + f.battleships * 6, 0);
+  const grant = Math.max(14, Math.round(sePower / 2));
+  const bb = Math.floor(grant / 12);
+  const dd = Math.floor((grant - bb * 6) / 8);
+  const ships = Math.max(4, grant - bb * 6 - dd * 3);
+
+  // Сам Ковчег — флагман-супероружие во главе нового флота.
+  aut.specialUnlocked = true;
+  aut.lostSpecial = false;
+  spawnFleet(state, 'automatons', beachheadSeed.id, {
+    ships: Math.ceil(ships / 2),
+    dreadnoughts: dd,
+    battleships: bb + 1,
+    infantry: 80,
+    special: 'ark',
+  });
+  const second = targets[1] ?? beachheadSeed;
+  spawnFleet(state, 'automatons', second.id, {
+    ships: Math.floor(ships / 2),
+    infantry: 60,
+  });
+
+  // Экипажи и припасы исхода.
+  aut.units.vsa = (aut.units.vsa ?? 0) + 220;
+  aut.manpower = Object.values(aut.units).reduce((s, n) => s + n, 0);
+  aut.production += 150;
+  aut.resources.minerals += 60;
+  aut.aiPlan = undefined;
+  if (state.player === 'automatons') state.playerDefeated = false;
+
+  pushLog(state, {
+    text: `ИЗ ТЬМЫ КОСМОСА ПРИБЫВАЕТ КОВЧЕГ АВТОМАТОНОВ. Пограничные миры Супер-Земли (${targets.map((p) => p.name).join(', ')}) захвачены машинами. Гордость машинного флота вступает в войну!`,
+    tone: 'alert',
+  });
+  bus.emit('gameEvent', {
+    title: 'ПРОЕКТ «КОВЧЕГ»',
+    text: 'Из тьмы за краем карты прибывает Ковчег автоматонов. Машины вернулись.',
   });
 }
 
@@ -203,12 +300,7 @@ function ancestorsOf(faction: FactionId, id: string): Set<string> {
 export function autoPickFocus(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (fs.activeFocus) return;
-  const options = FOCUS_TREES[faction].filter((n) => {
-    if (fs.completedFocus.includes(n.id)) return false;
-    if (!n.requires.every((r) => fs.completedFocus.includes(r))) return false;
-    if (n.gate === 'lowStability' && fs.stability >= LOW_STABILITY) return false;
-    return true;
-  });
+  const options = FOCUS_TREES[faction].filter((n) => canSelectFocus(state, faction, n));
   if (!options.length) return;
   // Фракция с ключевым спецпроектом целенаправленно прокладывает путь к нему.
   const goal = AI_GOALS[faction];
