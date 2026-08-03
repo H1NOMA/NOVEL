@@ -40,24 +40,29 @@ export function buildShipyard(state: GameState, faction: FactionId, planetId: st
   return true;
 }
 
-/** Поставить корабль в очередь постройки на верфи (один заказ за раз). */
+/** Поставить корабль в очередь постройки на верфи (один заказ за раз).
+ *  Корпус стоит и производство, и ископаемые — без руды флот не построить. */
 export function queueShip(state: GameState, faction: FactionId, planetId: string, cls: ShipClassId): boolean {
   const fs = state.factions[faction];
   const p = state.galaxy.planets.get(planetId);
   const def = SHIP_CLASSES.find((c) => c.id === cls);
   if (!def || !p || p.owner !== faction || !p.shipyard || p.shipyard.queue) return false;
-  if (fs.production < def.cost) return false;
+  if (fs.production < def.cost || fs.resources.minerals < def.minerals) return false;
   fs.production -= def.cost;
+  fs.resources.minerals -= def.minerals;
   p.shipyard.queue = { cls, daysLeft: def.days };
   return true;
 }
 
-/** Отменить заказ на стапеле (возврат половины стоимости). */
+/** Отменить заказ на стапеле (возврат половины стоимости и руды). */
 export function cancelQueue(state: GameState, faction: FactionId, planetId: string): boolean {
   const p = state.galaxy.planets.get(planetId);
   if (!p || p.owner !== faction || !p.shipyard?.queue) return false;
   const def = SHIP_CLASSES.find((c) => c.id === p.shipyard!.queue!.cls);
-  if (def) state.factions[faction].production += def.cost * 0.5;
+  if (def) {
+    state.factions[faction].production += def.cost * 0.5;
+    state.factions[faction].resources.minerals += def.minerals * 0.5;
+  }
   p.shipyard.queue = null;
   return true;
 }

@@ -184,7 +184,7 @@ export function resolveGround(state: GameState): void {
     // с орбиты — планета захватывается заметно быстрее.
     const hasSuperweapon = attackers.some((f) => f.faction === lead && f.special);
     const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1);
-    b.liberation = clamp(b.liberation + (ratio - 0.5) * 34 * captureRate + citiesHeld * 1.1, 0, 100);
+    b.liberation = clamp(b.liberation + (ratio - 0.5) * 22 * captureRate + citiesHeld * 0.9, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
     const CITY_THRESHOLDS = [30, 55, 80];
@@ -204,7 +204,7 @@ export function resolveGround(state: GameState): void {
     const gLoss = Math.min(planet.garrison, attackerForce * 0.04);
     planet.garrison = Math.max(0, planet.garrison - gLoss);
     for (const f of attackers) {
-      const iLoss = f.infantry * defenderForce * 0.0006;
+      const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15);
       f.infantry = Math.max(0, f.infantry - iLoss);
     }
 
@@ -220,6 +220,7 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   const garrisonLost = planet.garrison;
   planet.owner = attacker;
   planet.battle = undefined;
+  planet.puppetOf = undefined;
   // Верфь достаётся победителю, но склад и стапель защитники уничтожают.
   scuttleYard(planet);
   // Мрак рассеивается, когда мир отбит у роя, — оставляя богатые залежи Е-711.
@@ -321,6 +322,8 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
 }
 
 function regrowGarrison(state: GameState, planet: Planet): void {
+  // Мир-марионетка разоружён: гарнизон не восстанавливается.
+  if (planet.puppetOf) return;
   // Окружённая планета не получает пополнений — гарнизон медленно тает.
   if (!planet.supplied) {
     planet.garrison = Math.max(1, planet.garrison - 0.5);

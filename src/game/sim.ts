@@ -53,8 +53,47 @@ export function advanceDay(state: GameState): void {
   bus.emit('stateChanged', undefined);
 }
 
+/**
+ * Капитуляция роя: если жуков загнали на 1–2 планеты, они прекращают
+ * сопротивление. Оставшиеся ульи становятся МАРИОНЕТКАМИ Супер-Земли:
+ * визуально остаются жучьими, но гарнизонов и флотов у роя больше нет,
+ * а СЗ может ставить там станции добычи Е-711.
+ */
+function checkTerminidCapitulation(state: GameState): void {
+  if (state.terminidsCapitulated) return;
+  const term = state.factions.terminids;
+  if (!term.alive || !state.factions.superEarth.alive) return;
+  const hives = planetsOf(state, 'terminids').filter((p) => !p.abyss);
+  if (hives.length === 0 || hives.length > 2) return;
+
+  state.terminidsCapitulated = true;
+  term.alive = false;
+  term.activeFocus = undefined;
+  // Рой разоружается: пулы обнуляются, флоты растворяются, ульи замирают.
+  for (const key of Object.keys(term.units)) term.units[key] = 0;
+  term.manpower = 0;
+  for (const f of fleetsOf(state, 'terminids')) {
+    const idx = state.fleetOrder.indexOf(f.id);
+    if (idx >= 0) state.fleetOrder.splice(idx, 1);
+    state.fleets.delete(f.id);
+  }
+  for (const p of hives) {
+    p.puppetOf = 'superEarth';
+    p.garrison = 0;
+    p.battle = undefined;
+    p.gloom = false; // споровые тучи оседают — путь к залежам открыт
+  }
+  state.lastConqueror.terminids = 'superEarth';
+  pushLog(state, {
+    text: `РОЙ КАПИТУЛИРУЕТ. Терминиды загнаны на ${hives.length === 1 ? 'последнюю планету' : 'две последние планеты'} (${hives.map((p) => p.name).join(', ')}) и прекращают сопротивление. Ульи объявлены марионетками Супер-Земли — стройте там станции добычи Е-711.`,
+    tone: 'alert',
+  });
+  bus.emit('factionDefeated', { faction: 'terminids', by: 'superEarth' });
+}
+
 function checkVictory(state: GameState): void {
   if (state.winner) return;
+  checkTerminidCapitulation(state);
 
   // Потеря или уничтожение самой Супер-Земли — гибель фракции СЗ (но война
   // продолжается, пока в галактике больше одной живой стороны).

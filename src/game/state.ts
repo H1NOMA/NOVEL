@@ -37,6 +37,8 @@ export interface GameState {
   lastConqueror: Partial<Record<FactionId, FactionId>>;
   /** Игрок выбыл, но наблюдает за продолжением войны. */
   playerDefeated: boolean;
+  /** Терминиды загнаны на 1–2 мира и капитулировали перед Супер-Землёй. */
+  terminidsCapitulated: boolean;
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -89,6 +91,7 @@ export function createGame(seed: number): GameState {
     gloomSeeds: [],
     lastConqueror: {},
     playerDefeated: false,
+    terminidsCapitulated: false,
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.

@@ -9,7 +9,7 @@ import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, 
 import { canEnter } from '../game/supply';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { buildDepot, DEPOT_COST } from '../game/supply';
-import { enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_REBUILD_COST, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
+import { buildE711Station, buildSpecialDock, E711_STATION_COST, enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
 import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
@@ -304,6 +304,17 @@ export class UI {
         <div class="pp-stat"><span>Резервы войск</span><b>${fs.manpower.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Промышленность</span><b>${fs.industry.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Политическая власть</span><b style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)}</b></div>
+        <div class="pp-section">Экономика · в день</div>
+        ${(() => {
+          const ws = planetsOf(s, f);
+          const prodIn = 0.4 * (fs.industry + ws.reduce((a, p) => a + p.value, 0) * 0.3);
+          const minIn = ws.reduce((a, p) => a + (p.supplied && p.minerals > 0 ? p.minerals * (f === 'automatons' ? 0.22 : 0.11) : 0), 0);
+          const upkeep = fleetsOf(s, f).reduce((a, fl) => a + fl.ships + fl.dreadnoughts * 2 + fl.battleships * 4, 0) * 0.05;
+          return `
+            <div class="pp-stat"><span>Производство</span><b style="color:#6fe39a">+${prodIn.toFixed(1)}</b></div>
+            <div class="pp-stat"><span>Добыча ископаемых</span><b style="color:#6fe39a">+${minIn.toFixed(2)} ⛏ (запас ${fs.resources.minerals.toFixed(0)})</b></div>
+            <div class="pp-stat"><span>Содержание флота</span><b style="color:var(--fed)">−${upkeep.toFixed(1)}</b></div>`;
+        })()}
         <div class="pp-section">Текущий фокус</div>
         <div class="hint" style="margin-top:2px">◈ ${focus}</div>
         <button class="mini-btn wide" id="dos-focus">◈ Открыть древо фокусов</button>
@@ -417,9 +428,10 @@ export class UI {
       <div class="pp-stat"><span>Укрепления</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
       <div class="pp-stat"><span>Стратегическая ценность</span><b>${p.value}</b></div>
       <div class="pp-stat"><span>Корабли на орбите</span><b><span style="color:var(--se)">${playerFleets.length}</span> / <span style="color:var(--aut)">${enemyFleets.length}</span></b></div>
-      ${p.minerals > 0 ? `<div class="pp-stat"><span>Ископаемые</span><b>${'⛏'.repeat(p.minerals)}${p.biome === 'magma' ? ' (магмовый мир)' : ''}</b></div>` : ''}
+      ${p.puppetOf ? `<div class="pp-stat"><span>Статус</span><b style="color:var(--gold)">Марионетка ${FACTIONS[p.puppetOf].name === 'Супер-Земля' ? 'Супер-Земли' : FACTIONS[p.puppetOf].name} — сопротивления нет</b></div>` : ''}
+      ${p.minerals > 0 ? `<div class="pp-stat"><span>Ископаемые</span><b>${'⛏'.repeat(p.minerals)} +${(p.minerals * (p.owner === 'automatons' ? 0.22 : 0.11)).toFixed(2)}/д${p.biome === 'magma' ? ' · магмовый мир' : ''}</b></div>` : ''}
       ${p.e711Rich ? `<div class="pp-stat"><span>Е-711</span><b style="color:var(--gold)">Богатые залежи</b></div>` : p.origin === 'terminids' && p.owner === 'superEarth' ? `<div class="pp-stat"><span>Е-711</span><b>Следы залежей</b></div>` : ''}
-      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld === 'termicide' ? '☠ Система термицида' : bld).join('<br>')}</b></div>` : ''}`;
+      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld === 'termicide' ? '☠ Система термицида' : bld === 'specialDock' ? '◆ Особая верфь и сервисный док' : bld === 'e711Station' ? '⛽ Станция добычи Е-711' : bld).join('<br>')}</b></div>` : ''}`;
 
     if (p.shipyard) {
       const q = p.shipyard.queue;
@@ -433,6 +445,17 @@ export class UI {
     if (p.owner === s.player && !p.shipyard && p.supplied) {
       const can = s.factions[s.player].production >= SHIPYARD_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="yard" ${can ? '' : 'disabled'}>⚓ Построить верфь (${SHIPYARD_COST} пр.)</button>`;
+    }
+    // Сервисный док супероружия: нужны чертежи, единственный на фракцию.
+    if (p.owner === s.player && s.factions[s.player].specialUnlocked && p.supplied
+        && !specialDockWorld(s, s.player) && !p.buildings.includes('specialDock')) {
+      const can = s.factions[s.player].production >= SPECIAL_DOCK_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="specialdock" ${can ? '' : 'disabled'}>◆ Особая верфь и сервисный док (${SPECIAL_DOCK_COST} пр.) — восстановление супероружия вдвое дешевле</button>`;
+    }
+    // Станция добычи Е-711 на жучьей марионетке.
+    if (s.player === 'superEarth' && p.puppetOf === 'superEarth' && !p.buildings.includes('e711Station')) {
+      const can = s.factions.superEarth.production >= E711_STATION_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="e711station" ${can ? '' : 'disabled'}>⛽ Станция добычи Е-711 (${E711_STATION_COST} пр. · +0.7/д)</button>`;
     }
     if (this.spireMode && p.owner === 'illuminate' && s.player === 'illuminate') {
       html += `<button class="mini-btn wide" data-act="spire">▲ Воздвигнуть экзошпиль</button>`;
@@ -552,6 +575,22 @@ export class UI {
           if (buildShipyard(s, s.player, p.id)) {
             this.toast('ВЕРФЬ РАЗВЁРНУТА · ЗАКАЗЫ — В «⚒ ПРОИЗВОДСТВО»');
             this.renderPanel();
+          }
+          return;
+        }
+        if (act === 'specialdock') {
+          if (buildSpecialDock(s, s.player, p.id)) {
+            this.toast('СЕРВИСНЫЙ ДОК СУПЕРОРУЖИЯ РАЗВЁРНУТ');
+            this.renderPanel();
+            this.renderHud();
+          }
+          return;
+        }
+        if (act === 'e711station') {
+          if (buildE711Station(s, p.id)) {
+            this.toast('СТАНЦИЯ ДОБЫЧИ Е-711 РАЗВЁРНУТА');
+            this.renderPanel();
+            this.renderHud();
           }
           return;
         }
@@ -1045,7 +1084,7 @@ export class UI {
     const fs = s.factions[s.player];
     let html = `<div class="pc-head"><span class="pc-title">⚒ ПРОИЗВОДСТВО</span>
       <button class="pc-close" id="prod-close">✕</button></div><div class="pc-body">
-      <div class="hint" style="margin-top:0">Очки производства: <b style="color:var(--gold)">${fs.production.toFixed(0)}</b></div>
+      <div class="hint" style="margin-top:0">Производство: <b style="color:var(--gold)">${fs.production.toFixed(0)}</b> · Ископаемые: <b>⛏ ${fs.resources.minerals.toFixed(0)}</b></div>
       <div class="dec-item"><b>Пехотные дивизии (${DIVISION_COST} пр. → +${DIVISION_SIZE})</b>`;
     for (const t of troopsOf(s.player)) {
       if (t.id === 'greatFleet') continue;
@@ -1073,8 +1112,8 @@ export class UI {
         <div class="yard-status">Склад: ЭСМ ${y.stored.ships} · ДРД ${y.stored.dreadnoughts} · ЛКР ${y.stored.battleships}</div>
         <div class="yard-btns">`;
       for (const c of SHIP_CLASSES) {
-        const can = !q && fs.production >= c.cost;
-        html += `<button class="mini-btn ${can ? '' : 'off'}" data-queue="${p.id}:${c.id}" ${can ? '' : 'disabled'} title="${c.desc} · ${c.days} дн">${c.name.split(' ')[0]} ${c.cost}</button>`;
+        const can = !q && fs.production >= c.cost && fs.resources.minerals >= c.minerals;
+        html += `<button class="mini-btn ${can ? '' : 'off'}" data-queue="${p.id}:${c.id}" ${can ? '' : 'disabled'} title="${c.desc} · ${c.days} дн · ${c.cost} пр. + ${c.minerals} ⛏">${c.name.split(' ')[0]} ${c.cost}·⛏${c.minerals}</button>`;
       }
       if (storedHulls(y) > 0) {
         html += `<button class="mini-btn" data-form="${p.id}">➕ СОЕДИНЕНИЕ</button>`;

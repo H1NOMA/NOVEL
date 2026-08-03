@@ -3,7 +3,7 @@ import { areHostile, FACTIONS } from '../data/factions';
 import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
-import { drawUnits, mineE711, replenishUnits, totalUnits } from './troops';
+import { drawUnits, mineE711, mineMinerals, replenishUnits, totalUnits } from './troops';
 import { accruePower } from './politics';
 import { bus } from '../core/emitter';
 
@@ -31,9 +31,15 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   fs.production += 0.4 * (fs.industry + income * 0.3);
   accruePower(state, faction);
 
-  // Пополнение пулов войск по правилам фракции + добыча Е-711.
+  // Добыча ископаемых, пополнение пулов войск, добыча Е-711.
+  mineMinerals(state, faction);
   replenishUnits(state, faction);
   if (faction === 'superEarth') mineE711(state);
+
+  // Содержание флота: каждый корпус ежедневно ест производство.
+  const upkeep = fleetsOf(state, faction)
+    .reduce((s, f) => s + f.ships + f.dreadnoughts * 2 + f.battleships * 4, 0) * 0.05;
+  fs.production = Math.max(0, fs.production - upkeep);
 
   // Build a new fleet when affordable and under the cap.
   // Игрок строит корабли сам — на верфях; автосборка флотов только у ИИ.
@@ -74,6 +80,85 @@ function eliminate(state: GameState, faction: FactionId): void {
 }
 
 /**
+ * Стратегическое планирование: у каждой фракции — кампания с приоритетной
+ * целью, а не «хватать всё подряд». План пересматривается раз в 12 дней.
+ *  • Автоматоны с чертежами супероружия рвутся к магмовым мирам с богатыми
+ *    залежами — там встанет особая верфь и сервисный док ССА.
+ *  • Иллюминаты охотятся на населённые миры Супер-Земли — урожай для масс.
+ *  • Терминиды дозахватывают сектора роя целиком (Мрак требует полных секторов).
+ *  • Остальные (и все по умолчанию) методично закрывают начатые сектора.
+ *  • Столица в осаде перекрывает всё — план «оборона».
+ */
+export function updatePlan(state: GameState, faction: FactionId): void {
+  const fs = state.factions[faction];
+  const worlds = planetsOf(state, faction);
+
+  // Оборона столицы важнее любых амбиций.
+  const capital = worlds.find((p) => p.isCapital);
+  if (capital?.battle && capital.battle.liberation > 15) {
+    fs.aiPlan = { goal: 'defense', target: capital.id, note: `оборона столицы ${capital.name}` };
+    return;
+  }
+
+  // Автоматоны: проект супероружия требует платиновых руд магмовых миров.
+  if (faction === 'automatons' && fs.specialUnlocked) {
+    const hasDock = worlds.some((p) => p.buildings.includes('specialDock'));
+    if (!hasDock) {
+      const site = state.galaxy.order
+        .map((id) => state.galaxy.planets.get(id)!)
+        .filter((p) => p.biome === 'magma' && p.minerals >= 2 && !p.shattered && !p.abyss)
+        .sort((a, b) => {
+          const da = a.owner === faction ? -1 : nearestDist(worlds, a);
+          const db = b.owner === faction ? -1 : nearestDist(worlds, b);
+          return da - db;
+        })[0];
+      if (site) {
+        fs.aiPlan = { goal: 'superweaponSite', target: site.id, note: `плацдарм супероружия: ${site.name}` };
+        return;
+      }
+    }
+  }
+
+  // Иллюминаты: урожай с миров Супер-Земли.
+  if (faction === 'illuminate') {
+    const prey = state.galaxy.order
+      .map((id) => state.galaxy.planets.get(id)!)
+      .filter((p) => p.owner === 'superEarth' && !p.shattered &&
+        p.links.some((l) => state.galaxy.planets.get(l)!.owner === faction))
+      .sort((a, b) => b.cities.length - a.cities.length)[0];
+    if (prey) {
+      fs.aiPlan = { goal: 'harvest', target: prey.id, note: `сбор урожая: ${prey.name}` };
+      return;
+    }
+  }
+
+  // По умолчанию: закрыть сектор, где у фракции больше всего миров, но не все.
+  let best: { target: string; own: number } | null = null;
+  for (const sector of state.galaxy.sectors.values()) {
+    const ps = sector.planets.map((id) => state.galaxy.planets.get(id)!).filter((p) => !p.shattered && !p.abyss);
+    const own = ps.filter((p) => p.owner === faction).length;
+    const missing = ps.filter((p) => p.owner !== faction && areHostile(faction, p.owner));
+    if (own > 0 && missing.length > 0 && (!best || own > best.own)) {
+      const t = missing.sort((a, b) => a.garrison - b.garrison)[0]!;
+      best = { target: t.id, own };
+    }
+  }
+  if (best) {
+    const goal = faction === 'terminids' ? 'swarmSector' : 'consolidate';
+    const t = state.galaxy.planets.get(best.target)!;
+    fs.aiPlan = { goal, target: best.target, note: `зачистка сектора ${t.sector}` };
+  } else {
+    fs.aiPlan = { goal: 'consolidate', target: null, note: 'экспансия' };
+  }
+}
+
+function nearestDist(worlds: Planet[], p: Planet): number {
+  let d = Infinity;
+  for (const w of worlds) d = Math.min(d, Math.hypot(w.pos.x - p.pos.x, w.pos.y - p.pos.y));
+  return d;
+}
+
+/**
  * Тактический ИИ флотов. Принципы:
  *  • цели оцениваются (слабый гарнизон, окружение, ценность, столицы),
  *    а не берётся просто ближайшая;
@@ -85,6 +170,10 @@ export function runAI(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (!fs.alive) return;
   const aggression = FACTIONS[faction].aggression;
+  // Пересмотр стратегического плана раз в 12 дней.
+  if (!fs.aiPlan || state.day % 12 === 0) {
+    updatePlan(state, faction);
+  }
 
   for (const f of fleetsOf(state, faction)) {
     if (f.transit) continue;
@@ -129,10 +218,14 @@ export function runAI(state: GameState, faction: FactionId): void {
 
 /**
  * Оценка целей вторжения: перевес сил обязателен, окружённые и слабо
- * защищённые миры ценятся выше, столицы — лакомая добыча.
+ * защищённые миры ценятся выше, столицы — лакомая добыча, а главный вес
+ * получает цель ТЕКУЩЕГО СТРАТЕГИЧЕСКОГО ПЛАНА и её сектор.
  */
 function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): string | null {
-  const myPower = f.infantry * (1 + state.factions[faction].bonuses.combat);
+  const fs = state.factions[faction];
+  const myPower = f.infantry * (1 + fs.bonuses.combat);
+  const plan = fs.aiPlan;
+  const planSector = plan?.target ? state.galaxy.planets.get(plan.target)?.sector : undefined;
   let best: string | null = null;
   let bestScore = 0;
 
@@ -157,6 +250,17 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
     if (p.isCapital) score += 3;            // обезглавить врага
     if (p.battle && p.battle.attacker === faction) score += 2.5; // дожать штурм
     if (p.cities.length) score += p.cities.length * 0.5;
+
+    // Дисциплина кампании: цель плана — в приоритете, её сектор — тоже;
+    // миры в секторах, где у нас ни одной планеты, — распыление сил.
+    if (plan?.target === id) score += 8;
+    if (planSector && p.sector === planSector) score += 2;
+    const sec = [...state.galaxy.sectors.values()].find((sc) => sc.planets.includes(id));
+    if (sec && !sec.planets.some((pid) => state.galaxy.planets.get(pid)!.owner === faction)) {
+      score -= 2.5;
+    }
+    // Марионетки без гарнизона — лёгкая, но второстепенная добыча.
+    if (p.puppetOf) score -= 1;
 
     if (score > bestScore) {
       bestScore = score;

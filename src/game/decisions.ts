@@ -212,11 +212,13 @@ export function produceDivision(state: GameState, faction: FactionId, troopId: s
   return true;
 }
 
-/** Построить корабли выбранного класса: пополняют флот у столицы или встают новым. */
+/** Построить корабли выбранного класса: пополняют флот у столицы или встают новым.
+ *  Корпуса требуют и производства, и ископаемых. */
 export function produceShips(state: GameState, faction: FactionId, cls: ShipClassId): boolean {
   const fs = state.factions[faction];
   const def = SHIP_CLASSES.find((c) => c.id === cls)!;
-  if (fs.production < def.cost) return false;
+  if (fs.production < def.cost || fs.resources.minerals < def.minerals) return false;
+  fs.resources.minerals -= def.minerals;
   const worlds = state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
     .filter((p) => p.owner === faction && !p.shattered && !p.abyss);
@@ -262,6 +264,50 @@ export function installTermicide(state: GameState, planetId: string): boolean {
 
 export const SPECIAL_REBUILD_COST = 300;
 export const SUPER_SHOT_COOLDOWN = 1000;
+export const SPECIAL_DOCK_COST = 120;
+export const E711_STATION_COST = 60;
+
+/** Планета фракции с сервисным доком супероружия (если есть). */
+export function specialDockWorld(state: GameState, faction: FactionId): string | null {
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.owner === faction && p.buildings.includes('specialDock') && !p.shattered) return id;
+  }
+  return null;
+}
+
+/** Построить особую верфь и сервисный док супероружия (нужны чертежи). */
+export function buildSpecialDock(state: GameState, faction: FactionId, planetId: string): boolean {
+  const fs = state.factions[faction];
+  const p = state.galaxy.planets.get(planetId);
+  if (!fs.specialUnlocked || !p || p.owner !== faction || !p.supplied) return false;
+  if (p.buildings.includes('specialDock') || specialDockWorld(state, faction)) return false;
+  if (fs.production < SPECIAL_DOCK_COST) return false;
+  fs.production -= SPECIAL_DOCK_COST;
+  p.buildings.push('specialDock');
+  pushLog(state, {
+    faction,
+    text: `На ${p.name} развёрнуты особая верфь и сервисный док супероружия. Восстановление ${SPECIALS[faction].name} здесь обойдётся вдвое дешевле.`,
+    tone: faction === state.player ? 'good' : 'alert',
+  });
+  return true;
+}
+
+/** Станция добычи Е-711 на жучьем мире-марионетке (только Супер-Земля). */
+export function buildE711Station(state: GameState, planetId: string): boolean {
+  const se = state.factions.superEarth;
+  const p = state.galaxy.planets.get(planetId);
+  if (!p || p.puppetOf !== 'superEarth' || p.buildings.includes('e711Station')) return false;
+  if (se.production < E711_STATION_COST) return false;
+  se.production -= E711_STATION_COST;
+  p.buildings.push('e711Station');
+  pushLog(state, {
+    faction: 'superEarth',
+    text: `На ${p.name} развёрнута станция добычи Е-711: жучьи залежи теперь работают на Демократию.`,
+    tone: 'good',
+  });
+  return true;
+}
 
 /** Дней до готовности планетарного залпа (0 = заряжен). */
 export function superShotReadyIn(state: GameState, faction: FactionId): number {
@@ -339,16 +385,20 @@ function stepFederationDefection(state: GameState): void {
   }
 }
 
-/** Восстановить уничтоженное супероружие — очень дорого. */
+/** Восстановить уничтоженное супероружие — очень дорого.
+ *  Сервисный док вдвое удешевляет работы, и станция сходит со стапелей там. */
 export function rebuildSpecial(state: GameState, faction: FactionId): boolean {
   const fs = state.factions[faction];
-  if (!fs.specialUnlocked || !fs.lostSpecial || fs.production < SPECIAL_REBUILD_COST) return false;
+  const dockId = specialDockWorld(state, faction);
+  const cost = dockId ? SPECIAL_REBUILD_COST * 0.5 : SPECIAL_REBUILD_COST;
+  if (!fs.specialUnlocked || !fs.lostSpecial || fs.production < cost) return false;
   const worlds = state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
     .filter((p) => p.owner === faction && !p.abyss);
-  const home = worlds.find((p) => p.isCapital) ?? worlds[0];
+  const home = (dockId ? state.galaxy.planets.get(dockId) : undefined)
+    ?? worlds.find((p) => p.isCapital) ?? worlds[0];
   if (!home) return false;
-  fs.production -= SPECIAL_REBUILD_COST;
+  fs.production -= cost;
   fs.lostSpecial = false;
   spawnFleet(state, faction, home.id, { ships: 14, infantry: 30, special: SPECIALS[faction].id });
   pushLog(state, {
@@ -380,6 +430,18 @@ function aiDecisions(state: GameState): void {
       break;
     }
   }
+  // План «плацдарм супероружия»: заняв магмовый мир с богатыми залежами,
+  // автоматоны разворачивают там особую верфь и сервисный док ССА.
+  const autFs = state.factions.automatons;
+  if (autFs.alive && autFs.specialUnlocked && !specialDockWorld(state, 'automatons')) {
+    const site = state.galaxy.order
+      .map((id) => state.galaxy.planets.get(id)!)
+      .find((p) => p.owner === 'automatons' && p.biome === 'magma' && p.minerals >= 2 && p.supplied);
+    if (site && autFs.production >= SPECIAL_DOCK_COST + 40) {
+      buildSpecialDock(state, 'automatons', site.id);
+    }
+  }
+
   // Автоматоны в приоритете строят фабрики особых отрядов.
   const aut = state.factions.automatons;
   if (aut.alive && aut.production >= 120) {

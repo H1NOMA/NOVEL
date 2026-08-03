@@ -102,6 +102,8 @@ export interface Planet {
   shattered: boolean;
   /** Верфь: строит корабли по приказу игрока и складирует их до передачи флоту. */
   shipyard?: Shipyard;
+  /** Мир-марионетка: владелец капитулировал и подчинён этой фракции. */
+  puppetOf?: FactionId;
 }
 
 export interface Shipyard {
@@ -262,7 +264,18 @@ export interface FactionState {
   politicalPower: number;
   /** Купленные политические бонусы (id, повторные покупки — повторные записи). */
   purchasedBonuses: string[];
+  /** Текущий стратегический план ИИ фракции. */
+  aiPlan?: AiPlan;
   alive: boolean;
+}
+
+/** Стратегические планы ИИ: не «хватать всё подряд», а вести кампанию. */
+export interface AiPlan {
+  goal: 'superweaponSite' | 'harvest' | 'swarmSector' | 'consolidate' | 'defense';
+  /** Планета-цель плана (если есть). */
+  target: string | null;
+  /** Человекочитаемое описание — для журнала и отладки. */
+  note: string;
 }
 
 export type GameSpeed = 0 | 1 | 2 | 3;
