@@ -79,7 +79,8 @@ uniform vec3 uTint; uniform float uWater; uniform float uRough;
 uniform float uClouds; uniform float uTime; uniform float uSeed;
 uniform float uFreq; uniform float uWarp; uniform float uBands;
 uniform float uCity; uniform float uCapSize; uniform float uContinent;
-uniform float uRidges;
+uniform float uRidges; uniform float uCraters;
+uniform sampler2D uMask; uniform float uUseMask;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
 void main(){
@@ -98,6 +99,17 @@ void main(){
   }
 
   float hn = h * 0.5 + 0.5;
+
+  // Настоящая карта континентов (Супер-Земля): маска в эквидистантной проекции
+  // задаёт сушу, fbm слегка рвёт береговую линию.
+  if (uUseMask > 0.5) {
+    float lon = atan(n.z, n.x) / 6.2831853 + 0.5;
+    float latv = asin(clamp(n.y, -1.0, 1.0)) / 3.1415926 + 0.5;
+    float m = texture2D(uMask, vec2(lon, latv)).r;
+    float coast = fbm(q * 3.2) * 0.14;
+    hn = mix(uWater - 0.22, uWater + 0.3, clamp(m + coast, 0.0, 1.0));
+  }
+
   float land = smoothstep(uWater - 0.05, uWater + 0.05, hn);
   vec3 surf = mix(uSea, uLand, land);
 
@@ -119,6 +131,15 @@ void main(){
     // подсветка гребней
     float crest = smoothstep(0.9, 0.98, ridge);
     surf += vec3(0.16, 0.13, 0.09) * crest;
+  }
+
+  // Кратерные поля мёртвых миров: чаши с подсвеченными валами.
+  if (uCraters > 0.5) {
+    float cr = abs(snoise(q * 3.1 + 60.0));
+    float bowl = 1.0 - smoothstep(0.0, 0.09, cr);
+    float rim = smoothstep(0.05, 0.09, cr) - smoothstep(0.09, 0.2, cr);
+    surf = mix(surf, surf * 0.5, bowl * 0.85);
+    surf += vec3(0.12, 0.11, 0.1) * rim;
   }
 
   // Полярные шапки — только там, где им положено быть (uCapSize > 1 = нет шапок).
@@ -219,6 +240,77 @@ export interface PlanetVisual {
   setShattered(on: boolean): void;
 }
 
+// ---------------------------------------------------------------------------
+// Карта Земли для Супер-Земли: узнаваемые очертания континентов рисуются на
+// канве (эквидистантная проекция) и подаются в шейдер маской суши.
+// ---------------------------------------------------------------------------
+
+let earthMaskTex: THREE.Texture | null = null;
+let dummyMaskTex: THREE.Texture | null = null;
+
+type LL = [number, number]; // [долгота, широта] в градусах
+
+const CONTINENTS: LL[][] = [
+  // Северная Америка (с Аляской и Мексикой)
+  [[-168, 66], [-152, 71], [-130, 70], [-110, 72], [-95, 73], [-82, 74], [-74, 66], [-60, 55], [-52, 47], [-65, 44], [-70, 41], [-75, 35], [-81, 30], [-80, 25], [-90, 29], [-97, 26], [-97, 20], [-95, 16], [-84, 10], [-79, 8], [-83, 14], [-92, 15], [-105, 22], [-114, 30], [-121, 34], [-124, 42], [-128, 50], [-135, 57], [-152, 58], [-165, 55], [-168, 60]],
+  // Гренландия
+  [[-58, 76], [-45, 82], [-25, 83], [-20, 76], [-25, 70], [-40, 60], [-50, 62], [-55, 68]],
+  // Южная Америка
+  [[-79, 9], [-70, 12], [-62, 10], [-52, 5], [-44, -3], [-35, -6], [-37, -13], [-40, -22], [-48, -28], [-58, -34], [-62, -41], [-66, -48], [-69, -54], [-72, -50], [-71, -38], [-72, -30], [-70, -18], [-76, -10], [-80, -3], [-78, 3]],
+  // Африка
+  [[-17, 21], [-10, 32], [0, 36], [10, 37], [20, 32], [32, 31], [35, 27], [34, 15], [43, 12], [51, 10], [48, 2], [41, -4], [40, -13], [35, -22], [30, -30], [20, -35], [17, -32], [14, -22], [12, -14], [8, -1], [9, 4], [4, 6], [-5, 5], [-13, 9], [-17, 15]],
+  // Европа + Азия
+  [[-10, 44], [-9, 52], [-2, 58], [5, 62], [12, 65], [20, 70], [35, 68], [45, 68], [60, 70], [75, 73], [90, 76], [105, 77], [120, 73], [140, 72], [160, 70], [178, 66], [178, 62], [162, 60], [155, 53], [142, 47], [132, 43], [122, 38], [121, 30], [110, 20], [106, 10], [103, 2], [99, 7], [95, 16], [88, 22], [80, 8], [76, 15], [70, 22], [62, 25], [56, 26], [48, 30], [35, 36], [26, 38], [15, 40], [3, 43]],
+  // Австралия
+  [[113, -22], [115, -35], [125, -33], [130, -32], [137, -35], [140, -38], [147, -38], [153, -30], [151, -24], [145, -15], [140, -12], [135, -12], [130, -13], [122, -14], [114, -20]],
+  // Антарктида (сплошной пояс)
+  [[-180, -70], [180, -70], [180, -90], [-180, -90]],
+];
+
+function buildEarthMask(): THREE.Texture {
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 256;
+  const ctx = cv.getContext('2d')!;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#fff';
+  const X = (lon: number) => ((lon + 180) / 360) * cv.width;
+  const Y = (lat: number) => ((90 - lat) / 180) * cv.height;
+  for (const poly of CONTINENTS) {
+    ctx.beginPath();
+    poly.forEach(([lon, lat], i) => (i === 0 ? ctx.moveTo(X(lon), Y(lat)) : ctx.lineTo(X(lon), Y(lat))));
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Крупные острова: Великобритания, Мадагаскар, Япония, Новая Зеландия, Борнео.
+  const isle = (lon: number, lat: number, rx: number, ry: number, rot = 0) => {
+    ctx.save(); ctx.translate(X(lon), Y(lat)); ctx.rotate(rot);
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  };
+  isle(-3, 54, 4, 7);
+  isle(47, -19, 4, 9);
+  isle(139, 37, 4, 10, 0.5);
+  isle(172, -42, 3, 8, 0.3);
+  isle(114, 0, 8, 6);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+
+function maskFor(planetId: string): { tex: THREE.Texture; use: number } {
+  if (planetId === 'p_super_earth') {
+    if (!earthMaskTex) earthMaskTex = buildEarthMask();
+    return { tex: earthMaskTex, use: 1 };
+  }
+  if (!dummyMaskTex) {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 2;
+    dummyMaskTex = new THREE.CanvasTexture(cv);
+  }
+  return { tex: dummyMaskTex, use: 0 };
+}
+
 /** Deterministic 0..1 stream from a planet seed — drives per-planet variety. */
 function seededStream(seed: number): () => number {
   let s = (seed * 2654435761) >>> 0;
@@ -239,8 +331,8 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   // terrain frequency, spin and axial tilt — all derived from planet.seed.
   const land = new THREE.Color(biome.land).offsetHSL(rand() * 0.08 - 0.04, rand() * 0.2 - 0.1, rand() * 0.16 - 0.08);
   const sea = new THREE.Color(biome.sea).offsetHSL(rand() * 0.06 - 0.03, rand() * 0.2 - 0.1, rand() * 0.12 - 0.06);
-  const water = Math.min(0.95, Math.max(0.02, biome.water + rand() * 0.2 - 0.1));
-  const freq = 1.3 + rand() * 1.6;
+  const water = Math.min(0.95, Math.max(0.02, biome.water + rand() * 0.26 - 0.13));
+  const freq = 1.0 + rand() * 2.3;
   const clouds = Math.min(1, Math.max(0, biome.clouds + rand() * 0.25 - 0.12));
   const spinSpeed = (0.0012 + rand() * 0.003) * (rand() < 0.15 ? -1 : 1);
   const tilt = (rand() * 2 - 1) * 0.35;
@@ -251,10 +343,19 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const hasCaps = planet.biome === 'terran' || planet.biome === 'ice';
   const capSize = hasCaps ? 0.72 + rand() * 0.2 : 2.0;
   const city = planet.cities.length > 0 ? 1 : 0;           // ночные огни городов
-  // Слитность суши в континенты (магма — крупные лавовые океаны и материки).
-  const continent = planet.biome === 'magma' ? 0.75 + rand() * 0.15 : 0.45 + rand() * 0.35;
+  // Стиль суши: архипелаги / материки / пангея — треть миров каждого типа.
+  // Магма всегда тяготеет к крупным лавовым океанам и цельным материкам.
+  const styleRoll = rand();
+  const continent = planet.biome === 'magma'
+    ? 0.75 + rand() * 0.15
+    : styleRoll < 0.3 ? 0.12 + rand() * 0.2   // архипелаг: россыпь островов
+    : styleRoll < 0.72 ? 0.45 + rand() * 0.25 // классические континенты
+    : 0.78 + rand() * 0.17;                    // пангея: единый сверхматерик
   // Горные хребты вместо воды на пустынных/бесплодных мирах.
   const ridges = planet.biome === 'desert' || planet.biome === 'barren' ? 1 : 0;
+  // Кратерные поля: бесплодные — всегда, ледяные/пустынные — через раз.
+  const craters = planet.biome === 'barren' || ((planet.biome === 'ice' || planet.biome === 'desert') && rand() < 0.45) ? 1 : 0;
+  const mask = maskFor(planet.id);
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
@@ -276,6 +377,9 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uCapSize: { value: capSize },
       uContinent: { value: continent },
       uRidges: { value: ridges },
+      uCraters: { value: craters },
+      uMask: { value: mask.tex },
+      uUseMask: { value: mask.use },
     },
   });
 

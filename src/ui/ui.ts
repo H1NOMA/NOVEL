@@ -1174,13 +1174,18 @@ export class UI {
 
     // connectors: от низа иконки родителя к верху узла-потомка.
     // Дальние связи (через всё древо) НЕ рисуются — они остаются логическим
-    // требованием и показываются текстом в окне фокуса.
+    // требованием и показываются текстом в окне фокуса. Линии к скрытым
+    // узлам (ветка Ковчега до падения Киберстана) тоже не рисуются.
+    const arkShown = cyberstanLost(this.state);
+    const hiddenNode = (m: { branch?: string }) => m.branch === 'ark' && !arkShown;
     const cx = (n: { x: number }) => n.x * W + 20 + NW / 2;
     let svg = `<svg class="focus-svg" width="${cw}" height="${ch}">`;
     for (const n of nodes) {
+      if (hiddenNode(n)) continue;
       for (const req of n.requires) {
         const r = nodes.find((m) => m.id === req);
         if (!r) continue;
+        if (hiddenNode(r)) continue;
         if (this.isRemoteRequire(n, r)) continue;
         const x1 = cx(r), y1 = r.y * H + 20 + 118;
         const x2 = cx(n), y2 = n.y * H + 20;
