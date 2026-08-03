@@ -1100,6 +1100,11 @@ export class UI {
     return out.filter(Boolean);
   }
 
+  /** Дальняя связь: соединитель через полдрева не рисуем — только текст. */
+  private isRemoteRequire(n: { x: number; y: number }, r: { x: number; y: number }): boolean {
+    return Math.abs(n.x - r.x) >= 3 || n.y - r.y >= 3;
+  }
+
   /** Плавающее окно с описанием фокуса поверх древа. */
   private renderFocusInfo(focusId: string): void {
     const n = FOCUS_TREES[this.focusTab].find((f) => f.id === focusId);
@@ -1126,6 +1131,19 @@ export class UI {
         <button class="pc-close" id="fi-close">✕</button>
       </div>
       <div class="fi-desc">${n.desc}</div>
+      ${(() => {
+        // Требования из других веток (без линий) + невыполненные обычные.
+        const tree = FOCUS_TREES[this.focusTab];
+        const reqs = n.requires
+          .map((rid) => tree.find((m) => m.id === rid))
+          .filter((r): r is NonNullable<typeof r> => !!r)
+          .filter((r) => this.isRemoteRequire(n, r) || !fs.completedFocus.includes(r.id));
+        if (!reqs.length) return '';
+        return `<div class="fi-reqs">Требуется: ${reqs.map((r) => {
+          const ok = fs.completedFocus.includes(r.id);
+          return `<span style="color:${ok ? '#3ad07a' : 'var(--fed)'}">${ok ? '✓' : '✕'} «${r.title}»</span>`;
+        }).join(' · ')}</div>`;
+      })()}
       ${this.effectLines(n).length ? `<div class="fi-effects">${this.effectLines(n).map((l) => `<div>◆ ${l}</div>`).join('')}</div>` : ''}
       ${selectable ? `<button class="mini-btn wide" id="fi-select">▶ НАЗНАЧИТЬ ФОКУС</button>` : ''}`;
 
@@ -1154,13 +1172,16 @@ export class UI {
       `<div class="focus-tab ${f === this.focusTab ? 'active' : ''}" data-fac="${f}" style="border-color:${FACTIONS[f].color}">${FACTIONS[f].short}</div>`
     ).join('');
 
-    // connectors: от низа иконки родителя к верху узла-потомка
+    // connectors: от низа иконки родителя к верху узла-потомка.
+    // Дальние связи (через всё древо) НЕ рисуются — они остаются логическим
+    // требованием и показываются текстом в окне фокуса.
     const cx = (n: { x: number }) => n.x * W + 20 + NW / 2;
     let svg = `<svg class="focus-svg" width="${cw}" height="${ch}">`;
     for (const n of nodes) {
       for (const req of n.requires) {
         const r = nodes.find((m) => m.id === req);
         if (!r) continue;
+        if (this.isRemoteRequire(n, r)) continue;
         const x1 = cx(r), y1 = r.y * H + 20 + 118;
         const x2 = cx(n), y2 = n.y * H + 20;
         const done = fs.completedFocus.includes(req);

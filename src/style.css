@@ -218,6 +218,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 .fi-status { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .fi-desc { margin-top: 10px; color: var(--text); line-height: 1.45; }
 .fi-effects { margin-top: 10px; color: var(--gold); font-size: 12px; line-height: 1.6; }
+.fi-reqs { margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .focus-node.locked { opacity: 0.5; }
 .focus-node.fed .fn-icon { box-shadow: 0 0 0 2px rgba(255,140,26,0.4); }
 .focus-node.fed.available .fn-icon { box-shadow: 0 0 0 2px var(--fed); }
