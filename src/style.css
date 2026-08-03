@@ -179,18 +179,48 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; col
 .focus-scroll { flex: 1; overflow: auto; position: relative; }
 .focus-canvas { position: relative; margin: 20px auto; }
 .focus-node {
-  position: absolute; width: 150px; min-height: 74px; padding: 8px; border-radius: 6px;
-  background: #101a2e; border: 2px solid var(--edge); font-size: 11px; transition: all .15s;
+  position: absolute; padding: 6px 4px 4px; border-radius: 10px; text-align: center;
+  background: transparent; cursor: pointer; transition: background .15s; user-select: none;
 }
-.focus-node .fn-title { font-weight: 700; font-size: 12px; margin-bottom: 3px; }
-.focus-node .fn-cost { position: absolute; bottom: 4px; right: 8px; color: var(--muted); font-size: 10px; }
-.focus-node.done { border-color: #3ad07a; background: #10241a; }
-.focus-node.active { border-color: var(--gold); box-shadow: 0 0 12px var(--gold); }
-.focus-node.available { border-color: var(--se); cursor: pointer; }
-.focus-node.available:hover { background: #16263f; }
+.focus-node:hover { background: rgba(255,255,255,0.05); }
+.fn-icon {
+  width: 68px; height: 68px; display: block; margin: 0 auto; border-radius: 12px;
+  transition: transform .15s;
+}
+.focus-node:hover .fn-icon { transform: scale(1.06); }
+.fn-name {
+  margin-top: 5px; font-size: 11px; line-height: 1.25; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fn-badge {
+  position: absolute; top: 0; right: 10px; z-index: 2; font-size: 13px; font-weight: 700;
+  color: #3ad07a; text-shadow: 0 0 6px rgba(0,0,0,0.8);
+}
+.focus-node.active .fn-badge { color: var(--gold); }
+.focus-node.done .fn-icon { box-shadow: 0 0 0 2px #3ad07a; }
+.focus-node.active .fn-icon { box-shadow: 0 0 0 2px var(--gold), 0 0 14px rgba(230,194,94,0.5); }
+.focus-node.available .fn-icon { box-shadow: 0 0 0 2px rgba(125,155,205,0.55); }
+.focus-node.available .fn-name { color: #fff; }
+.focus-node.locked { opacity: 0.45; }
+
+/* ---------- Плавающее окно описания фокуса ---------- */
+#focus-info {
+  position: absolute; right: 24px; bottom: 24px;
+  width: 420px; max-width: 92vw; padding: 14px 16px; z-index: 5;
+  background: var(--panel); border: 1px solid var(--edge-strong); border-radius: 12px;
+  box-shadow: 0 14px 44px rgba(0,0,0,0.6); font-size: 13px;
+}
+#focus-info.hidden { display: none; }
+.fi-head { display: flex; align-items: center; gap: 12px; }
+.fi-head .grow { flex: 1; }
+.fi-icon { width: 64px; height: 64px; border-radius: 10px; flex: 0 0 64px; }
+.fi-title { font-weight: 700; font-size: 16px; letter-spacing: 0.6px; }
+.fi-status { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.fi-desc { margin-top: 10px; color: var(--text); line-height: 1.45; }
+.fi-effects { margin-top: 10px; color: var(--gold); font-size: 12px; line-height: 1.6; }
 .focus-node.locked { opacity: 0.5; }
-.focus-node.fed { border-style: dashed; }
-.focus-node.fed.available { border-color: var(--fed); }
+.focus-node.fed .fn-icon { box-shadow: 0 0 0 2px rgba(255,140,26,0.4); }
+.focus-node.fed.available .fn-icon { box-shadow: 0 0 0 2px var(--fed); }
 .focus-svg { position: absolute; inset: 0; pointer-events: none; }
 
 /* ---------- Log ---------- */

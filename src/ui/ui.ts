@@ -4,6 +4,7 @@ import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, areHostile } from '../dat
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
+import { focusIconURL } from '../render/focusIcons';
 import { orderFleetTo, garrisonReinforce, splitFleet, disbandFleet } from '../game/units';
 import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, takeStoredShips, yardsOf, SHIPYARD_COST } from '../game/shipyards';
 import { canEnter } from '../game/supply';
@@ -1065,11 +1066,86 @@ export class UI {
     if (!hidden) this.renderFocus();
   }
 
+  /** Человекочитаемые строки эффектов фокуса. */
+  private effectLines(n: (typeof FOCUS_TREES)['superEarth'][number]): string[] {
+    const out: string[] = [];
+    for (const e of n.effects) {
+      switch (e.kind) {
+        case 'warSupport': out.push(`${e.amount > 0 ? '+' : ''}${e.amount} поддержки войны`); break;
+        case 'recruitment': out.push(`+${e.amount}% к пополнению войск`); break;
+        case 'industry': out.push(`+${e.amount} промышленности`); break;
+        case 'shipCap': out.push(`+${e.amount} к лимиту боевых соединений`); break;
+        case 'combat': out.push(`+${Math.round(e.amount * 100)}% к боевой силе`); break;
+        case 'fortify': out.push(`+${e.amount} к укреплениям миров`); break;
+        case 'stability': out.push(`${e.amount > 0 ? '+' : ''}${e.amount} стабильности`); break;
+        case 'manpower': out.push(`+${e.amount} массовой пехоты в пул`); break;
+        case 'fleet': out.push(`Новое соединение: ${e.ships} кораблей, ${e.infantry} пехоты`); break;
+        case 'unlockSpecial': out.push('Открывает СУПЕРОРУЖИЕ фракции'); break;
+        case 'spawnSuperFederation': out.push('Поднимает Супер-Федерацию'); break;
+        case 'arkArrival': out.push('Из тьмы прибывает КОВЧЕГ АВТОМАТОНОВ'); break;
+        case 'flag':
+          out.push({
+            gloomTravel: 'Флоты входят в миры, окутанные Мраком',
+            gloomSpread: 'Решение: зачатки Мрака в полных секторах',
+            abyss: 'Решение: экзошпили Бездны',
+            e711Mining: 'Решение: добыча топлива Е-711',
+            termicide: 'Решение: системы термицида',
+            arkPrepared: 'Готовит ПРОЕКТ «КОВЧЕГ» на случай разгрома',
+            arkGhost: '', arkDone: '',
+          }[e.flag] || 'Особая способность');
+          break;
+        case 'custom': break;
+      }
+    }
+    return out.filter(Boolean);
+  }
+
+  /** Плавающее окно с описанием фокуса поверх древа. */
+  private renderFocusInfo(focusId: string): void {
+    const n = FOCUS_TREES[this.focusTab].find((f) => f.id === focusId);
+    const box = this.focusOverlay.querySelector<HTMLElement>('#focus-info');
+    if (!n || !box) return;
+    const fs = this.state.factions[this.focusTab];
+    const done = fs.completedFocus.includes(n.id);
+    const active = fs.activeFocus?.id === n.id;
+    const selectable = this.focusTab === this.state.player && canSelectFocus(this.state, this.focusTab, n);
+    const status = done
+      ? '<span style="color:#3ad07a">✓ Завершён</span>'
+      : active
+        ? `<span style="color:var(--gold)">▶ Выполняется · ещё ${Math.ceil(fs.activeFocus!.remaining)} дн</span>`
+        : `${n.cost} дней`;
+
+    box.classList.remove('hidden');
+    box.innerHTML = `
+      <div class="fi-head">
+        <img class="fi-icon" src="${focusIconURL(n)}" alt="">
+        <div class="grow">
+          <div class="fi-title">${n.title}</div>
+          <div class="fi-status">${status}</div>
+        </div>
+        <button class="pc-close" id="fi-close">✕</button>
+      </div>
+      <div class="fi-desc">${n.desc}</div>
+      ${this.effectLines(n).length ? `<div class="fi-effects">${this.effectLines(n).map((l) => `<div>◆ ${l}</div>`).join('')}</div>` : ''}
+      ${selectable ? `<button class="mini-btn wide" id="fi-select">▶ НАЗНАЧИТЬ ФОКУС</button>` : ''}`;
+
+    box.querySelector('#fi-close')?.addEventListener('click', () => box.classList.add('hidden'));
+    box.querySelector('#fi-select')?.addEventListener('click', () => {
+      if (selectFocus(this.state, this.state.player, n.id)) {
+        this.toast('ФОКУС НАЗНАЧЕН');
+        this.renderFocus();
+        this.renderFocusInfo(n.id);
+        this.renderHud();
+      }
+    });
+  }
+
   private renderFocus(): void {
     const nodes = FOCUS_TREES[this.focusTab];
     const maxX = Math.max(...nodes.map((n) => n.x));
     const maxY = Math.max(...nodes.map((n) => n.y));
-    const W = 172, H = 112;
+    const W = 126, H = 148;
+    const NW = 104; // ширина узла
     const cw = (maxX + 1) * W + 40;
     const ch = (maxY + 1) * H + 60;
     const fs = this.state.factions[this.focusTab];
@@ -1078,14 +1154,15 @@ export class UI {
       `<div class="focus-tab ${f === this.focusTab ? 'active' : ''}" data-fac="${f}" style="border-color:${FACTIONS[f].color}">${FACTIONS[f].short}</div>`
     ).join('');
 
-    // connectors
+    // connectors: от низа иконки родителя к верху узла-потомка
+    const cx = (n: { x: number }) => n.x * W + 20 + NW / 2;
     let svg = `<svg class="focus-svg" width="${cw}" height="${ch}">`;
     for (const n of nodes) {
       for (const req of n.requires) {
         const r = nodes.find((m) => m.id === req);
         if (!r) continue;
-        const x1 = r.x * W + 20 + 75, y1 = r.y * H + 20 + 74;
-        const x2 = n.x * W + 20 + 75, y2 = n.y * H + 20;
+        const x1 = cx(r), y1 = r.y * H + 20 + 118;
+        const x2 = cx(n), y2 = n.y * H + 20;
         const done = fs.completedFocus.includes(req);
         svg += `<path d="M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}"
           fill="none" stroke="${done ? '#3ad07a' : '#3a4d6e'}" stroke-width="2"/>`;
@@ -1112,27 +1189,21 @@ export class UI {
       else if (selectable) cls += ' available';
       else cls += ' locked';
       const left = n.x * W + 20, top = n.y * H + 20;
-      const remain = active ? ` · ${Math.ceil(fs.activeFocus!.remaining)} дн` : '';
-      html += `<div class="${cls}" data-focus="${n.id}" style="left:${left}px;top:${top}px">
-        <div class="fn-title">${n.title}</div>
-        <div style="color:var(--muted)">${n.desc}</div>
-        <div class="fn-cost">${done ? '✓' : n.cost + ' дн' + remain}</div>
+      html += `<div class="${cls}" data-focus="${n.id}" style="left:${left}px;top:${top}px;width:${NW}px">
+        <div class="fn-badge">${done ? '✓' : active ? '▶' : ''}</div>
+        <img class="fn-icon" src="${focusIconURL(n)}" alt="" draggable="false">
+        <div class="fn-name">${n.title}</div>
       </div>`;
     }
-    html += `</div></div>`;
+    html += `</div></div><div id="focus-info" class="hidden"></div>`;
     this.focusOverlay.innerHTML = html;
 
     this.focusOverlay.querySelector('#focus-close')!.addEventListener('click', () => this.focusOverlay.classList.add('hidden'));
     this.focusOverlay.querySelectorAll<HTMLElement>('.focus-tab').forEach((t) =>
       t.addEventListener('click', () => { this.focusTab = t.dataset.fac as FactionId; this.renderFocus(); }));
-    this.focusOverlay.querySelectorAll<HTMLElement>('.focus-node.available').forEach((node) =>
-      node.addEventListener('click', () => {
-        if (selectFocus(this.state, this.state.player, node.dataset.focus!)) {
-          this.toast('ФОКУС НАЗНАЧЕН');
-          this.renderFocus();
-          this.renderStability();
-        }
-      }));
+    // Клик по любому узлу открывает плавающее окно с описанием и кнопкой.
+    this.focusOverlay.querySelectorAll<HTMLElement>('.focus-node').forEach((node) =>
+      node.addEventListener('click', () => this.renderFocusInfo(node.dataset.focus!)));
   }
 
   // ---------------- Производство ----------------
