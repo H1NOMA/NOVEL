@@ -7,7 +7,6 @@ export interface GameEvents extends Record<string, unknown> {
   dayPassed: { day: number };
   speedChanged: { speed: number };
   planetSelected: { id: string | null };
-  planetChanged: { id: string };
   /** Планеты, охваченные рамкой выделения ЛКМ. */
   planetsBoxSelected: { ids: string[] };
   /** Клик ПКМ по планете (без перетаскивания) — приказ выбранным флотам.
@@ -19,8 +18,6 @@ export interface GameEvents extends Record<string, unknown> {
   /** Планета сменила владельца (для диктора и оповещений). */
   planetCaptured: { id: string; by: string; prev: string };
   stateChanged: void;
-  log: { text: string };
-  factionEliminated: { faction: string };
   factionDefeated: { faction: string; by: string | null };
   /** Сюжетный ивент таймлайна (крупный — показывается баннером). */
   gameEvent: { title: string; text: string };

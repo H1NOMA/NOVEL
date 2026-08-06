@@ -42,7 +42,6 @@ interface SaveBlob {
   superFederationRisen: boolean;
   winner: FactionId | null;
   spires: { planet: string; daysLeft: number }[];
-  gloomTarget: string | null;
   gloomSeeds?: { planet: string; daysLeft: number }[];
   lastConqueror?: Partial<Record<FactionId, FactionId>>;
   playerDefeated?: boolean;
@@ -89,7 +88,6 @@ export function serializeState(state: GameState, slot: string, name: string): st
     superFederationRisen: state.superFederationRisen,
     winner: state.winner,
     spires: state.spires,
-    gloomTarget: state.gloomTarget,
     gloomSeeds: state.gloomSeeds,
     lastConqueror: state.lastConqueror,
     playerDefeated: state.playerDefeated,
@@ -139,7 +137,6 @@ export function deserializeState(json: string): GameState {
     superFederationRisen: b.superFederationRisen,
     winner: b.winner,
     spires: b.spires,
-    gloomTarget: b.gloomTarget,
     gloomSeeds: b.gloomSeeds ?? [],
     lastConqueror: b.lastConqueror ?? {},
     playerDefeated: b.playerDefeated ?? false,

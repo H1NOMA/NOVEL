@@ -29,8 +29,6 @@ export interface GameState {
   winner: FactionId | null;
   /** Экзошпили иллюминатов: планета → дней до погружения в Бездну. */
   spires: { planet: string; daysLeft: number }[];
-  /** Сектор, выбранный терминидами для распространения Мрака (устарело). */
-  gloomTarget: string | null;
   /** Зреющие зачатки Мрака: планета → дней до окутывания. */
   gloomSeeds: { planet: string; daysLeft: number }[];
   /** Кто последним отнимал планету у фракции — для сводки о поражении. */
@@ -100,7 +98,6 @@ export function createGame(seed: number): GameState {
     superFederationRisen: false,
     winner: null,
     spires: [],
-    gloomTarget: null,
     gloomSeeds: [],
     lastConqueror: {},
     playerDefeated: false,

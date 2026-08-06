@@ -68,6 +68,8 @@ export class UI {
   private announcer = new Announcer();
   /** Стек кликабельных боевых оповещений. */
   private alertsEl!: HTMLElement;
+  /** Оверлей управления и горячих клавиш. */
+  private helpEl!: HTMLElement;
   /** Индекс для перебора битв кнопкой кинокамеры. */
   private cinemaIdx = 0;
   /** Последняя ненулевая скорость — пауза возвращает именно её. */
@@ -114,6 +116,7 @@ export class UI {
     this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
     this.alertsEl = el('div'); this.alertsEl.id = 'combat-alerts';
+    this.helpEl = el('div'); this.helpEl.id = 'help-overlay'; this.helpEl.classList.add('hidden');
 
     // Кнопки фокусов/решений/производства — под шапкой слева.
     this.sideBtns.innerHTML = `
@@ -121,11 +124,13 @@ export class UI {
       <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
       <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
       <button class="hud-btn-sq" id="cinema-btn" title="Следить за боем: камера летит к сражению">🎥</button>
-      <button class="hud-btn-sq" id="voice-btn" title="Голос командования (англ. диктор)">${this.announcer.enabled ? '🔊' : '🔇'}</button>`;
+      <button class="hud-btn-sq" id="voice-btn" title="Голос командования (англ. диктор)">${this.announcer.enabled ? '🔊' : '🔇'}</button>
+      <button class="hud-btn-sq" id="help-btn" title="Управление и горячие клавиши">⌨</button>`;
     this.sideBtns.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
     this.sideBtns.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
     this.sideBtns.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
+    this.sideBtns.querySelector('#help-btn')!.addEventListener('click', () => this.toggleHelp());
     this.sideBtns.querySelector('#voice-btn')!.addEventListener('click', () => {
       const on = this.announcer.toggle();
       this.sideBtns.querySelector('#voice-btn')!.textContent = on ? '🔊' : '🔇';
@@ -133,7 +138,7 @@ export class UI {
       if (on) this.announcer.say(VOICE_LINES.gameStart);
     });
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.helpEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -165,7 +170,9 @@ export class UI {
       else if (e.key === '3') { this.setSpeedRemember(3); }
       else if (e.key.toLowerCase() === 'f') this.toggleFocus();
       else if (e.key === 'Escape') {
-        if (!this.focusOverlay.classList.contains('hidden')) {
+        if (!this.helpEl.classList.contains('hidden')) {
+          this.helpEl.classList.add('hidden');
+        } else if (!this.focusOverlay.classList.contains('hidden')) {
           this.focusOverlay.classList.add('hidden');
         } else if (!this.dossierEl.classList.contains('hidden')) {
           this.dossierEl.classList.add('hidden');
@@ -229,8 +236,21 @@ export class UI {
     const s = this.state;
     const fs = s.factions[s.player];
 
+    // Мини-индикатор текущего фокуса: имя, прогресс-бар, клик открывает древо.
+    const focusInd = (() => {
+      if (!fs.activeFocus) {
+        return `<span class="hud-ind hud-focus" id="hud-focus" title="Фокус не выбран — откройте древо (F)">◈ <span style="color:var(--fed)">нет фокуса</span></span>`;
+      }
+      const node = FOCUS_TREES[s.player].find((n) => n.id === fs.activeFocus!.id);
+      const total = node?.cost ?? 1;
+      const pct = Math.max(0, Math.min(100, (1 - fs.activeFocus.remaining / total) * 100));
+      return `<span class="hud-ind hud-focus" id="hud-focus" title="${node?.title ?? '?'} · ещё ${Math.ceil(fs.activeFocus.remaining)} дн (клик — древо)">◈ <b>${node?.title ?? '?'}</b>
+        <span class="focus-mini"><span style="width:${pct.toFixed(0)}%"></span></span></span>`;
+    })();
+
     // Шапка: слева флаг фракции и показатели, справа — перемотка времени и день.
     const inds = [
+      focusInd,
       `<span class="hud-ind" title="Политическая власть">⚖ <b>${fs.politicalPower.toFixed(0)}</b></span>`,
       s.player === 'superEarth'
         ? `<span class="hud-ind" title="Стабильность">☼ <b style="color:${fs.stability > 60 ? '#6fe39a' : fs.stability > 35 ? 'var(--gold)' : 'var(--fed)'}">${fs.stability.toFixed(0)}%</b></span>`
@@ -255,6 +275,7 @@ export class UI {
       </div>`;
 
     this.hud.querySelector('#flag-btn')!.addEventListener('click', () => this.toggleDossier());
+    this.hud.querySelector('#hud-focus')?.addEventListener('click', () => this.toggleFocus());
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
       b.addEventListener('click', () => {
         const v = Number(b.dataset.s) as 0 | 1 | 2 | 3;
@@ -893,8 +914,10 @@ export class UI {
           const open = this.detailFleet === f.id;
           const rank = rankOf(f);
           const qn = f.orderQueue?.length ?? 0;
+          // Иконка тяжелейшего класса: ✦ линкор, ◈ дредноут.
+          const clsIcon = f.battleships >= 1 ? '✦ ' : f.dreadnoughts >= 1 ? '◈ ' : '';
           return `<div class="force-card ${open ? 'open' : ''} ${multi ? 'multi' : ''}" data-card-fleet="${f.id}">
-            <div class="fc-name">${f.special ? '◆ ' : ''}${f.commander ? '★ ' : ''}${this.fleetName(f.id)}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
+            <div class="fc-name">${f.special ? '◆ ' : clsIcon}${f.commander ? '★ ' : ''}${this.fleetName(f.id)}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
             <div class="fc-comp">ЭСМ ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}</div>
             <div class="fc-comp">Пехота ${f.infantry.toFixed(0)}</div>
             <div class="fc-loc">${f.transit ? '⇢ ' : '⚓ '}${where}${qn ? ` <span style="color:var(--gold)">+${qn} в очереди</span>` : ''}</div>
@@ -1612,6 +1635,47 @@ export class UI {
         requestLoad(b.dataset.load!);
         location.reload();
       }));
+  }
+
+  // ---------------- Справка по управлению ----------------
+
+  private toggleHelp(): void {
+    const opening = this.helpEl.classList.contains('hidden');
+    this.helpEl.classList.toggle('hidden');
+    if (!opening) return;
+    const row = (keys: string, what: string) =>
+      `<div class="help-row"><span class="help-keys">${keys}</span><span>${what}</span></div>`;
+    this.helpEl.innerHTML = `
+      <div class="help-inner">
+        <div class="pc-head"><span class="pc-title">⌨ УПРАВЛЕНИЕ</span>
+          <button class="pc-close" id="help-close">✕</button></div>
+        <div class="pc-body">
+          <div class="pp-section">Карта</div>
+          ${row('<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>', 'Перемещение карты')}
+          ${row('ПКМ + движение', 'Поворот камеры')}
+          ${row('Колесо', 'Приближение / отдаление')}
+          ${row('Двойной ЛКМ', 'Подлёт к планете')}
+          <div class="pp-section">Выбор и приказы</div>
+          ${row('ЛКМ по планете', 'Информация (только карточка)')}
+          ${row('ЛКМ-рамка', 'Выделить планеты — распределение войск')}
+          ${row('ВЫБРАТЬ / Shift+клик', 'Один флот / несколько флотов')}
+          ${row('ПКМ по планете', 'Приказ: перелёт или вторжение')}
+          ${row('Shift+ПКМ', 'Добавить цель в очередь приказов')}
+          <div class="pp-section">Время и окна</div>
+          ${row('<kbd>Пробел</kbd>', 'Пауза / прежняя скорость')}
+          ${row('<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>', 'Скорость времени')}
+          ${row('<kbd>F</kbd>', 'Древо фокусов')}
+          ${row('<kbd>Esc</kbd>', 'Закрыть окно / главное меню')}
+          <div class="pp-section">Кнопки слева</div>
+          ${row('◈ ⚙ ⚒', 'Фокусы · Решения · Производство')}
+          ${row('🎥', 'Камера летит к идущей битве')}
+          ${row('🔊', 'Голос командования (англ. диктор)')}
+        </div>
+      </div>`;
+    this.helpEl.querySelector('#help-close')?.addEventListener('click', () => this.helpEl.classList.add('hidden'));
+    this.helpEl.addEventListener('click', (e) => {
+      if (e.target === this.helpEl) this.helpEl.classList.add('hidden');
+    });
   }
 
   // ---------------- Боевые оповещения и кинокамера ----------------

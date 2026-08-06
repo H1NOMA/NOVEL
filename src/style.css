@@ -443,3 +443,27 @@ kbd { background: #1a2438; border: 1px solid var(--edge); border-radius: 3px; pa
 .ca-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 7px;
   animation: pulse 1.6s ease-in-out infinite; }
 @keyframes alert-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Мини-прогресс фокуса в шапке (раунд 30) ---------- */
+.hud-focus { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.hud-focus:hover b { color: var(--gold); }
+.hud-focus b { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.focus-mini {
+  display: inline-block; width: 54px; height: 5px; border-radius: 3px;
+  background: rgba(255,255,255,0.1); overflow: hidden; vertical-align: middle;
+}
+.focus-mini span { display: block; height: 100%; background: var(--gold); border-radius: 3px; }
+
+/* ---------- Справка по управлению ---------- */
+#help-overlay {
+  position: absolute; inset: 0; z-index: 48;
+  background: rgba(4, 7, 15, 0.72); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+}
+#help-overlay.hidden { display: none; }
+.help-inner {
+  width: min(440px, 92vw); max-height: 84vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--edge-strong); border-radius: 12px;
+}
+.help-row { display: flex; gap: 12px; padding: 3px 0; font-size: 12px; align-items: baseline; }
+.help-keys { flex: 0 0 150px; color: var(--gold); }

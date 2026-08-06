@@ -298,6 +298,8 @@ export class GalaxyScene {
       vis.setDim(p.supplied ? 1 : 0.72);
       vis.setScar(!!p.scarred);
       vis.setWreckage(p.wreckage ?? 0);
+      vis.setShield(p.buildings.includes('shieldGen'), !!p.battle);
+      vis.setStation(p.buildings.includes('orbStation'));
       // Смена владельца → расходящийся пульс цвета нового хозяина.
       const prev = this.prevOwners.get(id);
       if (prev !== undefined && prev !== p.owner && !p.abyss && !p.shattered) {
@@ -735,9 +737,17 @@ export class GalaxyScene {
     this.scene.add(this.routeLine);
   }
 
+  private lodOct = 5;
+
   render(): void {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
+    // LOD шейдера планет: издали хватает трёх октав шума вместо пяти.
+    const wantOct = this.distance > 24 ? 3 : 5;
+    if (wantOct !== this.lodOct) {
+      this.lodOct = wantOct;
+      for (const vis of this.planets.values()) vis.setLod(wantOct);
+    }
     for (const vis of this.planets.values()) vis.update(t, dt);
     for (const m of this.homeMarkers) {
       m.sprite.position.y = m.baseY + Math.sin(t * 1.1 + m.phase) * 0.05;

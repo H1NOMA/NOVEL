@@ -54,7 +54,11 @@ float snoise(vec3 v){
 }
 float fbm(vec3 p){
   float f = 0.0; float amp = 0.5;
-  for(int i=0;i<5;i++){ f += amp*snoise(p); p *= 2.02; amp *= 0.5; }
+  // Дальняя камера рубит октавы (uOct 3 вместо 5) — деталей всё равно не видно.
+  for(int i=0;i<5;i++){
+    if (float(i) >= uOct) break;
+    f += amp*snoise(p); p *= 2.02; amp *= 0.5;
+  }
   return f;
 }
 `;
@@ -81,6 +85,7 @@ uniform float uFreq; uniform float uWarp; uniform float uBands;
 uniform float uCity; uniform float uCapSize; uniform float uContinent;
 uniform float uRidges; uniform float uCraters;
 uniform float uBattle; uniform float uDim; uniform float uScar;
+uniform float uOct; uniform float uLava; uniform float uIce; uniform float uToxic;
 uniform sampler2D uMask; uniform float uUseMask;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
@@ -144,16 +149,28 @@ void main(){
   }
 
   // Полярные шапки — только там, где им положено быть (uCapSize > 1 = нет шапок).
+  // Кромка льда рваная: шум ломает ровную границу.
   float lat = abs(n.y);
-  float cap = smoothstep(uCapSize, uCapSize + 0.1, lat + relief * 0.05);
+  float cap = smoothstep(uCapSize, uCapSize + 0.1, lat + relief * 0.05 + fbm(q * 3.1 + 9.0) * 0.045);
   surf = mix(surf, vec3(0.93, 0.96, 1.0), cap * 0.85);
+
+  // Большой шторм-вихрь газового гиганта (у каждого — свой, по сиду).
+  if (uBands > 0.5) {
+    float lonS = atan(n.z, n.x);
+    vec2 sd = vec2(sin(lonS - uSeed), (n.y - 0.22) * 2.6);
+    float storm = 1.0 - smoothstep(0.1, 0.4, length(sd));
+    float swirl = fbm(sp * 3.0 + vec3(uTime * 0.05, 0.0, 0.0)) * 0.5 + 0.5;
+    surf = mix(surf, surf * 1.45 + uLand * 0.3, storm * (0.55 + 0.45 * swirl));
+  }
 
   // Два слоя облаков: крупные массивы + перистая рябь.
   float c1 = fbm(sp * 1.6 + vec3(uTime * 0.03, 0.0, 0.0));
   float c2 = fbm(sp * 4.2 + vec3(-uTime * 0.05, uTime * 0.01, 0.0));
   float clouds = smoothstep(0.32, 0.72, c1 * 0.5 + 0.5) * 0.75 + smoothstep(0.55, 0.9, c2 * 0.5 + 0.5) * 0.35;
   clouds *= uClouds;
-  surf = mix(surf, vec3(1.0), clamp(clouds, 0.0, 1.0) * 0.6);
+  // Токсичные миры: кислотно-зелёные вихри вместо белых облаков.
+  vec3 cloudCol = mix(vec3(1.0), vec3(0.72, 1.0, 0.5), uToxic);
+  surf = mix(surf, cloudCol, clamp(clouds, 0.0, 1.0) * 0.6);
 
   // Освещение.
   vec3 nrm = normalize(vNormal);
@@ -161,10 +178,29 @@ void main(){
   float diff = clamp(dot(nrm, sun), 0.0, 1.0);
   vec3 col = surf * (0.26 + 1.0 * diff);
 
+  // Тёплая полоса терминатора — «закат» на границе дня и ночи.
+  float term = smoothstep(0.0, 0.14, diff) * (1.0 - smoothstep(0.14, 0.4, diff));
+  col += vec3(0.45, 0.22, 0.07) * term * 0.3 * (1.0 - clouds * 0.5);
+
   // Солнечный блик на воде.
   vec3 vd = normalize(vView);
   float spec = pow(clamp(dot(reflect(-sun, nrm), vd), 0.0, 1.0), 28.0);
   col += vec3(1.0, 0.97, 0.85) * spec * (1.0 - land) * (1.0 - clouds) * 0.55;
+
+  // Ледяные миры: сеть трещин и холодный зеркальный блеск.
+  if (uIce > 0.5) {
+    float cracks = smoothstep(0.84, 0.96, 1.0 - abs(fbm(q * 5.5 + 23.0)));
+    col = mix(col, vec3(0.6, 0.8, 1.0), cracks * 0.3);
+    col += vec3(0.7, 0.85, 1.0) * spec * 0.4;
+  }
+
+  // Магмовые миры: лавовые океаны светятся и ночью, по коре бегут жилы огня.
+  if (uLava > 0.5) {
+    float pulse = 0.8 + 0.2 * sin(uTime * 0.9 + uSeed * 5.0);
+    col += uSea * (1.0 - land) * 0.5 * pulse;
+    float veins = smoothstep(0.78, 0.93, 1.0 - abs(fbm(q * 4.2 + 7.0)));
+    col += vec3(1.0, 0.36, 0.06) * veins * land * 0.8 * pulse;
+  }
 
   // Ночные огни городов на тёмной стороне обитаемых миров.
   if (uCity > 0.5) {
@@ -266,6 +302,12 @@ export interface PlanetVisual {
   setScar(on: boolean): void;
   /** Обломки погибших флотов на орбите (0 — чисто). */
   setWreckage(amount: number): void;
+  /** Уровень детализации шейдера: октавы шума (5 — вблизи, 3 — издали). */
+  setLod(octaves: number): void;
+  /** Планетарный щит: голубая сфера; active — под ударом (ярче, пульс). */
+  setShield(on: boolean, active: boolean): void;
+  /** Орбитальная боевая станция, кружащая над планетой. */
+  setStation(on: boolean): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +451,10 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uBattle: { value: 0 },
       uDim: { value: 1 },
       uScar: { value: 0 },
+      uOct: { value: 5 },
+      uLava: { value: planet.biome === 'magma' || planet.biome === 'volcanic' ? 1 : 0 },
+      uIce: { value: planet.biome === 'ice' ? 1 : 0 },
+      uToxic: { value: planet.biome === 'toxic' ? 1 : 0 },
       uMask: { value: mask.tex },
       uUseMask: { value: mask.use },
     },
@@ -513,14 +559,43 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   wreck.scale.setScalar(baseRadius);
   wreck.visible = false;
 
+  // Планетарный щит: полупрозрачная голубая сфера, при штурме — ярче и пульсирует.
+  const shieldMat = new THREE.MeshBasicMaterial({
+    color: 0x66c8ff,
+    transparent: true,
+    opacity: 0.07,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const shield = new THREE.Mesh(SHELL_GEO, shieldMat);
+  shield.scale.setScalar(baseRadius * 1.34);
+  shield.visible = false;
+
+  // Орбитальная боевая станция: корпус-октаэдр с кольцом, кружит над миром.
+  const stationGrp = new THREE.Group();
+  const stBody = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.055),
+    new THREE.MeshLambertMaterial({ color: 0x9aa4b0 })
+  );
+  const stRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.085, 0.008, 6, 18),
+    new THREE.MeshBasicMaterial({ color: 0x8fd0ff, transparent: true, opacity: 0.8 })
+  );
+  stRing.rotation.x = Math.PI / 2;
+  stationGrp.add(stBody, stRing);
+  stationGrp.visible = false;
+
   const group = new THREE.Group();
-  group.add(surface, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris, wreck);
+  group.add(surface, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris, wreck, shield, stationGrp);
   group.userData.planetId = planet.id;
 
   let spin = rand() * Math.PI * 2;
   let hovered = false;
   let selected = false;
   let inAbyss = false;
+  let shieldActive = false;
+  const stationPhase = rand() * Math.PI * 2;
 
   const syncRing = () => {
     hoverRing.visible = (hovered || selected) && !inAbyss;
@@ -550,6 +625,17 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
       if (debris.visible) debris.rotation.y += dt * 0.08;
       if (wreck.visible) wreck.rotation.y += dt * 0.05;
+      if (shield.visible) {
+        shieldMat.opacity = shieldActive ? 0.16 + Math.sin(t * 6) * 0.07 : 0.07;
+        shield.rotation.y += dt * 0.2;
+      }
+      if (stationGrp.visible) {
+        const a = t * 0.35 + stationPhase;
+        const r = baseRadius * 2.1;
+        stationGrp.position.set(Math.cos(a) * r, baseRadius * 0.45, Math.sin(a) * r);
+        stationGrp.rotation.y = -a;
+        stRing.rotation.z += dt * 0.8;
+      }
     },
     setOwner(hex: string) {
       material.uniforms.uTint.value.set(hex);
@@ -601,6 +687,16 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       const on = amount > 0.5 && surface.visible;
       wreck.visible = on;
       wreckMat.opacity = on ? Math.min(0.85, 0.25 + amount / 30) : 0;
+    },
+    setLod(octaves: number) {
+      material.uniforms.uOct.value = octaves;
+    },
+    setShield(on: boolean, active: boolean) {
+      shield.visible = on && surface.visible;
+      shieldActive = active;
+    },
+    setStation(on: boolean) {
+      stationGrp.visible = on && surface.visible;
     },
   };
 }

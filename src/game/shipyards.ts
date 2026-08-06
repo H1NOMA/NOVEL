@@ -146,8 +146,3 @@ export function formFleetFromYard(state: GameState, faction: FactionId, planetId
 export function scuttleYard(p: Planet): void {
   if (p.shipyard) p.shipyard = emptyYard();
 }
-
-/** Есть ли на планете флот фракции, способный забрать корабли. */
-export function fleetAtYard(state: GameState, faction: FactionId, planetId: string): Fleet | null {
-  return fleetsAt(state, planetId).find((f) => f.faction === faction) ?? null;
-}

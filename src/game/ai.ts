@@ -198,7 +198,6 @@ function nearestDist(worlds: Planet[], p: Planet): number {
 export function runAI(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (!fs.alive) return;
-  const aggression = FACTIONS[faction].aggression;
   // Пересмотр стратегического плана раз в 12 дней.
   if (!fs.aiPlan || state.day % 12 === 0) {
     updatePlan(state, faction);
@@ -244,7 +243,6 @@ export function runAI(state: GameState, faction: FactionId): void {
     // а тем временем прикрываем самый ценный фронтовой мир.
     if (threat && threat !== f.at) orderFleetTo(state, f, threat, false);
   }
-  void aggression;
 }
 
 /**

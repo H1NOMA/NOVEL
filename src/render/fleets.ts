@@ -3,7 +3,7 @@ import type { Fleet } from '../core/types';
 import { FACTIONS } from '../data/factions';
 import { fleetWorldPos } from '../game/units';
 import type { GameState } from '../game/state';
-import { shipModel, stationModel } from './ships';
+import { shipModel, stationModel, type ShipClass } from './ships';
 
 const GLOW_GEO = new THREE.SphereGeometry(0.12, 10, 10);
 const EXHAUST_GEO = new THREE.ConeGeometry(0.03, 0.16, 6);
@@ -15,11 +15,15 @@ interface FleetMesh {
   extras: THREE.Group[];
   exhaust: THREE.Mesh;
   exhaustMat: THREE.MeshBasicMaterial;
+  /** Гипер-след: светящаяся нить за кораблём в полёте. */
+  trailMat: THREE.LineBasicMaterial;
   last: THREE.Vector2;
   yaw: number;
   phase: number;
   special: boolean;
   stackShown: number;
+  /** Класс тяжелейшего корпуса — определяет силуэт модели. */
+  cls: ShipClass;
 }
 
 /** Сколько корабликов показывать: ≤10 корпусов — 1, 11–20 — 2, 21+ — 3. */
@@ -27,6 +31,13 @@ function stackSize(hulls: number): number {
   if (hulls > 20) return 3;
   if (hulls > 10) return 2;
   return 1;
+}
+
+/** Класс тяжелейшего корпуса соединения — он и задаёт силуэт на карте. */
+function dominantClass(fleet: Fleet): ShipClass {
+  if (fleet.battleships >= 1) return 'battleship';
+  if (fleet.dreadnoughts >= 1) return 'dreadnought';
+  return 'destroyer';
 }
 
 /** Кратчайшая интерполяция угла (через ±π). */
@@ -47,7 +58,8 @@ export class FleetLayer {
   private make(fleet: Fleet): FleetMesh {
     const color = new THREE.Color(FACTIONS[fleet.faction].color);
     const special = !!fleet.special;
-    const model = special ? stationModel(color) : shipModel(fleet.faction, color);
+    const cls = dominantClass(fleet);
+    const model = special ? stationModel(color) : shipModel(fleet.faction, color, cls);
 
     const glowMat = new THREE.MeshBasicMaterial({
       color,
@@ -72,18 +84,33 @@ export class FleetLayer {
     exhaust.position.z = -0.24;
     model.add(exhaust);
 
-    // Стек: до двух уменьшенных копий модели рядом (11–20 и 21+ корпусов).
+    // Стек: до двух уменьшенных копий-эсминцев эскорта рядом (11–20 и 21+).
     const extras: THREE.Group[] = [];
     if (!special) {
       for (const [dx, dz] of [[-0.16, -0.1], [0.16, -0.1]] as const) {
-        const copy = shipModel(fleet.faction, color);
-        copy.scale.setScalar(0.75);
+        const copy = shipModel(fleet.faction, color, 'destroyer');
+        copy.scale.setScalar(0.7);
         copy.position.set(dx, -0.02, dz);
         copy.visible = false;
         model.add(copy);
         extras.push(copy);
       }
     }
+
+    // Гипер-след: нить от кормы, разгорается в полёте.
+    const trailMat = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const trailGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, -0.2),
+      new THREE.Vector3(0, 0, -0.85),
+    ]);
+    const trail = new THREE.Line(trailGeo, trailMat);
+    model.add(trail);
 
     const g = new THREE.Group();
     g.add(model, glow);
@@ -93,11 +120,13 @@ export class FleetLayer {
       extras,
       exhaust,
       exhaustMat,
+      trailMat,
       last: new THREE.Vector2(),
       yaw: 0,
       phase: Math.random() * Math.PI * 2,
       special,
       stackShown: 1,
+      cls,
     };
     this.group.add(g);
     return fm;
@@ -130,6 +159,13 @@ export class FleetLayer {
       if (!fleet) continue;
       seen.add(id);
       let fm = this.meshes.get(id);
+      // Класс тяжелейшего корпуса изменился (принят линкор с верфи и т.п.) —
+      // силуэт пересобирается.
+      if (fm && !fm.special && fm.cls !== dominantClass(fleet)) {
+        this.group.remove(fm.group);
+        this.meshes.delete(id);
+        fm = undefined;
+      }
       if (!fm) {
         fm = this.make(fleet);
         this.meshes.set(id, fm);
@@ -169,6 +205,7 @@ export class FleetLayer {
           fm.model.rotation.y = fm.yaw;
           if (fm.special) fm.model.rotation.y += Math.sin(this.t * 0.4) * 0.2;
           fm.exhaustMat.opacity = Math.max(0, fm.exhaustMat.opacity - dt * 2);
+          fm.trailMat.opacity = Math.max(0, fm.trailMat.opacity - dt * 2.5);
           fm.last.set(x, z);
           continue;
         }
@@ -188,6 +225,9 @@ export class FleetLayer {
       // выхлоп: разгорается в полёте и пульсирует
       fm.exhaustMat.opacity = Math.min(0.75, fm.exhaustMat.opacity + dt * 3);
       fm.exhaust.scale.y = 0.85 + Math.sin(this.t * 9 + fm.phase) * 0.25;
+      // гипер-след тянется за кормой и мерцает
+      fm.trailMat.opacity = Math.min(0.4, fm.trailMat.opacity + dt * 1.5)
+        * (0.8 + 0.2 * Math.sin(this.t * 6 + fm.phase));
       fm.last.set(x, z);
     }
 
