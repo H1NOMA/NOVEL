@@ -567,10 +567,12 @@ export class GalaxyScene {
     if (!fx && !fy) return;
     // dt зажат: при просадке кадров карта не должна прыгать к краю.
     const spd = this.distance * 0.55 * Math.min(dt, 0.05);
+    // Оси строго ОТ ЭКРАНА при любом повороте камеры: камера стоит в
+    // target + (sin(yaw)·h, y, cos(yaw)·h) и смотрит на target, поэтому
+    // «вверх экрана» на плоскости = (−sin, −cos), «вправо» = (cos, −sin).
     const cos = Math.cos(this.yaw), sin = Math.sin(this.yaw);
-    // Вверх экрана = (sin, -cos), вправо экрана = (cos, sin) — как в старом пане.
-    this.target.x += (fx * cos + fy * sin) * spd;
-    this.target.z += (fx * sin - fy * cos) * spd;
+    this.target.x += (fx * cos - fy * sin) * spd;
+    this.target.z += (-fx * sin - fy * cos) * spd;
     this.clampTarget();
   }
 

@@ -36,6 +36,26 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
   return e;
 }
 
+// Иконки вкладок сил — собственные силуэты (вид сверху / анфас), без эмодзи.
+/** Супер-эсминец сверху: три носовых пилона, широкая середина, скобы кормы. */
+const ICON_DESTROYER = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <rect x="11.1" y="1" width="1.8" height="7.5" rx="0.6"/>
+  <rect x="7.7" y="3.2" width="1.6" height="5" rx="0.6"/>
+  <rect x="14.7" y="3.2" width="1.6" height="5" rx="0.6"/>
+  <rect x="8" y="8" width="8" height="9.5" rx="1.2"/>
+  <rect x="5.8" y="10.2" width="12.4" height="4.2" rx="1.2"/>
+  <rect x="6.2" y="17.8" width="3" height="5" rx="0.9"/>
+  <rect x="14.8" y="17.8" width="3" height="5" rx="0.9"/>
+  <rect x="10.5" y="18.2" width="3" height="3.6" rx="0.8"/>
+</svg>`;
+/** Шлем десантника анфас: купол, визор и дыхательные блоки. */
+const ICON_HELMET = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <path d="M4 12.5a8 8 0 0 1 16 0V19a2.2 2.2 0 0 1-2.2 2.2H6.2A2.2 2.2 0 0 1 4 19z"/>
+  <rect x="6.3" y="11.6" width="11.4" height="3.7" rx="1.85" fill="var(--panel-solid)"/>
+  <rect x="7.9" y="17.3" width="2.7" height="2.7" rx="0.7" fill="var(--panel-solid)"/>
+  <rect x="13.4" y="17.3" width="2.7" height="2.7" rx="0.7" fill="var(--panel-solid)"/>
+</svg>`;
+
 export class UI {
   private root: HTMLElement;
   private hud!: HTMLElement;
@@ -899,8 +919,8 @@ export class UI {
   private renderForces(): void {
     const s = this.state;
     const tabs = [
-      { id: 'fleet' as const, icon: '🚀', title: 'Флот' },
-      { id: 'army' as const, icon: '🪖', title: 'Наземные войска' },
+      { id: 'fleet' as const, icon: ICON_DESTROYER, title: 'Флот' },
+      { id: 'army' as const, icon: ICON_HELMET, title: 'Наземные войска' },
       { id: 'special' as const, icon: '◆', title: 'Особые технологии' },
     ];
     let cards = '';
