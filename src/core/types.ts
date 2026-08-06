@@ -100,6 +100,10 @@ export interface Planet {
   e711Rich: boolean;
   /** Планета уничтожена орбитальным залпом супероружия — осталось поле обломков. */
   shattered: boolean;
+  /** Обломки погибших кораблей на орбите (корпусов; тают со временем). */
+  wreckage?: number;
+  /** Шрамы долгой битвы: выжженные пятна на поверхности (навсегда). */
+  scarred?: boolean;
   /** Верфь: строит корабли по приказу игрока и складирует их до передачи флоту. */
   shipyard?: Shipyard;
   /** Мир-марионетка: владелец капитулировал и подчинён этой фракции. */
@@ -157,6 +161,10 @@ export interface Fleet {
   origin?: string;
   /** Назначенный командир соединения (id из списка COMMANDERS). */
   commander?: string;
+  /** Боевой опыт соединения — растёт в сражениях, даёт ранги и бонусы. */
+  xp?: number;
+  /** Очередь приказов: цели, к которым флот пойдёт после текущего приказа. */
+  orderQueue?: { target: string }[];
   /** Player/AI order the fleet is executing. */
   order?: FleetOrder;
 }
@@ -273,6 +281,8 @@ export interface FactionState {
   politicalPower: number;
   /** Купленные политические бонусы (id, повторные покупки — повторные записи). */
   purchasedBonuses: string[];
+  /** Спецоперации: id операции → день последнего применения (для кулдаунов). */
+  opsUsed: Partial<Record<string, number>>;
   /** Текущий стратегический план ИИ фракции. */
   aiPlan?: AiPlan;
   alive: boolean;

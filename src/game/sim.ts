@@ -13,6 +13,10 @@ import { stepEvents } from './events';
 import { stepTruces } from './diplomacy';
 import { checkObjectives } from './objectives';
 import { autosaveTick } from './persist';
+import { stepRecons } from './specops';
+import { aiBuildDefenses } from './defense';
+import { orderFleetTo } from './units';
+import { hostileNow } from './diplomacy';
 
 /** Continuous fleet movement — called every animation frame with elapsed days. */
 export function moveFleets(state: GameState, days: number): void {
@@ -25,6 +29,18 @@ export function moveFleets(state: GameState, days: number): void {
       garrisonReinforce(state, f);
     } else {
       f.order = { kind: 'idle' };
+    }
+    // Планировщик: по прибытии флот берёт следующий приказ из очереди.
+    // Прилетев вторгаться, флот остаётся штурмовать — очередь продолжится
+    // после захвата цели (см. advanceDay).
+    if (f.orderQueue?.length && !hostileNow(state, f.faction, planet.owner)) {
+      const next = f.orderQueue.shift()!;
+      if (!f.orderQueue.length) f.orderQueue = undefined;
+      const dest = state.galaxy.planets.get(next.target);
+      if (dest) {
+        const invade = hostileNow(state, f.faction, dest.owner) && dest.owner !== f.faction;
+        orderFleetTo(state, f, next.target, invade);
+      }
     }
   }
 }
@@ -51,7 +67,39 @@ export function advanceDay(state: GameState): void {
   stepDecisions(state);
   stepEvents(state);
   stepTruces(state);
+  stepRecons(state);
   checkObjectives(state);
+
+  // ИИ строит щиты и станции на столицах и ценных мирах.
+  for (const fid of activeFactions) {
+    if (fid !== state.player && state.day % 9 === 0) aiBuildDefenses(state, fid);
+  }
+
+  // Обломки на орбитах постепенно тают.
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.wreckage && !p.shattered) {
+      p.wreckage *= 0.965;
+      if (p.wreckage < 0.4) p.wreckage = undefined;
+    }
+  }
+
+  // Планировщик: захватив цель (или освободившись), флот берёт следующий приказ.
+  for (const fid of state.fleetOrder) {
+    const f = state.fleets.get(fid);
+    if (!f || f.transit || !f.orderQueue?.length) continue;
+    const here = state.galaxy.planets.get(f.at);
+    if (!here) continue;
+    if (here.owner === f.faction || !here.battle || here.battle.attacker !== f.faction) {
+      const next = f.orderQueue.shift()!;
+      if (!f.orderQueue.length) f.orderQueue = undefined;
+      const dest = state.galaxy.planets.get(next.target);
+      if (dest && dest.id !== f.at) {
+        const invade = hostileNow(state, f.faction, dest.owner) && dest.owner !== f.faction;
+        orderFleetTo(state, f, next.target, invade);
+      }
+    }
+  }
 
   // Заготовки атак: план живёт, пока плацдарм наш, а цель — вражеская и смежная.
   state.attackPlans = state.attackPlans.filter((plan) => {

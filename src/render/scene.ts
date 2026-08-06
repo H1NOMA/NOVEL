@@ -9,6 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { FleetLayer } from './fleets';
 import { emblemSprite } from './emblems';
+import { reconActive } from '../game/specops';
 import type { FactionId } from '../core/types';
 
 export const GALAXY_SCALE = 0.03;
@@ -295,6 +296,8 @@ export class GalaxyScene {
       // Погода войны: пожары на сражающихся мирах, осаждённые меркнут.
       vis.setBattle(!!p.battle && !p.gloom && !p.abyss && !p.shattered);
       vis.setDim(p.supplied ? 1 : 0.72);
+      vis.setScar(!!p.scarred);
+      vis.setWreckage(p.wreckage ?? 0);
       // Смена владельца → расходящийся пульс цвета нового хозяина.
       const prev = this.prevOwners.get(id);
       if (prev !== undefined && prev !== p.owner && !p.abyss && !p.shattered) {
@@ -397,6 +400,38 @@ export class GalaxyScene {
     this.distance = Math.max(this.minDist, Math.min(this.distance, 12));
   }
 
+  // --- Кинокамера: подлёт к планете с боем и медленный автооблёт -----------
+
+  private cinemaPlanet: string | null = null;
+
+  /** Включить киносопровождение боя на планете (любой ввод отключает). */
+  startCinema(id: string): void {
+    if (!this.state.galaxy.planets.get(id)) return;
+    this.cinemaPlanet = id;
+  }
+
+  stopCinema(): void {
+    this.cinemaPlanet = null;
+  }
+
+  get cinemaActive(): boolean {
+    return this.cinemaPlanet !== null;
+  }
+
+  private updateCinema(dt: number): void {
+    if (!this.cinemaPlanet) return;
+    const p = this.state.galaxy.planets.get(this.cinemaPlanet);
+    if (!p || p.shattered || p.abyss) { this.cinemaPlanet = null; return; }
+    const tx = p.pos.x * GALAXY_SCALE, tz = p.pos.y * GALAXY_SCALE;
+    // Плавный подлёт: цель и дистанция стягиваются к планете, камера кружит.
+    const k = Math.min(1, dt * 2.2);
+    this.target.x += (tx - this.target.x) * k;
+    this.target.z += (tz - this.target.z) * k;
+    this.distance += (5.2 - this.distance) * Math.min(1, dt * 1.6);
+    this.pitch += (0.68 - this.pitch) * Math.min(1, dt * 1.2);
+    this.yaw += dt * 0.14;
+  }
+
   private pick(clientX: number, clientY: number): string | null {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(
@@ -427,7 +462,10 @@ export class GalaxyScene {
 
     // WASD — перемещение карты.
     window.addEventListener('keydown', (e) => {
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) this.keys.add(e.code);
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+        this.keys.add(e.code);
+        this.stopCinema();
+      }
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -444,6 +482,7 @@ export class GalaxyScene {
     const hideBox = () => { if (this.boxEl) this.boxEl.style.display = 'none'; };
 
     this.canvas.addEventListener('pointerdown', (e) => {
+      this.stopCinema();
       dragging = true;
       moved = 0;
       mode = e.button === 2 ? 'orbit' : 'box';
@@ -489,7 +528,7 @@ export class GalaxyScene {
         // Клик без перетаскивания.
         const id = this.pick(e.clientX, e.clientY);
         if (e.button === 2) {
-          if (id) bus.emit('planetRightClicked', { id });
+          if (id) bus.emit('planetRightClicked', { id, queue: e.shiftKey });
         } else {
           bus.emit('planetSelected', { id });
         }
@@ -509,6 +548,7 @@ export class GalaxyScene {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      this.stopCinema();
       const f = Math.exp(e.deltaY * 0.0012);
       this.distance = Math.max(this.minDist, Math.min(this.maxDist, this.distance * f));
     }, { passive: false });
@@ -573,8 +613,10 @@ export class GalaxyScene {
     for (const id of this.state.galaxy.order) {
       const p = this.state.galaxy.planets.get(id)!;
       if (!p.battle) continue;
-      // Туман войны: чужие линии атак видны на СВОИХ планетах (и наблюдателю).
-      if (!revealAll && p.owner !== viewer && p.battle.attacker !== viewer) continue;
+      // Туман войны: чужие линии атак видны на СВОИХ планетах, в разведанных
+      // секторах (и наблюдателю после поражения).
+      if (!revealAll && p.owner !== viewer && p.battle.attacker !== viewer &&
+          !reconActive(this.state, p.sector)) continue;
       for (const fid of this.state.fleetOrder) {
         const f = this.state.fleets.get(fid);
         if (!f || f.transit || f.at !== id || !f.origin) continue;
@@ -647,6 +689,52 @@ export class GalaxyScene {
     }
   }
 
+  // --- Маршрут выбранного флота: пунктир через цель и очередь приказов -----
+
+  private routeLine: THREE.Line | null = null;
+  private routeSig = '';
+
+  private syncRoute(): void {
+    const s = this.state;
+    const f = s.selectedFleet ? s.fleets.get(s.selectedFleet) : null;
+    // Точки маршрута: текущая цель перелёта + все цели очереди.
+    const stops: string[] = [];
+    if (f) {
+      if (f.transit) stops.push(f.transit.to);
+      for (const q of f.orderQueue ?? []) stops.push(q.target);
+    }
+    const sig = f && stops.length ? `${f.id}:${f.at}:${stops.join('>')}` : '';
+    if (sig === this.routeSig) return;
+    this.routeSig = sig;
+    if (this.routeLine) {
+      this.scene.remove(this.routeLine);
+      this.routeLine.geometry.dispose();
+      (this.routeLine.material as THREE.Material).dispose();
+      this.routeLine = null;
+    }
+    if (!f || !stops.length) return;
+    const pts: THREE.Vector3[] = [];
+    const start = this.state.galaxy.planets.get(f.transit ? f.transit.from : f.at);
+    if (start) pts.push(new THREE.Vector3(start.pos.x * GALAXY_SCALE, 0.14, start.pos.y * GALAXY_SCALE));
+    for (const pid of stops) {
+      const p = this.state.galaxy.planets.get(pid);
+      if (p) pts.push(new THREE.Vector3(p.pos.x * GALAXY_SCALE, 0.14, p.pos.y * GALAXY_SCALE));
+    }
+    if (pts.length < 2) return;
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineDashedMaterial({
+      color: new THREE.Color(FACTIONS[f.faction].color),
+      transparent: true,
+      opacity: 0.75,
+      dashSize: 0.22,
+      gapSize: 0.16,
+      depthWrite: false,
+    });
+    this.routeLine = new THREE.Line(geo, mat);
+    this.routeLine.computeLineDistances();
+    this.scene.add(this.routeLine);
+  }
+
   render(): void {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
@@ -657,9 +745,11 @@ export class GalaxyScene {
     this.fleets.update(this.state, dt);
     this.syncAttackArrows();
     this.animateAttackArrows(t);
+    this.syncRoute();
     this.comets.update(t);
     this.updatePulses(dt);
     this.applyKeyPan(dt);
+    this.updateCinema(dt);
     this.updateCamera();
     this.composer.render();
   }

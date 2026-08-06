@@ -49,6 +49,8 @@ export interface GameState {
   doneObjectives: string[];
   /** Ожидающий выбор игрока по сюжетному ивенту. */
   pendingChoice: string | null;
+  /** Активные разведоперации: сектор просматривается до указанного дня. */
+  recons: { sector: string; until: number }[];
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -71,6 +73,7 @@ function initFaction(id: FactionId): FactionState {
     resources: { minerals: 0, e711: 0 },
     politicalPower: id === 'superEarth' ? 30 : 0,
     purchasedBonuses: [],
+    opsUsed: {},
     alive: true,
   };
 }
@@ -107,6 +110,7 @@ export function createGame(seed: number): GameState {
     truces: [],
     doneObjectives: [],
     pendingChoice: null,
+    recons: [],
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.

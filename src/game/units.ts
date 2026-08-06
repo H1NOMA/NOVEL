@@ -137,6 +137,8 @@ export function splitFleet(state: GameState, fleet: Fleet): Fleet | null {
     dreadnoughts: dreads,
     battleships: bbs,
     infantry: inf,
+    // Ветеранские экипажи делятся поровну — опыт наследуется.
+    xp: fleet.xp,
     order: { kind: 'idle' },
   };
   state.fleets.set(nf.id, nf);

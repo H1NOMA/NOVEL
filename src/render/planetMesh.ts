@@ -80,7 +80,7 @@ uniform float uClouds; uniform float uTime; uniform float uSeed;
 uniform float uFreq; uniform float uWarp; uniform float uBands;
 uniform float uCity; uniform float uCapSize; uniform float uContinent;
 uniform float uRidges; uniform float uCraters;
-uniform float uBattle; uniform float uDim;
+uniform float uBattle; uniform float uDim; uniform float uScar;
 uniform sampler2D uMask; uniform float uUseMask;
 varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
 ${NOISE_GLSL}
@@ -181,6 +181,14 @@ void main(){
     float smoke = smoothstep(0.5, 0.85, fbm(q * 2.4 + vec3(-uTime * 0.06, uTime * 0.04, 0.0)) * 0.5 + 0.5);
     col = mix(col, vec3(0.16, 0.14, 0.13), smoke * 0.35);
   }
+  // Шрамы войны: выжженные пятна на месте долгих сражений — навсегда.
+  if (uScar > 0.5) {
+    float burn = smoothstep(0.68, 0.9, fbm(q * 3.4 + 17.0) * 0.5 + 0.5);
+    col = mix(col, vec3(0.07, 0.06, 0.05), burn * 0.55 * land);
+    float ash = smoothstep(0.8, 0.95, fbm(q * 6.8 + 41.0) * 0.5 + 0.5);
+    col = mix(col, vec3(0.2, 0.18, 0.16), ash * 0.3);
+  }
+
   // Осада: отрезанный от снабжения мир меркнет.
   col *= uDim;
 
@@ -254,6 +262,10 @@ export interface PlanetVisual {
   setBattle(on: boolean): void;
   /** Затемнение осаждённого мира (1 — норма, <1 — меркнет). */
   setDim(v: number): void;
+  /** Шрамы долгих битв на поверхности (перманентные). */
+  setScar(on: boolean): void;
+  /** Обломки погибших флотов на орбите (0 — чисто). */
+  setWreckage(amount: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +408,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uCraters: { value: craters },
       uBattle: { value: 0 },
       uDim: { value: 1 },
+      uScar: { value: 0 },
       uMask: { value: mask.tex },
       uUseMask: { value: mask.use },
     },
@@ -475,8 +488,33 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   debris.scale.setScalar(baseRadius);
   debris.visible = false;
 
+  // Обломки погибших флотов: редкое тёмное кольцо крошки над орбитой.
+  // Появляется после сражений и тает вместе с запасом обломков в состоянии.
+  const wreckCount = 34;
+  const wreckPos = new Float32Array(wreckCount * 3);
+  for (let i = 0; i < wreckCount; i++) {
+    const a = (i / wreckCount) * Math.PI * 2 + rand() * 0.4;
+    const r = 1.7 + rand() * 0.7;
+    wreckPos[i * 3] = Math.cos(a) * r;
+    wreckPos[i * 3 + 1] = (rand() - 0.5) * 0.3;
+    wreckPos[i * 3 + 2] = Math.sin(a) * r;
+  }
+  const wreckGeo = new THREE.BufferGeometry();
+  wreckGeo.setAttribute('position', new THREE.BufferAttribute(wreckPos, 3));
+  const wreckMat = new THREE.PointsMaterial({
+    color: 0x8a827a,
+    size: 0.055,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
+  const wreck = new THREE.Points(wreckGeo, wreckMat);
+  wreck.scale.setScalar(baseRadius);
+  wreck.visible = false;
+
   const group = new THREE.Group();
-  group.add(surface, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris);
+  group.add(surface, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris, wreck);
   group.userData.planetId = planet.id;
 
   let spin = rand() * Math.PI * 2;
@@ -511,6 +549,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       }
       if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
       if (debris.visible) debris.rotation.y += dt * 0.08;
+      if (wreck.visible) wreck.rotation.y += dt * 0.05;
     },
     setOwner(hex: string) {
       material.uniforms.uTint.value.set(hex);
@@ -554,6 +593,14 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     },
     setDim(v: number) {
       material.uniforms.uDim.value = v;
+    },
+    setScar(on: boolean) {
+      material.uniforms.uScar.value = on ? 1 : 0;
+    },
+    setWreckage(amount: number) {
+      const on = amount > 0.5 && surface.visible;
+      wreck.visible = on;
+      wreckMat.opacity = on ? Math.min(0.85, 0.25 + amount / 30) : 0;
     },
   };
 }

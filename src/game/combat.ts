@@ -7,6 +7,9 @@ import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
 import { scuttleYard } from './shipyards';
 import { hostileNow } from './diplomacy';
 import { commanderOf } from './commanders';
+import { demolishDefenses, STATION_POWER } from './defense';
+import { gainXp, rankOf } from './veterancy';
+import { originBlockaded } from './specops';
 import { bus } from '../core/emitter';
 
 // ---------------------------------------------------------------------------
@@ -37,7 +40,8 @@ export function hullCount(f: Fleet): number {
 function fleetPower(state: GameState, f: Fleet): number {
   let p = hullPower(f);
   if (f.special) p += p * (SPECIALS[f.faction].power - 1);
-  return p * combatMult(state, f.faction);
+  // Ветераны бьют точнее: ранг соединения усиливает бортовой залп.
+  return p * combatMult(state, f.faction) * rankOf(f).mult;
 }
 
 /** Resolve one day of orbital combat over every contested planet. */
@@ -46,7 +50,9 @@ export function resolveOrbital(state: GameState): void {
     const planet = state.galaxy.planets.get(id)!;
     if (planet.shattered) continue;
     const here = fleetsAt(state, id);
-    if (here.length < 2) continue;
+    // Орбитальная станция обороняет планету даже при пустой орбите владельца.
+    const station = planet.buildings.includes('orbStation') && !planet.puppetOf;
+    if (here.length < 2 && !(station && here.length === 1)) continue;
 
     // Group fleets by faction; only fight if at least two hostile groups exist.
     const byFaction = new Map<FactionId, Fleet[]>();
@@ -54,13 +60,16 @@ export function resolveOrbital(state: GameState): void {
       if (!byFaction.has(f.faction)) byFaction.set(f.faction, []);
       byFaction.get(f.faction)!.push(f);
     }
+    if (station && !byFaction.has(planet.owner)) byFaction.set(planet.owner, []);
     const factions = [...byFaction.keys()];
     if (factions.length < 2) continue;
 
     // Total power per faction.
     const power = new Map<FactionId, number>();
     for (const [fac, fleets] of byFaction) {
-      power.set(fac, fleets.reduce((s, f) => s + fleetPower(state, f), 0));
+      let p = fleets.reduce((s, f) => s + fleetPower(state, f), 0);
+      if (station && fac === planet.owner) p += STATION_POWER * combatMult(state, fac);
+      power.set(fac, p);
     }
 
     // Each faction takes damage proportional to the summed hostile power.
@@ -72,6 +81,8 @@ export function resolveOrbital(state: GameState): void {
       if (incoming <= 0) continue;
       const loss = incoming * 0.16;
       applyShipLosses(state, fleets, loss, planet);
+      // Обстрелянные экипажи: день орбитального боя даёт опыт обеим сторонам.
+      for (const f of fleets) gainXp(f, 0.8);
     }
   }
 }
@@ -79,6 +90,8 @@ export function resolveOrbital(state: GameState): void {
 function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, planet: Planet): void {
   const totalShips = fleets.reduce((s, f) => s + hullCount(f), 0);
   if (totalShips <= 0) return;
+  // Погибшие корпуса остаются на орбите полем обломков (тает со временем).
+  planet.wreckage = (planet.wreckage ?? 0) + Math.min(totalLoss, totalShips);
   for (const f of fleets) {
     let share = (hullCount(f) / totalShips) * totalLoss;
     // Первыми гибнут эсминцы, затем дредноуты, линкоры — последними.
@@ -130,6 +143,14 @@ export function resolveGround(state: GameState): void {
               liberation: planet.battle?.liberation ?? 0,
               days: 0,
             };
+            if (planet.owner === state.player) {
+              bus.emit('combatAlert', {
+                planetId: planet.id,
+                text: `${planet.name} — в осаде: мир отрезан и медленно душится`,
+                tone: 'bad',
+                voice: 'siege',
+              });
+            }
           }
           planet.battle.days++;
           planet.battle.liberation = clamp(planet.battle.liberation + 0.6, 0, 100);
@@ -164,6 +185,9 @@ export function resolveGround(state: GameState): void {
 
     let attackerForce = leadVal;
     let defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
+    // Планетарный щит: высадка вязнет в помехах и заградительном огне.
+    const shielded = planet.buildings.includes('shieldGen') && !planet.puppetOf;
+    if (shielded) defBonus *= 1.35;
     // Планета в окружении (без снабжения) обороняется вполсилы.
     if (!planet.supplied) defBonus *= 0.55;
     // Мрак — стихия роя: оборона терминидов в споровом дыму сильнее.
@@ -172,11 +196,13 @@ export function resolveGround(state: GameState): void {
     if (planet.owner === 'illuminate' &&
         planet.links.some((lid) => state.galaxy.planets.get(lid)!.abyss)) defBonus *= 1.3;
     // Снабжение атаки идёт С ПЛАЦДАРМА: планеты, с которой флот вторгся.
-    // Если плацдарм потерян/отрезан или не смежен с целью — штраф атакующему.
+    // Если плацдарм потерян/отрезан, не смежен с целью — или его орбиту
+    // блокирует вражеский рейдер, — атакующий получает штраф.
     const hasSupplyLine = attackers.some((f) => {
       if (f.faction !== lead || !f.origin) return false;
       const o = state.galaxy.planets.get(f.origin);
-      return !!o && o.owner === lead && o.supplied && !o.shattered && planet.links.includes(o.id);
+      return !!o && o.owner === lead && o.supplied && !o.shattered &&
+        planet.links.includes(o.id) && !originBlockaded(state, o.id, lead);
     });
     if (!hasSupplyLine) attackerForce *= 0.75;
     // Термицид выкашивает атакующий рой.
@@ -198,6 +224,14 @@ export function resolveGround(state: GameState): void {
           text: `Силы ${FACTION_GEN[lead]} высаживаются на ${planet.name}! Начинается битва за планету.`,
           tone: planet.owner === state.player ? 'alert' : lead === state.player ? 'good' : 'info',
         });
+        if (planet.owner === state.player) {
+          bus.emit('combatAlert', {
+            planetId: planet.id,
+            text: `${planet.name} — вторжение ${FACTION_GEN[lead]}!`,
+            tone: 'bad',
+            voice: 'incursion',
+          });
+        }
       }
     }
     const b = planet.battle;
@@ -214,7 +248,10 @@ export function resolveGround(state: GameState): void {
     // с орбиты — планета захватывается заметно быстрее.
     const hasSuperweapon = attackers.some((f) => f.faction === lead && f.special);
     const cmdCapture = Math.max(1, ...attackers.filter((f) => f.faction === lead).map((f) => commanderOf(f)?.capture ?? 1));
-    const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1) * cmdCapture;
+    // Ранг ведущего соединения ускоряет установление контроля; щит — замедляет.
+    const vetCapture = Math.max(1, ...attackers.filter((f) => f.faction === lead).map((f) => rankOf(f).mult));
+    const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1)
+      * cmdCapture * vetCapture * (shielded ? 0.55 : 1);
     b.liberation = clamp(b.liberation + (ratio - 0.5) * 22 * captureRate + citiesHeld * 0.9, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
@@ -237,6 +274,8 @@ export function resolveGround(state: GameState): void {
     for (const f of attackers) {
       const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15);
       f.infantry = Math.max(0, f.infantry - iLoss);
+      // День наземных боёв закаляет десант.
+      if (f.faction === lead) gainXp(f, 1.2);
     }
 
     if (b.liberation >= 100 || planet.garrison <= 0.5) {
@@ -249,11 +288,17 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   const prev = planet.owner;
   state.lastConqueror[prev] = attacker;
   const garrisonLost = planet.garrison;
+  // Долгая мясорубка оставляет на поверхности выжженные шрамы — навсегда.
+  if (planet.battle && planet.battle.days >= 20) planet.scarred = true;
   planet.owner = attacker;
   planet.battle = undefined;
   planet.puppetOf = undefined;
   // Верфь достаётся победителю, но склад и стапель защитники уничтожают.
   scuttleYard(planet);
+  // Щит и орбитальная станция гибнут вместе с обороной.
+  demolishDefenses(planet);
+  // Победный штурм — главная школа десанта.
+  for (const f of attackers) if (f.faction === attacker) gainXp(f, 12);
   // Мрак рассеивается, когда мир отбит у роя, — оставляя богатые залежи Е-711.
   if (planet.gloom && attacker !== 'terminids') {
     planet.gloom = false;
@@ -293,6 +338,7 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   for (const fid of [...state.fleetOrder]) {
     const f = state.fleets.get(fid);
     if (!f || f.faction !== prev || f.at !== planet.id || f.transit) continue;
+    planet.wreckage = (planet.wreckage ?? 0) + hullCount(f);
     if (f.special) {
       state.factions[prev].lostSpecial = true;
       pushLog(state, {
@@ -314,6 +360,17 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     text: `${planet.name} — планета захвачена силами ${FACTION_GEN[attacker]}${planet.isCapital ? '. Пала СТОЛИЦА!' : '.'}`,
     tone: prev === state.player ? 'bad' : attacker === state.player ? 'good' : 'info',
   });
+  bus.emit('planetCaptured', { id: planet.id, by: attacker, prev });
+  if (prev === state.player) {
+    bus.emit('combatAlert', {
+      planetId: planet.id,
+      text: `${planet.name} — ПЛАНЕТА ПОТЕРЯНА`,
+      tone: 'bad',
+      voice: planet.isCapital ? 'capitalLost' : 'planetLost',
+    });
+  } else if (attacker === state.player) {
+    bus.emit('combatAlert', { planetId: planet.id, text: `${planet.name} — освобождена`, tone: 'good', voice: 'planetLiberated' });
+  }
   // Capitals are the head of the state: cut it off and the faction capitulates.
   // The Terminids have no capital — the swarm must be exterminated entirely.
   if (planet.isCapital && prev !== 'terminids') {

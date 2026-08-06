@@ -18,6 +18,10 @@ import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics
 import { buyTruce, truceActive, TRUCE_COST, TRUCE_DAYS } from '../game/diplomacy';
 import { OBJECTIVES } from '../game/objectives';
 import { commanderOf, cycleCommander } from '../game/commanders';
+import { canSabotage, canUprising, opReadyIn, reconActive, runRecon, runSabotage, runUprising, SPEC_OPS } from '../game/specops';
+import { buildShield, buildStation, SHIELD_COST, STATION_COST } from '../game/defense';
+import { nextRankIn, rankOf } from '../game/veterancy';
+import { Announcer, VOICE_LINES } from './announcer';
 import { resolveChoice } from '../game/events';
 import { TIMELINE_EVENTS } from '../data/events';
 import { emblemDataURL } from '../render/emblems';
@@ -58,6 +62,14 @@ export class UI {
   private spireMode = false;
   private gloomMode = false;
   private termicideMode = false;
+  /** Активный режим выбора цели спецоперации (id операции или null). */
+  private opMode: string | null = null;
+  /** Голос Верховного командования (англ. диктор). */
+  private announcer = new Announcer();
+  /** Стек кликабельных боевых оповещений. */
+  private alertsEl!: HTMLElement;
+  /** Индекс для перебора битв кнопкой кинокамеры. */
+  private cinemaIdx = 0;
   /** Последняя ненулевая скорость — пауза возвращает именно её. */
   private lastSpeed: 1 | 2 | 3 = 1;
   /** Скорость до открытия меню (восстанавливается при закрытии). */
@@ -80,6 +92,8 @@ export class UI {
     this.build();
     this.wire();
     this.renderAll();
+    // Приветствие Верховного командования (если диктор включён).
+    window.setTimeout(() => this.announcer.say(VOICE_LINES.gameStart), 1500);
   }
 
   private build(): void {
@@ -99,17 +113,27 @@ export class UI {
     this.forcesEl = el('div'); this.forcesEl.id = 'forces-dock';
     this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
+    this.alertsEl = el('div'); this.alertsEl.id = 'combat-alerts';
 
     // Кнопки фокусов/решений/производства — под шапкой слева.
     this.sideBtns.innerHTML = `
       <button class="hud-btn-sq" id="focus-btn" title="Древо фокусов (F)">◈</button>
       <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
-      <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>`;
+      <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
+      <button class="hud-btn-sq" id="cinema-btn" title="Следить за боем: камера летит к сражению">🎥</button>
+      <button class="hud-btn-sq" id="voice-btn" title="Голос командования (англ. диктор)">${this.announcer.enabled ? '🔊' : '🔇'}</button>`;
     this.sideBtns.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
     this.sideBtns.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
     this.sideBtns.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
+    this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
+    this.sideBtns.querySelector('#voice-btn')!.addEventListener('click', () => {
+      const on = this.announcer.toggle();
+      this.sideBtns.querySelector('#voice-btn')!.textContent = on ? '🔊' : '🔇';
+      this.toast(on ? 'ГОЛОС КОМАНДОВАНИЯ: ВКЛ' : 'ГОЛОС КОМАНДОВАНИЯ: ВЫКЛ');
+      if (on) this.announcer.say(VOICE_LINES.gameStart);
+    });
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -125,7 +149,14 @@ export class UI {
     bus.on('factionDefeated', ({ faction, by }) => this.showDefeatBanner(faction as FactionId, by as FactionId | null));
     bus.on('gameEvent', ({ title, text }) => this.showEventBanner(title, text));
     bus.on('planetsBoxSelected', ({ ids }) => this.onBoxSelected(ids));
-    bus.on('planetRightClicked', ({ id }) => this.onPlanetRightClicked(id));
+    bus.on('planetRightClicked', ({ id, queue }) => this.onPlanetRightClicked(id, !!queue));
+    bus.on('combatAlert', (a) => this.pushAlert(a));
+    bus.on('factionDefeated', ({ faction }) => {
+      this.announcer.say(faction === this.state.player ? VOICE_LINES.playerDefeated : VOICE_LINES.enemyDefeated);
+    });
+    bus.on('gameEvent', ({ title }) => {
+      if (title.startsWith('ЦЕЛЬ ВЫПОЛНЕНА')) this.announcer.say(VOICE_LINES.objectiveDone);
+    });
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
@@ -332,6 +363,19 @@ export class UI {
           ${this.bonusesOpen ? '▾' : '▸'} Политические решения <span style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)} ПВ</span>
         </div>
         <div id="dos-bonuses" ${this.bonusesOpen ? '' : 'style="display:none"'}>${bonuses}</div>
+        <div class="pp-section">Спецоперации</div>
+        ${SPEC_OPS.map((op) => {
+          const ready = opReadyIn(s, f, op.id);
+          const can = ready === 0 && fs.politicalPower >= op.cost;
+          const active = this.opMode === op.id;
+          return `<div class="bonus-row">
+            <div class="grow"><b>${op.name}</b>
+              <div class="hint" style="margin-top:2px">${op.desc}</div></div>
+            <button class="mini-btn ${active ? 'sel' : can ? '' : 'off'}" data-op="${op.id}" ${can || active ? '' : 'disabled'}>
+              ${active ? '✓ ЦЕЛЬ?' : ready > 0 ? `${ready} дн` : `${op.cost} ПВ`}</button>
+          </div>`;
+        }).join('')}
+        <div class="hint">Выберите операцию, затем щёлкните планету-цель и подтвердите в её карточке.</div>
         <div class="pp-section">Дипломатия</div>
         ${FACTION_IDS.filter((f2) => f2 !== f && s.factions[f2].alive).map((f2) => {
           const active = truceActive(s, f, f2);
@@ -359,6 +403,7 @@ export class UI {
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-truce]').forEach((b) =>
       b.addEventListener('click', () => {
         if (buyTruce(this.state, b.dataset.truce as FactionId)) {
+          this.announcer.say(VOICE_LINES.truce);
           this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
           this.renderDossier();
           this.renderHud();
@@ -371,6 +416,16 @@ export class UI {
           this.renderDossier();
           this.renderHud();
         }
+      }));
+    this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-op]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const op = b.dataset.op!;
+        this.opMode = this.opMode === op ? null : op;
+        this.toast(this.opMode
+          ? 'РЕЖИМ ОПЕРАЦИИ: ЩЁЛКНИТЕ ПЛАНЕТУ-ЦЕЛЬ'
+          : 'РЕЖИМ ОПЕРАЦИИ ОТМЕНЁН');
+        this.renderDossier();
+        this.renderPanel();
       }));
   }
 
@@ -418,8 +473,9 @@ export class UI {
 
     const here = fleetsAt(s, id);
     const playerFleets = here.filter((f) => f.faction === s.player);
-    // Туман войны: чужие флоты известны лишь на своих планетах и в битвах.
-    const intel = p.owner === s.player || !!p.battle || s.playerDefeated || !!s.winner;
+    // Туман войны: чужие флоты известны на своих планетах, в битвах
+    // и в секторах, вскрытых разведоперацией.
+    const intel = p.owner === s.player || !!p.battle || s.playerDefeated || !!s.winner || reconActive(s, p.sector);
     const enemyFleets = intel ? here.filter((f) => f.faction !== s.player) : [];
 
     // Контроль над планетой: при битве — шкала освобождения, иначе 100% владельца.
@@ -433,7 +489,7 @@ export class UI {
         <button class="pc-close" id="pc-close">✕</button>
       </div>
       <div class="pc-body">
-      <div class="pp-sub">${p.isCapital ? 'СТОЛИЧНЫЙ МИР · ' : ''}${p.sector} · ${BIOMES[p.biome].label}${p.gloom ? ' · ВО МРАКЕ' : ''}</div>
+      <div class="pp-sub">${p.isCapital ? 'СТОЛИЧНЫЙ МИР · ' : ''}${p.sector} · ${BIOMES[p.biome].label}${p.gloom ? ' · ВО МРАКЕ' : ''}${reconActive(s, p.sector) ? ' · <span style="color:var(--gold)">👁 СЕКТОР РАЗВЕДАН</span>' : ''}${p.scarred ? ' · ⚱ ШРАМЫ ВОЙНЫ' : ''}</div>
       <div class="pp-owner"><span class="fac-dot" style="background:${FACTIONS[p.owner].color}"></span>${FACTIONS[p.owner].name}</div>
 
       <div class="pp-section">Контроль</div>
@@ -446,6 +502,22 @@ export class UI {
         ${b ? `<span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} ${attackerPct.toFixed(0)}%</span>` : ''}
       </div>
       ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день</div>` : ''}
+      ${(() => {
+        // Снабжение атаки игрока: с какого плацдарма идёт и не перерезано ли.
+        if (!b || b.attacker !== s.player) return '';
+        const att = here.filter((f) => f.faction === s.player && f.origin);
+        for (const f of att) {
+          const o = s.galaxy.planets.get(f.origin!);
+          if (!o) continue;
+          const ok = o.owner === s.player && o.supplied && !o.shattered && p.links.includes(o.id);
+          const blocked = ok && fleetsAt(s, o.id).some((h) => areHostile(h.faction, s.player));
+          return `<div class="pp-stat"><span>Снабжение атаки</span><b>${
+            !ok ? '<span style="color:var(--fed)">⛔ плацдарм потерян</span>'
+            : blocked ? `<span style="color:var(--fed)">⛔ ${o.name} блокирован врагом</span>`
+            : `✓ с ${o.name}`}</b></div>`;
+        }
+        return '';
+      })()}
 
       <div class="pp-stat"><span>Снабжение</span><b>${p.supplied ? (p.depot ? '▣ Точка снабжения' : '✓ Обеспечено') : '<span style="color:var(--fed)">⛔ ОКРУЖЕНИЕ</span>'}</b></div>
       <div class="pp-stat"><span>Гарнизон</span><b>${p.garrison.toFixed(0)}</b></div>
@@ -455,7 +527,8 @@ export class UI {
       ${p.puppetOf ? `<div class="pp-stat"><span>Статус</span><b style="color:var(--gold)">Марионетка ${FACTIONS[p.puppetOf].name === 'Супер-Земля' ? 'Супер-Земли' : FACTIONS[p.puppetOf].name} — сопротивления нет</b></div>` : ''}
       ${p.minerals > 0 ? `<div class="pp-stat"><span>Ископаемые</span><b>${'⛏'.repeat(p.minerals)} +${(p.minerals * (p.owner === 'automatons' ? 0.22 : 0.11)).toFixed(2)}/д${p.biome === 'magma' ? ' · магмовый мир' : ''}</b></div>` : ''}
       ${p.e711Rich ? `<div class="pp-stat"><span>Е-711</span><b style="color:var(--gold)">Богатые залежи</b></div>` : p.origin === 'terminids' && p.owner === 'superEarth' ? `<div class="pp-stat"><span>Е-711</span><b>Следы залежей</b></div>` : ''}
-      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld === 'termicide' ? '☠ Система термицида' : bld === 'specialDock' ? '◆ Особая верфь и сервисный док' : bld === 'e711Station' ? '⛽ Станция добычи Е-711' : bld).join('<br>')}</b></div>` : ''}`;
+      ${(p.wreckage ?? 0) > 1 ? `<div class="pp-stat"><span>Орбита</span><b>☄ Поле обломков (${(p.wreckage ?? 0).toFixed(0)} корп.)</b></div>` : ''}
+      ${p.buildings.length ? `<div class="pp-stat"><span>Сооружения</span><b>${p.buildings.map((bld) => bld === 'incinFactory' ? '🏭 Фабрика испепеляющего отряда' : bld === 'jetFactory' ? '🏭 Фабрика реактивного батальона' : bld === 'termicide' ? '☠ Система термицида' : bld === 'specialDock' ? '◆ Особая верфь и сервисный док' : bld === 'e711Station' ? '⛽ Станция добычи Е-711' : bld === 'shieldGen' ? '🛡 Планетарный щит' : bld === 'orbStation' ? '🛰 Орбитальная станция' : bld).join('<br>')}</b></div>` : ''}`;
 
     if (p.shipyard) {
       const q = p.shipyard.queue;
@@ -469,6 +542,25 @@ export class UI {
     if (p.owner === s.player && !p.shipyard && p.supplied) {
       const can = s.factions[s.player].production >= SHIPYARD_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="yard" ${can ? '' : 'disabled'}>⚓ Построить верфь (${SHIPYARD_COST} пр.)</button>`;
+    }
+    // Оборонительные сооружения: щит и орбитальная станция.
+    if (p.owner === s.player && p.supplied && !p.buildings.includes('shieldGen')) {
+      const can = s.factions[s.player].production >= SHIELD_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="shield" ${can ? '' : 'disabled'}>🛡 Планетарный щит (${SHIELD_COST} пр.) — вторжение вязнет вдвое</button>`;
+    }
+    if (p.owner === s.player && p.supplied && !p.buildings.includes('orbStation')) {
+      const can = s.factions[s.player].production >= STATION_COST;
+      html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="station" ${can ? '' : 'disabled'}>🛰 Орбитальная станция (${STATION_COST} пр.) — бьёт по чужим флотам</button>`;
+    }
+    // Спецоперации: активный режим подсвечивает пригодные цели.
+    if (this.opMode === 'sabotage' && canSabotage(s, s.player, p)) {
+      html += `<button class="mini-btn wide" data-act="op-sabotage" style="border-color:var(--gold)">🗡 ДИВЕРСИЯ: взорвать верфь ${p.name}</button>`;
+    }
+    if (this.opMode === 'recon' && !reconActive(s, p.sector)) {
+      html += `<button class="mini-btn wide" data-act="op-recon" style="border-color:var(--gold)">👁 РАЗВЕДКА: вскрыть сектор ${p.sector}</button>`;
+    }
+    if (this.opMode === 'uprising' && canUprising(s, s.player, p)) {
+      html += `<button class="mini-btn wide" data-act="op-uprising" style="border-color:var(--gold)">✊ АГИТАЦИЯ: поднять восстание на ${p.name}</button>`;
     }
     // Сервисный док супероружия: нужны чертежи, единственный на фракцию.
     if (p.owner === s.player && s.factions[s.player].specialUnlocked && p.supplied
@@ -536,8 +628,9 @@ export class UI {
     playerFleets.forEach((f) => {
       const selCls = s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? 'sel' : '';
       const badge = f.special ? `<span style="color:var(--gold)">◆ ${f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
+      const rank = rankOf(f);
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
-        <div class="grow"><div>${badge}</div>
+        <div class="grow"><div>${badge}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}</div>
           <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
@@ -629,6 +722,40 @@ export class UI {
           }
           return;
         }
+        if (act === 'shield') {
+          if (buildShield(s, s.player, p.id)) {
+            this.toast('ПЛАНЕТАРНЫЙ ЩИТ РАЗВЁРНУТ');
+            this.renderPanel();
+            this.renderHud();
+          }
+          return;
+        }
+        if (act === 'station') {
+          if (buildStation(s, s.player, p.id)) {
+            this.toast('ОРБИТАЛЬНАЯ СТАНЦИЯ СОБРАНА');
+            this.renderPanel();
+            this.renderHud();
+          }
+          return;
+        }
+        if (act === 'op-sabotage' || act === 'op-recon' || act === 'op-uprising') {
+          const op = act.slice(3);
+          const done = op === 'sabotage' ? runSabotage(s, s.player, p.id)
+            : op === 'recon' ? runRecon(s, s.player, p.id)
+            : runUprising(s, s.player, p.id);
+          if (done) {
+            this.opMode = null;
+            this.announcer.say(VOICE_LINES.specops);
+            this.toast(op === 'sabotage' ? '🗡 ДИВЕРСИЯ ВЫПОЛНЕНА' : op === 'recon' ? '👁 СЕКТОР ВСКРЫТ НА 30 ДНЕЙ' : '✊ ВОССТАНИЕ ПОДНЯТО');
+            this.scene.refreshOwners();
+            this.renderPanel();
+            this.renderHud();
+            if (!this.dossierEl.classList.contains('hidden')) this.renderDossier();
+          } else {
+            this.toast('ОПЕРАЦИЯ НЕВОЗМОЖНА: НЕТ ПВ ИЛИ КУЛДАУН');
+          }
+          return;
+        }
         if (act === 'specialdock') {
           if (buildSpecialDock(s, s.player, p.id)) {
             this.toast('СЕРВИСНЫЙ ДОК СУПЕРОРУЖИЯ РАЗВЁРНУТ');
@@ -677,6 +804,7 @@ export class UI {
         }
         if (act === 'fire') {
           if (fireSuperweapon(s, s.player, p.id)) {
+            this.announcer.say(VOICE_LINES.superweapon);
             this.toast(`☄ ${p.name} — ПЛАНЕТА УНИЧТОЖЕНА`, 3500);
             this.scene.refreshOwners();
             this.renderPanel();
@@ -763,11 +891,13 @@ export class UI {
           const where = f.transit ? `→ ${at?.name ?? '?'}` : at?.name ?? '?';
           const multi = this.selectedFleets.has(f.id);
           const open = this.detailFleet === f.id;
+          const rank = rankOf(f);
+          const qn = f.orderQueue?.length ?? 0;
           return `<div class="force-card ${open ? 'open' : ''} ${multi ? 'multi' : ''}" data-card-fleet="${f.id}">
-            <div class="fc-name">${f.special ? '◆ ' : ''}${f.commander ? '★ ' : ''}${this.fleetName(f.id)}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
+            <div class="fc-name">${f.special ? '◆ ' : ''}${f.commander ? '★ ' : ''}${this.fleetName(f.id)}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
             <div class="fc-comp">ЭСМ ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}</div>
             <div class="fc-comp">Пехота ${f.infantry.toFixed(0)}</div>
-            <div class="fc-loc">${f.transit ? '⇢ ' : '⚓ '}${where}</div>
+            <div class="fc-loc">${f.transit ? '⇢ ' : '⚓ '}${where}${qn ? ` <span style="color:var(--gold)">+${qn} в очереди</span>` : ''}</div>
           </div>`;
         }).join('') || '<div class="force-empty">Флотов нет — стройте корабли на верфях (⚒)</div>';
       } else if (this.forcesTab === 'army') {
@@ -855,17 +985,39 @@ export class UI {
         <div class="pp-stat"><span>Линкоры-флагманы</span><b>${f.battleships.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Пехота на борту</span><b>${f.infantry.toFixed(0)}</b></div>
         ${f.special ? `<div class="hint">◆ Несёт супероружие фракции.</div>` : ''}
+        ${(() => {
+          const rank = rankOf(f);
+          const next = nextRankIn(f);
+          return `<div class="pp-stat"><span>Выучка</span><b style="color:var(--gold)">${rank.badge ? rank.badge + ' ' : ''}${rank.name}</b></div>
+            <div class="hint" style="margin-top:2px">Опыт ${(f.xp ?? 0).toFixed(0)}${next !== null ? ` · до следующего ранга ${next.toFixed(0)}` : ' · максимальный ранг'}${rank.mult > 1 ? ` · бой и захват +${Math.round((rank.mult - 1) * 100)}%` : ''}</div>`;
+        })()}
         ${(() => { const c = commanderOf(f); return c ? `<div class="pp-stat"><span>Командир</span><b style="color:var(--gold)">${c.name}</b></div><div class="hint" style="margin-top:2px">${c.perk}</div>` : ''; })()}
+        ${(() => {
+          const q = f.orderQueue ?? [];
+          if (!q.length) return '';
+          return `<div class="pp-section">Очередь приказов</div>
+            ${q.map((o, i) => {
+              const t = s.galaxy.planets.get(o.target);
+              return `<div class="pp-stat"><span>${i + 1}. ⇢ ${t?.name ?? '?'}</span><b style="color:${t ? FACTIONS[t.owner].color : 'var(--muted)'}">${t ? FACTIONS[t.owner].short : ''}</b></div>`;
+            }).join('')}
+            <button class="mini-btn wide" id="fd-clearqueue">✕ Очистить очередь</button>`;
+        })()}
         <div class="pp-section">Операции</div>
         <button class="mini-btn wide" id="fd-commander">★ ${commanderOf(f) ? 'Сменить/снять командира' : 'Назначить командира'}</button>
         <button class="mini-btn wide ${hulls >= 2 && !f.transit ? '' : 'off'}" id="fd-split" ${hulls >= 2 && !f.transit ? '' : 'disabled'}>⑂ Разделить пополам</button>
         ${yard && storedHulls(yard) > 0 ? `<button class="mini-btn wide" id="fd-take">⚓ Принять корабли с верфи (${storedHulls(yard)} корп.)</button>` : ''}
         <button class="mini-btn wide ${!f.transit && !f.special && at?.owner === s.player ? '' : 'off'}" id="fd-disband" ${!f.transit && !f.special && at?.owner === s.player ? '' : 'disabled'}>✕ Расформировать</button>
-        <div class="hint">ПКМ по планете — приказ на перелёт/вторжение. Shift+клик по карточкам внизу — выбор нескольких соединений.</div>
+        <div class="hint">ПКМ по планете — приказ на перелёт/вторжение. Shift+ПКМ — добавить цель в очередь. Shift+клик по карточкам внизу — выбор нескольких соединений.</div>
       </div>`;
 
     this.fleetDetailEl.querySelector('#fd-close')?.addEventListener('click', () => {
       this.detailFleet = null;
+      this.renderFleetDetail();
+      this.renderForces();
+    });
+    this.fleetDetailEl.querySelector('#fd-clearqueue')?.addEventListener('click', () => {
+      f.orderQueue = undefined;
+      this.toast('ОЧЕРЕДЬ ПРИКАЗОВ ОЧИЩЕНА');
       this.renderFleetDetail();
       this.renderForces();
     });
@@ -967,8 +1119,9 @@ export class UI {
     this.renderForces();
   }
 
-  /** ПКМ по планете: приказ всем выбранным соединениям (или одному выбранному). */
-  private onPlanetRightClicked(id: string): void {
+  /** ПКМ по планете: приказ всем выбранным соединениям (или одному выбранному).
+   *  Shift+ПКМ — добавить цель в ОЧЕРЕДЬ приказов, не отменяя текущий. */
+  private onPlanetRightClicked(id: string, queue = false): void {
     const s = this.state;
     const dest = s.galaxy.planets.get(id);
     if (!dest || dest.shattered) return;
@@ -978,10 +1131,29 @@ export class UI {
     if (!picks.length) return;
     const invade = areHostile(s.player, dest.owner) && dest.owner !== s.player;
     let sent = 0;
+    let queued = 0;
     for (const fid of picks) {
       const f = s.fleets.get(fid);
       if (!f || f.faction !== s.player) continue;
+      // Планировщик: занятый флот с Shift копит маршрут из целей.
+      const busy = !!f.transit || (f.order && f.order.kind !== 'idle');
+      if (queue && busy) {
+        f.orderQueue = f.orderQueue ?? [];
+        if (f.orderQueue.length < 6 && !f.orderQueue.some((q) => q.target === id)) {
+          f.orderQueue.push({ target: id });
+          queued++;
+        }
+        continue;
+      }
+      // Прямой приказ отменяет старую очередь — у флота новый план.
+      if (!queue) f.orderQueue = undefined;
       if (orderFleetTo(s, f, id, invade)) sent++;
+    }
+    if (queued) {
+      this.toast(`⇢ ЦЕЛЬ ДОБАВЛЕНА В ОЧЕРЕДЬ: ${dest.name} · ${queued} СОЕД.`);
+      this.renderForces();
+      if (this.detailFleet) this.renderFleetDetail();
+      return;
     }
     if (sent) {
       this.toast(`ПРИКАЗ: ${invade ? 'ВТОРЖЕНИЕ' : 'ПЕРЕЛЁТ'} · ${dest.name} · ${sent} СОЕД.`);
@@ -1442,6 +1614,50 @@ export class UI {
       }));
   }
 
+  // ---------------- Боевые оповещения и кинокамера ----------------
+
+  /** Кликабельная тревога: клик — камера летит к планете, карточка открыта. */
+  private pushAlert(a: { planetId: string; text: string; tone: string; voice?: string }): void {
+    if (a.voice && a.voice in VOICE_LINES) {
+      this.announcer.say(VOICE_LINES[a.voice as keyof typeof VOICE_LINES]);
+    }
+    const item = el('div', `combat-alert ${a.tone}`, `<span class="ca-dot"></span>${a.text}`);
+    item.addEventListener('click', () => {
+      this.scene.stopCinema();
+      this.scene.focusOn(a.planetId);
+      this.state.selectedPlanet = a.planetId;
+      this.scene.setSelected(a.planetId);
+      this.renderPanel();
+      item.remove();
+    });
+    this.alertsEl.prepend(item);
+    // Не копим бесконечно: держим максимум пять последних.
+    while (this.alertsEl.children.length > 5) this.alertsEl.lastElementChild?.remove();
+    window.setTimeout(() => item.remove(), 14000);
+  }
+
+  /** Кнопка 🎥: перебор идущих битв, приоритет — сражения игрока. */
+  private cinemaNext(): void {
+    const s = this.state;
+    const battles = s.galaxy.order
+      .map((id) => s.galaxy.planets.get(id)!)
+      .filter((p) => p.battle && !p.shattered && !p.abyss)
+      .sort((a, b) => {
+        const ap = a.owner === s.player || a.battle!.attacker === s.player ? 1 : 0;
+        const bp = b.owner === s.player || b.battle!.attacker === s.player ? 1 : 0;
+        if (ap !== bp) return bp - ap;
+        return b.battle!.liberation - a.battle!.liberation;
+      });
+    if (!battles.length) {
+      this.toast('СЕЙЧАС НИГДЕ НЕ ИДЁТ СРАЖЕНИЙ');
+      return;
+    }
+    const p = battles[this.cinemaIdx % battles.length]!;
+    this.cinemaIdx++;
+    this.scene.startCinema(p.id);
+    this.toast(`🎥 ${p.name} — битва идёт ${p.battle!.days}-й день. Любой ввод вернёт управление.`, 2600);
+  }
+
   // ---------------- Log & toast ----------------
 
   private renderLog(): void {
@@ -1504,6 +1720,7 @@ export class UI {
     if (this.toastEl.dataset.final) return;
     this.toastEl.dataset.final = '1';
     const w = this.state.winner!;
+    this.announcer.say(w === this.state.player ? VOICE_LINES.victory : VOICE_LINES.playerDefeated);
     this.bannerEl.classList.add('hidden');
     this.toast(
       w === this.state.player

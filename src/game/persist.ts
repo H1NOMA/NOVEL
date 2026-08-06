@@ -52,6 +52,7 @@ interface SaveBlob {
   truces?: { a: FactionId; b: FactionId; until: number }[];
   doneObjectives?: string[];
   pendingChoice?: string | null;
+  recons?: { sector: string; until: number }[];
 }
 
 function storage(): Storage | null {
@@ -98,6 +99,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     truces: state.truces,
     doneObjectives: state.doneObjectives,
     pendingChoice: state.pendingChoice,
+    recons: state.recons,
   };
   return JSON.stringify(blob);
 }
@@ -117,6 +119,7 @@ export function deserializeState(json: string): GameState {
   for (const fs of Object.values(b.factions)) {
     fs.politicalPower = fs.politicalPower ?? 0;
     fs.purchasedBonuses = fs.purchasedBonuses ?? [];
+    fs.opsUsed = fs.opsUsed ?? {};
   }
   const fleets = new Map(b.fleets.map((f) => [f.id, f]));
   return {
@@ -146,6 +149,7 @@ export function deserializeState(json: string): GameState {
     truces: b.truces ?? [],
     doneObjectives: b.doneObjectives ?? [],
     pendingChoice: b.pendingChoice ?? null,
+    recons: b.recons ?? [],
   };
 }
 

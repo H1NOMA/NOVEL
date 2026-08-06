@@ -10,8 +10,14 @@ export interface GameEvents extends Record<string, unknown> {
   planetChanged: { id: string };
   /** Планеты, охваченные рамкой выделения ЛКМ. */
   planetsBoxSelected: { ids: string[] };
-  /** Клик ПКМ по планете (без перетаскивания) — приказ выбранным флотам. */
-  planetRightClicked: { id: string };
+  /** Клик ПКМ по планете (без перетаскивания) — приказ выбранным флотам.
+   *  С Shift приказ добавляется в очередь, а не заменяет текущий. */
+  planetRightClicked: { id: string; queue?: boolean };
+  /** Боевая тревога: кликабельное оповещение с перелётом камеры к планете.
+   *  voice — ключ реплики диктора (см. VOICE_LINES). */
+  combatAlert: { planetId: string; text: string; tone: 'bad' | 'alert' | 'good'; voice?: string };
+  /** Планета сменила владельца (для диктора и оповещений). */
+  planetCaptured: { id: string; by: string; prev: string };
   stateChanged: void;
   log: { text: string };
   factionEliminated: { faction: string };
