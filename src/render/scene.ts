@@ -79,10 +79,11 @@ export class GalaxyScene {
       this.prevOwners.set(id, state.galaxy.planets.get(id)!.owner);
     }
 
-    // Композер: обычный проход + лёгкий bloom для неона эмблем, стрел и огней.
+    // Композер: обычный проход + едва заметный bloom только для по-настоящему
+    // ярких точек (лава, выстрелы). Порог поднят — карта не «плывёт» в неоне.
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.35, 0.55, 0.85);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.2, 0.5, 0.9);
     this.composer.addPass(this.bloom);
 
     this.resize();
@@ -192,7 +193,7 @@ export class GalaxyScene {
     const mat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.24,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });

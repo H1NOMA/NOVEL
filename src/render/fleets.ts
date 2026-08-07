@@ -5,7 +5,6 @@ import { fleetWorldPos } from '../game/units';
 import type { GameState } from '../game/state';
 import { shipModel, stationModel, type ShipClass } from './ships';
 
-const GLOW_GEO = new THREE.SphereGeometry(0.12, 10, 10);
 const EXHAUST_GEO = new THREE.ConeGeometry(0.03, 0.16, 6);
 
 interface FleetMesh {
@@ -61,16 +60,6 @@ export class FleetLayer {
     const cls = dominantClass(fleet);
     const model = special ? stationModel(color) : shipModel(fleet.faction, color, cls);
 
-    const glowMat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.3,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const glow = new THREE.Mesh(GLOW_GEO, glowMat);
-    glow.scale.setScalar(special ? 2.4 : 1.5);
-
     // Выхлоп двигателей — виден только в полёте.
     const exhaustMat = new THREE.MeshBasicMaterial({
       color: 0x9fd4ff,
@@ -113,7 +102,7 @@ export class FleetLayer {
     model.add(trail);
 
     const g = new THREE.Group();
-    g.add(model, glow);
+    g.add(model);
     const fm: FleetMesh = {
       group: g,
       model,
@@ -226,7 +215,7 @@ export class FleetLayer {
       fm.exhaustMat.opacity = Math.min(0.75, fm.exhaustMat.opacity + dt * 3);
       fm.exhaust.scale.y = 0.85 + Math.sin(this.t * 9 + fm.phase) * 0.25;
       // гипер-след тянется за кормой и мерцает
-      fm.trailMat.opacity = Math.min(0.4, fm.trailMat.opacity + dt * 1.5)
+      fm.trailMat.opacity = Math.min(0.28, fm.trailMat.opacity + dt * 1.5)
         * (0.8 + 0.2 * Math.sin(this.t * 6 + fm.phase));
       fm.last.set(x, z);
     }
