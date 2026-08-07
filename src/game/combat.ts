@@ -1,6 +1,6 @@
-import type { FactionId, Fleet, Planet } from '../core/types';
+import type { BattlePhase, FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
-import { fleetsAt, pushLog, removeFleet, type GameState } from './state';
+import { fleetsAt, pushChronicle, pushLog, removeFleet, type GameState } from './state';
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
@@ -31,6 +31,19 @@ function combatMult(state: GameState, faction: FactionId): number {
 export function hullPower(f: Fleet): number {
   return f.ships + f.dreadnoughts * 3 + f.battleships * 6;
 }
+
+/** Фаза наземной операции по прогрессу освобождения. */
+export function battlePhase(liberation: number): BattlePhase {
+  if (liberation < 25) return 'landing';
+  if (liberation < 70) return 'foothold';
+  return 'assault';
+}
+
+export const PHASE_LABEL: Record<BattlePhase, string> = {
+  landing: 'Высадка',
+  foothold: 'Плацдарм',
+  assault: 'Генеральный штурм',
+};
 
 /** Общее число корпусов в соединении (для стека на карте). */
 export function hullCount(f: Fleet): number {
@@ -207,7 +220,7 @@ export function resolveGround(state: GameState): void {
     if (!hasSupplyLine) attackerForce *= 0.75;
     // Термицид выкашивает атакующий рой.
     if (lead === 'terminids' && planet.buildings.includes('termicide')) attackerForce *= 0.45;
-    const defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
+    let defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
 
     if (!planet.battle || planet.battle.attacker !== lead) {
       planet.battle = {
@@ -235,9 +248,25 @@ export function resolveGround(state: GameState): void {
       }
     }
     const b = planet.battle;
+    b.days++;
+
+    // Фазы операции: высадка (0–25) → плацдарм (25–70) → штурм (70+).
+    //  • Высадка: десант уязвим, оборона встречает огнём; ЭЛИТНЫЕ войска
+    //    (Хеллдайверы и аналоги) пробивают плацдарм заметно лучше.
+    //  • Штурм: оборона ломается, МАССОВАЯ пехота дожимает контроль быстрее.
+    const phase = battlePhase(b.liberation);
+    b.phase = phase;
+    let gLossMult = 1;
+    if (phase === 'landing') {
+      attackerForce *= 0.85 + eliteShare(state.factions[lead]) * 0.4;
+      defenderForce *= 1.15;
+      gLossMult = 0.8;
+    } else if (phase === 'assault') {
+      attackerForce *= 1.1;
+      gLossMult = 1.3;
+    }
     b.attackerForce = attackerForce;
     b.defenderForce = defenderForce;
-    b.days++;
 
     // Attrition: both sides lose strength; the meter shifts toward the winner.
     const ratio = attackerForce / (attackerForce + defenderForce + 0.001);
@@ -250,7 +279,8 @@ export function resolveGround(state: GameState): void {
     const cmdCapture = Math.max(1, ...attackers.filter((f) => f.faction === lead).map((f) => commanderOf(f)?.capture ?? 1));
     // Ранг ведущего соединения ускоряет установление контроля; щит — замедляет.
     const vetCapture = Math.max(1, ...attackers.filter((f) => f.faction === lead).map((f) => rankOf(f).mult));
-    const captureRate = (1 + massShare(state.factions[lead]) * 0.3) * (hasSuperweapon ? 1.4 : 1)
+    const captureRate = (1 + massShare(state.factions[lead]) * (phase === 'assault' ? 0.5 : 0.3))
+      * (hasSuperweapon ? 1.4 : 1)
       * cmdCapture * vetCapture * (shielded ? 0.55 : 1);
     b.liberation = clamp(b.liberation + (ratio - 0.5) * 22 * captureRate + citiesHeld * 0.9, 0, 100);
 
@@ -269,7 +299,7 @@ export function resolveGround(state: GameState): void {
     });
 
     // Casualties reduce garrison and landed infantry.
-    const gLoss = Math.min(planet.garrison, attackerForce * 0.04);
+    const gLoss = Math.min(planet.garrison, attackerForce * 0.04 * gLossMult);
     planet.garrison = Math.max(0, planet.garrison - gLoss);
     for (const f of attackers) {
       const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15);
@@ -361,6 +391,9 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     tone: prev === state.player ? 'bad' : attacker === state.player ? 'good' : 'info',
   });
   bus.emit('planetCaptured', { id: planet.id, by: attacker, prev });
+  if (planet.isCapital) {
+    pushChronicle(state, `Пала столица: ${planet.name} захвачена силами ${FACTION_GEN[attacker]}.`);
+  }
   if (prev === state.player) {
     bus.emit('combatAlert', {
       planetId: planet.id,
@@ -400,6 +433,7 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
     const f = state.fleets.get(fid);
     if (f && f.faction === loser) removeFleet(state, fid);
   }
+  pushChronicle(state, `Фракция «${FACTIONS[loser].name}» капитулирует: ${flipped} миров переходят под контроль ${FACTION_GEN[victor]}.`);
   pushLog(state, {
     faction: loser,
     text: `Столица пала — фракция «${FACTIONS[loser].name}» КАПИТУЛИРУЕТ! Миров перешло под контроль ${FACTION_GEN[victor]}: ${flipped}.`,

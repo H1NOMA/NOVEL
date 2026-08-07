@@ -3,7 +3,7 @@ import { FACTION_IDS } from '../data/factions';
 import { troopsOf } from '../data/troops';
 import { bus } from '../core/emitter';
 import type { FactionId } from '../core/types';
-import { planetsOf, pushLog, type GameState } from './state';
+import { planetsOf, pushChronicle, pushLog, type GameState } from './state';
 
 // ---------------------------------------------------------------------------
 // Ежедневная проверка таймлайна: ивенты по датам и по захвату миров.
@@ -48,6 +48,7 @@ export function resolveChoice(state: GameState, eventId: string, idx: number): v
 
 function fire(state: GameState, ev: TimelineEvent): void {
   state.firedEvents.push(ev.id);
+  if (ev.major || ev.choices) pushChronicle(state, `${ev.title}.`);
   // Развилка: игрок выбирает сам (пауза + кнопки), ИИ берёт первый вариант.
   if (ev.choices) {
     if (ev.faction === state.player || (!ev.faction && state.factions[state.player].alive)) {

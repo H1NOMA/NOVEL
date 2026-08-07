@@ -1,7 +1,7 @@
 import type { FactionId } from '../core/types';
-import { FACTION_IDS } from '../data/factions';
+import { FACTIONS, FACTION_IDS } from '../data/factions';
 import { bus } from '../core/emitter';
-import { fleetsOf, planetsOf, pushLog, type GameState } from './state';
+import { fleetsOf, planetsOf, pushChronicle, pushLog, snapshotControl, type GameState } from './state';
 import { runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
 import { resolveGround, resolveOrbital } from './combat';
@@ -110,6 +110,8 @@ export function advanceDay(state: GameState): void {
   });
 
   checkVictory(state);
+  // График журнала войны: срез контроля раз в 30 дней (и в первый день).
+  if (state.day % 30 === 0 || state.history.length === 0) snapshotControl(state);
   autosaveTick(state);
   bus.emit('dayPassed', { day: state.day });
   bus.emit('stateChanged', undefined);
@@ -152,6 +154,7 @@ function checkTerminidCapitulation(state: GameState): void {
     p.gloom = false; // споровые тучи оседают — путь к залежам открыт
   }
   state.lastConqueror.terminids = 'superEarth';
+  pushChronicle(state, 'Рой капитулирует: последние ульи объявлены марионетками Супер-Земли.');
   pushLog(state, {
     text: `РОЙ КАПИТУЛИРУЕТ. Терминиды загнаны на ${hives.length === 1 ? 'последнюю планету' : 'две последние планеты'} (${hives.map((p) => p.name).join(', ')}) и прекращают сопротивление. Ульи объявлены марионетками Супер-Земли — стройте там станции добычи Е-711.`,
     tone: 'alert',
@@ -169,6 +172,9 @@ function checkVictory(state: GameState): void {
   if (seCapital && (seCapital.shattered || seCapital.owner !== 'superEarth') && state.factions.superEarth.alive) {
     state.factions.superEarth.alive = false;
     if (state.player === 'superEarth') state.playerDefeated = true;
+    pushChronicle(state, seCapital.shattered
+      ? 'Супер-Земля уничтожена орбитальным залпом.'
+      : 'Супер-Земля пала: колыбель человечества в руках врага.');
     pushLog(state, {
       text: seCapital.shattered
         ? 'СУПЕР-ЗЕМЛЯ УНИЧТОЖЕНА. Сердце Управляемой Демократии обратилось в обломки.'
@@ -194,6 +200,7 @@ function checkVictory(state: GameState): void {
   if (contenders.length === 1) {
     state.winner = contenders[0]!;
     state.speed = 0;
+    pushChronicle(state, `Война окончена: галактикой владеет фракция «${FACTIONS[state.winner].name}».`);
     pushLog(state, {
       text: state.winner === state.player
         ? 'Галактика освобождена! Супер-Земля торжествует. Сладкая Свобода!'

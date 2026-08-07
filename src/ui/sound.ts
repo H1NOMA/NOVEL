@@ -1,0 +1,153 @@
+// ---------------------------------------------------------------------------
+// Звук войны: всё синтезируется WebAudio на лету — ни одного внешнего файла.
+//   • Эмбиент: низкий дрон двух расстроенных осцилляторов + «ветер» из шума.
+//   • Интерфейс: короткий блип кнопок.
+//   • События: сирена вторжения, чайм успеха, тяжёлый удар потери.
+// AudioContext стартует только после первого жеста пользователя (политика
+// браузеров); до этого все вызовы тихо игнорируются.
+// ---------------------------------------------------------------------------
+
+const STORE_KEY = 'sgw2_sound';
+
+export interface SoundSettings {
+  master: number;   // 0..1
+  ambient: number;  // 0..1
+  effects: number;  // 0..1
+}
+
+function loadSettings(): SoundSettings {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return { master: 0.8, ambient: 0.5, effects: 0.8, ...JSON.parse(raw) as Partial<SoundSettings> };
+  } catch { /* повреждённые настройки — берём умолчания */ }
+  return { master: 0.8, ambient: 0.5, effects: 0.8 };
+}
+
+export class SoundEngine {
+  private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private ambientGain: GainNode | null = null;
+  private fxGain: GainNode | null = null;
+  private started = false;
+  settings: SoundSettings = loadSettings();
+
+  /** Инициализация по первому жесту (клик/клавиша) — политика браузеров. */
+  armOnFirstGesture(): void {
+    const start = () => {
+      this.ensure();
+      window.removeEventListener('pointerdown', start);
+      window.removeEventListener('keydown', start);
+    };
+    window.addEventListener('pointerdown', start);
+    window.addEventListener('keydown', start);
+  }
+
+  private ensure(): void {
+    if (this.started || typeof AudioContext === 'undefined') return;
+    this.started = true;
+    this.ctx = new AudioContext();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.connect(this.ctx.destination);
+    this.ambientGain = this.ctx.createGain();
+    this.ambientGain.connect(this.masterGain);
+    this.fxGain = this.ctx.createGain();
+    this.fxGain.connect(this.masterGain);
+    this.applyVolumes();
+    this.startAmbient();
+  }
+
+  applyVolumes(): void {
+    if (!this.ctx) return;
+    this.masterGain!.gain.value = this.settings.master;
+    this.ambientGain!.gain.value = this.settings.ambient * 0.5;
+    this.fxGain!.gain.value = this.settings.effects;
+  }
+
+  save(): void {
+    localStorage.setItem(STORE_KEY, JSON.stringify(this.settings));
+    this.applyVolumes();
+  }
+
+  /** Низкий дрон карты: две расстроенные пилы через лоупас + шум-«ветер». */
+  private startAmbient(): void {
+    const ctx = this.ctx!;
+    const drone = ctx.createGain();
+    drone.gain.value = 0.05;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 160;
+    drone.connect(lp).connect(this.ambientGain!);
+    for (const [freq, detune] of [[55, 0], [55, 7], [110, -5]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+      osc.connect(drone);
+      osc.start();
+    }
+    // медленное «дыхание» дрона
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.05;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0.02;
+    lfo.connect(lfoGain).connect(drone.gain);
+    lfo.start();
+
+    // ветер: белый шум через узкий лоупас
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const nlp = ctx.createBiquadFilter();
+    nlp.type = 'lowpass';
+    nlp.frequency.value = 320;
+    const ngain = ctx.createGain();
+    ngain.gain.value = 0.015;
+    noise.connect(nlp).connect(ngain).connect(this.ambientGain!);
+    noise.start();
+  }
+
+  /** Короткий тон с экспоненциальным затуханием. */
+  private tone(freq: number, dur: number, type: OscillatorType, vol: number, when = 0): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + when;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(g).connect(this.fxGain!);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  /** Блип кнопки интерфейса. */
+  click(): void {
+    this.tone(880, 0.05, 'square', 0.06);
+  }
+
+  /** Сирена вторжения: три двутональных такта. */
+  siren(): void {
+    for (let i = 0; i < 3; i++) {
+      this.tone(620, 0.16, 'sawtooth', 0.1, i * 0.36);
+      this.tone(830, 0.16, 'sawtooth', 0.1, i * 0.36 + 0.18);
+    }
+  }
+
+  /** Чайм успеха: восходящая пара нот. */
+  chime(): void {
+    this.tone(660, 0.18, 'sine', 0.12);
+    this.tone(990, 0.3, 'sine', 0.1, 0.12);
+  }
+
+  /** Тяжёлый удар потери: низкий тон + шумовой хлопок. */
+  thud(): void {
+    this.tone(90, 0.5, 'sine', 0.28);
+    this.tone(60, 0.6, 'triangle', 0.2, 0.03);
+  }
+}

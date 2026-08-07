@@ -68,7 +68,9 @@ export function drawUnits(fs: FactionState, amount: number): number {
  * доход по уровню залежей. Автоматоны копают быстрее — машинам не нужен сон.
  */
 export function mineMinerals(state: GameState, faction: FactionId): number {
-  const rate = faction === 'automatons' ? 0.22 : 0.11;
+  // Балансовые прогоны (5 сидов × 10 лет): при 0.22 машины выигрывали
+  // экономику в каждой партии — темп срезан до 0.17.
+  const rate = faction === 'automatons' ? 0.17 : 0.11;
   let income = 0;
   for (const p of planetsOf(state, faction)) {
     if (!p.supplied) continue;

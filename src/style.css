@@ -705,3 +705,60 @@ kbd {
 }
 .help-row { display: flex; gap: 12px; padding: 3px 0; font-size: 12px; align-items: baseline; }
 .help-keys { flex: 0 0 150px; color: var(--yel); }
+
+/* ---------- Журнал войны (раунд 34) ---------- */
+#chronicle-overlay {
+  position: absolute; inset: 0; z-index: 47;
+  background-color: rgba(5, 5, 4, 0.8); backdrop-filter: blur(2px);
+  background-image: var(--cross), var(--cross), var(--cross), var(--cross);
+  background-repeat: no-repeat;
+  background-position: 14px 14px, calc(100% - 14px) 14px, 14px calc(100% - 14px), calc(100% - 14px) calc(100% - 14px);
+  display: flex; align-items: center; justify-content: center;
+}
+#chronicle-overlay.hidden { display: none; }
+.chron-inner {
+  width: min(840px, 94vw); max-height: 86vh; overflow: hidden;
+  display: flex; flex-direction: column;
+  position: relative; z-index: 0;
+  background: var(--edge); clip-path: var(--cut-panel);
+}
+.chron-inner::before {
+  content: ''; position: absolute; inset: 1px; z-index: -1;
+  clip-path: var(--cut-panel); background: var(--scan), var(--panel);
+}
+.chron-inner .pc-body { overflow-y: auto; }
+.chron-chart { width: 100%; height: auto; display: block; background: rgba(0,0,0,0.25); border: 1px solid var(--edge); }
+.chron-tick { fill: var(--muted); font-size: 10px; font-family: var(--font-mono); }
+.chron-legend { display: flex; gap: 14px; margin-top: 6px; flex-wrap: wrap; }
+.chron-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.chron-leg b { font-family: var(--font-mono); }
+.chron-list { max-height: 34vh; overflow-y: auto; }
+.chron-row {
+  display: flex; gap: 12px; padding: 4px 0; font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.chron-day { flex: 0 0 110px; color: var(--yel-dim); font-family: var(--font-mono); font-size: 11px; }
+
+/* ---------- Настройки в меню (раунд 34) ---------- */
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 6px 12px; font-size: 13px;
+  background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.set-row input[type='range'] {
+  width: 150px; accent-color: var(--yel); background: transparent;
+}
+/* тумблеры эффектов: выключенные сканлайны и виньетка */
+body.no-scan { --scan: linear-gradient(transparent, transparent); }
+body.no-vignette #vignette { display: none; }
+
+/* ---------- Туториал ---------- */
+#tutorial {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+  width: min(460px, 92vw); padding: 10px 14px; z-index: 28;
+  background: var(--panel-solid); border: 1px solid var(--yel-dim);
+  border-left: 3px solid var(--yel);
+  animation: panel-in 0.14s steps(1, end) both;
+}
+.tut-head { font-size: 10px; font-weight: 700; letter-spacing: 0.09em; color: var(--yel); text-transform: uppercase; }
+.tut-text { margin: 6px 0 8px; font-size: 12.5px; line-height: 1.45; }

@@ -52,6 +52,8 @@ interface SaveBlob {
   doneObjectives?: string[];
   pendingChoice?: string | null;
   recons?: { sector: string; until: number }[];
+  chronicle?: { day: number; text: string }[];
+  history?: { day: number; control: Partial<Record<FactionId, number>> }[];
 }
 
 function storage(): Storage | null {
@@ -98,6 +100,8 @@ export function serializeState(state: GameState, slot: string, name: string): st
     doneObjectives: state.doneObjectives,
     pendingChoice: state.pendingChoice,
     recons: state.recons,
+    chronicle: state.chronicle,
+    history: state.history,
   };
   return JSON.stringify(blob);
 }
@@ -147,6 +151,8 @@ export function deserializeState(json: string): GameState {
     doneObjectives: b.doneObjectives ?? [],
     pendingChoice: b.pendingChoice ?? null,
     recons: b.recons ?? [],
+    chronicle: b.chronicle ?? [],
+    history: b.history ?? [],
   };
 }
 
@@ -176,8 +182,17 @@ export function saveMeta(slot: string): SaveMeta | null {
 }
 
 /** Автосейв — каждый игровой год. */
+/** Интервал автосейва в игровых днях (настраивается в меню). */
+let autosaveDays = 365;
+export function setAutosaveDays(days: number): void {
+  autosaveDays = Math.max(30, days);
+}
+export function getAutosaveDays(): number {
+  return autosaveDays;
+}
+
 export function autosaveTick(state: GameState): void {
-  if (state.day > 1 && state.day % 365 === 0) {
+  if (state.day > 1 && state.day % autosaveDays === 0) {
     saveGame(state, AUTOSAVE_SLOT, 'Автосейв');
   }
 }

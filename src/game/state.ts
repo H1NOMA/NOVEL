@@ -49,6 +49,10 @@ export interface GameState {
   pendingChoice: string | null;
   /** Активные разведоперации: сектор просматривается до указанного дня. */
   recons: { sector: string; until: number }[];
+  /** Летопись войны: ключевые вехи (капитуляции, столицы, супероружие…). */
+  chronicle: { day: number; text: string }[];
+  /** История контроля: снапшоты числа планет по фракциям (раз в 30 дней). */
+  history: { day: number; control: Partial<Record<FactionId, number>> }[];
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -108,6 +112,8 @@ export function createGame(seed: number): GameState {
     doneObjectives: [],
     pendingChoice: null,
     recons: [],
+    chronicle: [],
+    history: [],
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.
@@ -171,6 +177,22 @@ export function pushLog(state: GameState, entry: Omit<LogEntry, 'day'>): void {
   const e: LogEntry = { day: state.day, ...entry };
   state.log.push(e);
   if (state.log.length > 400) state.log.shift();
+}
+
+/** Веха в летопись войны (журнал 📜 помнит всё, в отличие от лога). */
+export function pushChronicle(state: GameState, text: string): void {
+  state.chronicle.push({ day: state.day, text });
+}
+
+/** Снапшот контроля галактики для графика журнала войны. */
+export function snapshotControl(state: GameState): void {
+  const control: Partial<Record<FactionId, number>> = {};
+  for (const id of state.galaxy.order) {
+    const p = state.galaxy.planets.get(id)!;
+    if (p.shattered || p.abyss) continue;
+    control[p.owner] = (control[p.owner] ?? 0) + 1;
+  }
+  state.history.push({ day: state.day, control });
 }
 
 export function planetsOf(state: GameState, faction: FactionId): Planet[] {

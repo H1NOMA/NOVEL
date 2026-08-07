@@ -175,6 +175,9 @@ export type FleetOrder =
   | { kind: 'invade'; target: string }
   | { kind: 'reinforce'; target: string };
 
+/** Фазы наземной операции: высадка → плацдарм → генеральный штурм. */
+export type BattlePhase = 'landing' | 'foothold' | 'assault';
+
 export interface PlanetBattle {
   attacker: FactionId;
   defender: FactionId;
@@ -186,6 +189,8 @@ export interface PlanetBattle {
   liberation: number;
   /** Days the battle has raged. */
   days: number;
+  /** Текущая фаза операции (выводится из liberation, хранится для UI). */
+  phase?: BattlePhase;
 }
 
 export interface SpecialUnitDef {

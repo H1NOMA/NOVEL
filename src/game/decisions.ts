@@ -1,4 +1,4 @@
-import { fleetsAt, pushLog, type GameState } from './state';
+import { fleetsAt, pushChronicle, pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
 import { DIVISION_COST, DIVISION_SIZE, FACTORY_DEFS, SHIP_CLASSES, troopDef, type ShipClassId } from '../data/troops';
 import { SPECIALS } from '../data/factions';
@@ -352,6 +352,7 @@ export function fireSuperweapon(state: GameState, faction: FactionId, planetId: 
   planet.value = 0;
   state.spires = state.spires.filter((sp) => sp.planet !== planetId);
 
+  pushChronicle(state, `${SPECIALS[faction].name} уничтожает планету ${name} орбитальным залпом.`);
   pushLog(state, {
     faction,
     text: `${SPECIALS[faction].name} открывает огонь по ${name}. Планета УНИЧТОЖЕНА — осталось лишь поле обломков. Перезарядка: ${SUPER_SHOT_COOLDOWN} дней.`,

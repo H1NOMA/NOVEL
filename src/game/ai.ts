@@ -1,6 +1,6 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS } from '../data/factions';
-import { fleetsOf, planetsOf, pushLog, spawnFleet, type GameState } from './state';
+import { fleetsOf, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
 import { hostileNow } from './diplomacy';
@@ -70,11 +70,14 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   }
 
   // Флоты на своих планетах докомплектовывают пехоту из пулов.
+  // Потолок десанта растёт с годами войны — иначе фронты застывают:
+  // гарнизоны отъедаются быстрее, чем 45 пехоты способны их прогрызть.
+  const infantryCap = INFANTRY_CAP + Math.floor(state.day / 365) * 6;
   for (const f of fleets) {
     if (f.transit) continue;
     const p = state.galaxy.planets.get(f.at);
-    if (p && p.owner === faction && f.infantry < INFANTRY_CAP) {
-      const load = drawUnits(fs, Math.min(4, INFANTRY_CAP - f.infantry));
+    if (p && p.owner === faction && f.infantry < infantryCap) {
+      const load = drawUnits(fs, Math.min(4, infantryCap - f.infantry));
       f.infantry += load;
     }
   }
@@ -88,6 +91,7 @@ function eliminate(state: GameState, faction: FactionId): void {
   fs.activeFocus = undefined;
   for (const f of fleetsOf(state, faction)) f.order = { kind: 'idle' };
   const by = state.lastConqueror[faction] ?? null;
+  pushChronicle(state, `Фракция «${FACTIONS[faction].name}» повержена и изгнана из галактики.`);
   pushLog(state, {
     faction,
     text: `Фракция «${FACTIONS[faction].name}» повержена и изгнана из галактики!`,
@@ -265,9 +269,18 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
     totals.set(pl.owner, (totals.get(pl.owner) ?? 0) + 1);
   }
   let leader: FactionId | null = null;
-  for (const [f2, n] of totals) if (f2 !== faction && n / Math.max(1, living) > 0.38) leader = f2;
+  let leaderShare = 0;
+  for (const [f2, n] of totals) {
+    const share = n / Math.max(1, living);
+    if (f2 !== faction && share > 0.33) { leader = f2; leaderShare = share; }
+  }
   let best: string | null = null;
   let bestScore = 0;
+
+  // Решимость затяжной войны: после третьего года требования к перевесу
+  // постепенно снижаются — иначе фронты застывают навсегда (гарнизоны
+  // отрастают быстрее, чем ИИ копит десант; ловили в балансовых прогонах).
+  const desperation = Math.max(0.4, 1 - Math.max(0, state.day - 1100) / 3500);
 
   // Кандидаты: вражеские миры, смежные с нашей территорией (фронтир).
   for (const id of state.galaxy.order) {
@@ -282,15 +295,16 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
 
     const defence = p.garrison * (1 + p.fortification * 0.12) * (p.supplied ? 1 : 0.55);
     // Без перевеса ИИ не лезет — копит силы (рой безрассуднее прочих).
-    if (myPower < defence * (faction === 'terminids' ? 0.45 : 0.66)) continue;
+    if (myPower < defence * (faction === 'terminids' ? 0.45 : 0.66) * desperation) continue;
 
     let score = myPower / (defence + 10);
     score += p.value * 0.35;
     // Все фракции рвутся к Супер-Земле и центру галактики — важные точки.
     score += (1 - p.radius / state.galaxy.radiusMax) * 2.5;
     if (p.id === 'p_super_earth') score += 6;
-    // Коалиция против гегемона: лидера по планетам бьют в первую очередь.
-    if (leader && p.owner === leader) score += 2.5;
+    // Коалиция против гегемона: лидера по планетам бьют в первую очередь;
+    // хозяина половины галактики — всей мощью.
+    if (leader && p.owner === leader) score += leaderShare > 0.45 ? 6 : 3.5;
     if (!p.supplied) score += 3.5;          // окружённые — добить
     if (p.isCapital) score += 3;            // обезглавить врага
     if (p.battle && p.battle.attacker === faction) score += 2.5; // дожать штурм

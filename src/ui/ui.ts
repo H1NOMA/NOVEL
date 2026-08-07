@@ -13,21 +13,35 @@ import { buildDepot, DEPOT_COST } from '../game/supply';
 import { buildE711Station, buildSpecialDock, E711_STATION_COST, enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
 import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { troopsOf } from '../data/troops';
-import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta } from '../game/persist';
+import { AUTOSAVE_SLOT, MANUAL_SLOTS, getAutosaveDays, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
 import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
 import { buyTruce, truceActive, TRUCE_COST, TRUCE_DAYS } from '../game/diplomacy';
 import { OBJECTIVES } from '../game/objectives';
 import { commanderOf, cycleCommander } from '../game/commanders';
+import { PHASE_LABEL } from '../game/combat';
 import { canSabotage, canUprising, opReadyIn, reconActive, runRecon, runSabotage, runUprising, SPEC_OPS } from '../game/specops';
 import { buildShield, buildStation, SHIELD_COST, STATION_COST } from '../game/defense';
 import { nextRankIn, rankOf } from '../game/veterancy';
 import { Announcer, VOICE_LINES } from './announcer';
+import { SoundEngine } from './sound';
+import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
 import { resolveChoice } from '../game/events';
 import { TIMELINE_EVENTS } from '../data/events';
 import { emblemDataURL } from '../render/emblems';
 import { portraitDataURL, RULERS } from '../render/portraits';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
+
+// Настройки эффектов и автосейва (переживают перезапуск).
+interface FxSettings { bloom: boolean; scan: boolean; vignette: boolean; autosaveDays: number }
+const FX_KEY = 'sgw2_fx';
+function loadFx(): FxSettings {
+  try {
+    const raw = localStorage.getItem(FX_KEY);
+    if (raw) return { bloom: true, scan: true, vignette: true, autosaveDays: 365, ...JSON.parse(raw) as Partial<FxSettings> };
+  } catch { /* умолчания */ }
+  return { bloom: true, scan: true, vignette: true, autosaveDays: 365 };
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -86,10 +100,19 @@ export class UI {
   private opMode: string | null = null;
   /** Голос Верховного командования (англ. диктор). */
   private announcer = new Announcer();
+  /** Синтезированный звук: эмбиент, блипы, сирены. */
+  private sound = new SoundEngine();
+  /** Настройки эффектов и автосейва. */
+  private fx = loadFx();
+  /** Панель туториала (null — пройден или пропущен). */
+  private tutorialEl: HTMLElement | null = null;
+  private tutorialStep = 0;
   /** Стек кликабельных боевых оповещений. */
   private alertsEl!: HTMLElement;
   /** Оверлей управления и горячих клавиш. */
   private helpEl!: HTMLElement;
+  /** Оверлей журнала войны. */
+  private chronicleEl!: HTMLElement;
   /** Индекс для перебора битв кнопкой кинокамеры. */
   private cinemaIdx = 0;
   /** Последняя ненулевая скорость — пауза возвращает именно её. */
@@ -114,8 +137,63 @@ export class UI {
     this.build();
     this.wire();
     this.renderAll();
+    // Применяем сохранённые настройки эффектов.
+    this.applyFx();
+    // Звук стартует по первому жесту (политика браузеров); блип на кнопках.
+    this.sound.armOnFirstGesture();
+    this.root.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest?.('button')) this.sound.click();
+    });
     // Приветствие Верховного командования (если диктор включён).
     window.setTimeout(() => this.announcer.say(VOICE_LINES.gameStart), 1500);
+    // Туториал: только свежая партия и только если ещё не пройден.
+    if (!tutorialDone() && this.state.day <= 2) this.startTutorial();
+  }
+
+  // ---------------- Туториал ----------------
+
+  private startTutorial(): void {
+    this.tutorialEl = el('div');
+    this.tutorialEl.id = 'tutorial';
+    this.root.append(this.tutorialEl);
+    this.renderTutorial();
+    bus.on('tick', () => this.tickTutorial());
+  }
+
+  private renderTutorial(): void {
+    if (!this.tutorialEl) return;
+    const step = TUTORIAL_STEPS[this.tutorialStep];
+    if (!step) return;
+    this.tutorialEl.innerHTML = `
+      <div class="tut-head">УЧЕБНАЯ ДИРЕКТИВА · ШАГ ${this.tutorialStep + 1}/${TUTORIAL_STEPS.length}</div>
+      <div class="tut-text">${step.text}</div>
+      <button class="mini-btn" id="tut-skip">Пропустить обучение</button>`;
+    this.tutorialEl.querySelector('#tut-skip')?.addEventListener('click', () => this.finishTutorial(true));
+  }
+
+  private tickTutorial(): void {
+    if (!this.tutorialEl) return;
+    const step = TUTORIAL_STEPS[this.tutorialStep];
+    if (!step) return;
+    if (step.done(this.state)) {
+      this.tutorialStep++;
+      if (this.tutorialStep >= TUTORIAL_STEPS.length) {
+        this.finishTutorial(false);
+      } else {
+        this.sound.chime();
+        this.renderTutorial();
+      }
+    }
+  }
+
+  private finishTutorial(skipped: boolean): void {
+    markTutorialDone();
+    this.tutorialEl?.remove();
+    this.tutorialEl = null;
+    if (!skipped) {
+      this.toast('ОБУЧЕНИЕ ЗАВЕРШЕНО · НЕСИ ДЕМОКРАТИЮ');
+      this.announcer.say(VOICE_LINES.objectiveDone);
+    }
   }
 
   private build(): void {
@@ -137,12 +215,14 @@ export class UI {
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
     this.alertsEl = el('div'); this.alertsEl.id = 'combat-alerts';
     this.helpEl = el('div'); this.helpEl.id = 'help-overlay'; this.helpEl.classList.add('hidden');
+    this.chronicleEl = el('div'); this.chronicleEl.id = 'chronicle-overlay'; this.chronicleEl.classList.add('hidden');
 
     // Кнопки фокусов/решений/производства — под шапкой слева.
     this.sideBtns.innerHTML = `
       <button class="hud-btn-sq" id="focus-btn" title="Древо фокусов (F)">◈</button>
       <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
       <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
+      <button class="hud-btn-sq" id="chronicle-btn" title="Журнал войны: летопись и график контроля">📜</button>
       <button class="hud-btn-sq" id="cinema-btn" title="Следить за боем: камера летит к сражению">🎥</button>
       <button class="hud-btn-sq" id="voice-btn" title="Голос командования (англ. диктор)">${this.announcer.enabled ? '🔊' : '🔇'}</button>
       <button class="hud-btn-sq" id="help-btn" title="Управление и горячие клавиши">⌨</button>`;
@@ -151,6 +231,7 @@ export class UI {
     this.sideBtns.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
     this.sideBtns.querySelector('#help-btn')!.addEventListener('click', () => this.toggleHelp());
+    this.sideBtns.querySelector('#chronicle-btn')!.addEventListener('click', () => this.toggleChronicle());
     this.sideBtns.querySelector('#voice-btn')!.addEventListener('click', () => {
       const on = this.announcer.toggle();
       this.sideBtns.querySelector('#voice-btn')!.textContent = on ? '🔊' : '🔇';
@@ -158,7 +239,7 @@ export class UI {
       if (on) this.announcer.say(VOICE_LINES.gameStart);
     });
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.helpEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.helpEl, this.chronicleEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -181,6 +262,7 @@ export class UI {
     });
     bus.on('gameEvent', ({ title }) => {
       if (title.startsWith('ЦЕЛЬ ВЫПОЛНЕНА')) this.announcer.say(VOICE_LINES.objectiveDone);
+      this.sound.chime();
     });
 
     window.addEventListener('keydown', (e) => {
@@ -192,6 +274,8 @@ export class UI {
       else if (e.key === 'Escape') {
         if (!this.helpEl.classList.contains('hidden')) {
           this.helpEl.classList.add('hidden');
+        } else if (!this.chronicleEl.classList.contains('hidden')) {
+          this.chronicleEl.classList.add('hidden');
         } else if (!this.focusOverlay.classList.contains('hidden')) {
           this.focusOverlay.classList.add('hidden');
         } else if (!this.dossierEl.classList.contains('hidden')) {
@@ -542,7 +626,7 @@ export class UI {
         <span style="color:${FACTIONS[p.owner].color}">${FACTIONS[p.owner].short} ${controlPct.toFixed(0)}%</span>
         ${b ? `<span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} ${attackerPct.toFixed(0)}%</span>` : ''}
       </div>
-      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день</div>` : ''}
+      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день${b.phase ? ` · фаза: <b style="color:var(--gold)">${PHASE_LABEL[b.phase]}</b>` : ''}</div>` : ''}
       ${(() => {
         // Снабжение атаки игрока: с какого плацдарма идёт и не перерезано ли.
         if (!b || b.attacker !== s.player) return '';
@@ -1630,7 +1714,24 @@ export class UI {
           <div class="menu-title" style="margin-top:14px">СОХРАНИТЬ / ЗАГРУЗИТЬ</div>
           ${slotRow(AUTOSAVE_SLOT, false)}
           ${MANUAL_SLOTS.map((sl) => slotRow(sl, true)).join('')}
-          <div class="hint">Автосейв записывается автоматически каждый игровой год (365 дней).</div>
+          <div class="hint">Автосейв: каждые ${getAutosaveDays()} игровых дней.</div>
+          <div class="menu-title" style="margin-top:14px">Настройки</div>
+          <div class="set-row"><span>Голос командования</span>
+            <button class="mini-btn ${this.announcer.enabled ? 'sel' : ''}" data-set="voice">${this.announcer.enabled ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
+          <div class="set-row"><span>Общая громкость</span>
+            <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.master * 100)}" data-vol="master"></div>
+          <div class="set-row"><span>Эмбиент</span>
+            <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.ambient * 100)}" data-vol="ambient"></div>
+          <div class="set-row"><span>Звуки событий</span>
+            <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.effects * 100)}" data-vol="effects"></div>
+          <div class="set-row"><span>Свечение (bloom)</span>
+            <button class="mini-btn ${this.fx.bloom ? 'sel' : ''}" data-set="bloom">${this.fx.bloom ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
+          <div class="set-row"><span>Сканлайны панелей</span>
+            <button class="mini-btn ${this.fx.scan ? 'sel' : ''}" data-set="scan">${this.fx.scan ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
+          <div class="set-row"><span>Виньетка</span>
+            <button class="mini-btn ${this.fx.vignette ? 'sel' : ''}" data-set="vignette">${this.fx.vignette ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
+          <div class="set-row"><span>Автосейв</span>
+            <button class="mini-btn" data-set="autosave">каждые ${this.fx.autosaveDays} дн</button></div>
         </div>
       </div>`;
 
@@ -1655,6 +1756,109 @@ export class UI {
         requestLoad(b.dataset.load!);
         location.reload();
       }));
+    // --- Настройки ---
+    this.menuEl.querySelectorAll<HTMLInputElement>('[data-vol]').forEach((inp) =>
+      inp.addEventListener('input', () => {
+        const key = inp.dataset.vol as 'master' | 'ambient' | 'effects';
+        this.sound.settings[key] = Number(inp.value) / 100;
+        this.sound.save();
+      }));
+    this.menuEl.querySelectorAll<HTMLButtonElement>('[data-set]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const key = b.dataset.set!;
+        if (key === 'voice') {
+          this.announcer.toggle();
+          const vb = this.sideBtns.querySelector('#voice-btn');
+          if (vb) vb.textContent = this.announcer.enabled ? '🔊' : '🔇';
+        } else if (key === 'autosave') {
+          // Цикл интервалов: 180 → 365 → 730 дней.
+          this.fx.autosaveDays = this.fx.autosaveDays === 180 ? 365 : this.fx.autosaveDays === 365 ? 730 : 180;
+          this.saveFx();
+        } else if (key === 'bloom' || key === 'scan' || key === 'vignette') {
+          this.fx[key] = !this.fx[key];
+          this.saveFx();
+        }
+        this.renderMenu();
+      }));
+  }
+
+  // ---------------- Настройки ----------------
+
+  private applyFx(): void {
+    this.scene.setBloomEnabled(this.fx.bloom);
+    document.body.classList.toggle('no-scan', !this.fx.scan);
+    document.body.classList.toggle('no-vignette', !this.fx.vignette);
+    setAutosaveDays(this.fx.autosaveDays);
+  }
+
+  private saveFx(): void {
+    localStorage.setItem(FX_KEY, JSON.stringify(this.fx));
+    this.applyFx();
+  }
+
+  // ---------------- Журнал войны ----------------
+
+  private toggleChronicle(): void {
+    const opening = this.chronicleEl.classList.contains('hidden');
+    this.chronicleEl.classList.toggle('hidden');
+    if (opening) this.renderChronicle();
+  }
+
+  /** График контроля галактики: полилинии числа планет по фракциям. */
+  private chronicleChart(): string {
+    const s = this.state;
+    const hist = s.history;
+    if (hist.length < 2) return '<div class="hint">График появится после первого месяца войны.</div>';
+    const W = 760, H = 220, PAD = 34;
+    const days = hist.map((h) => h.day);
+    const minD = days[0]!, maxD = Math.max(days[days.length - 1]!, minD + 1);
+    const factions = FACTION_IDS.concat(s.superFederationRisen ? ['superFederation'] : []);
+    const maxN = Math.max(4, ...hist.flatMap((h) => factions.map((f) => h.control[f] ?? 0)));
+    const x = (d: number) => PAD + ((d - minD) / (maxD - minD)) * (W - PAD * 2);
+    const y = (n: number) => H - 22 - (n / maxN) * (H - 42);
+    let svg = `<svg class="chron-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    // сетка: горизонтали четвертей и годовые отметки
+    for (let i = 0; i <= 4; i++) {
+      const yy = y((maxN / 4) * i);
+      svg += `<line x1="${PAD}" y1="${yy}" x2="${W - PAD}" y2="${yy}" stroke="rgba(255,255,255,0.08)"/>`;
+      svg += `<text x="${PAD - 6}" y="${yy + 3}" text-anchor="end" class="chron-tick">${Math.round((maxN / 4) * i)}</text>`;
+    }
+    for (let d = Math.ceil(minD / 365) * 365; d <= maxD; d += 365) {
+      svg += `<line x1="${x(d)}" y1="${y(0)}" x2="${x(d)}" y2="${y(maxN)}" stroke="rgba(255,255,255,0.07)"/>`;
+      svg += `<text x="${x(d)}" y="${H - 6}" text-anchor="middle" class="chron-tick">Год ${d / 365}</text>`;
+    }
+    for (const f of factions) {
+      const pts = hist.map((h) => `${x(h.day).toFixed(1)},${y(h.control[f] ?? 0).toFixed(1)}`).join(' ');
+      svg += `<polyline points="${pts}" fill="none" stroke="${FACTIONS[f].color}" stroke-width="2"/>`;
+    }
+    svg += `</svg>`;
+    const legend = factions.map((f) => {
+      const last = hist[hist.length - 1]!.control[f] ?? 0;
+      return `<span class="chron-leg"><span class="fac-dot" style="background:${FACTIONS[f].color}"></span>${FACTIONS[f].short} <b>${last}</b></span>`;
+    }).join('');
+    return svg + `<div class="chron-legend">${legend}</div>`;
+  }
+
+  private renderChronicle(): void {
+    const s = this.state;
+    const rows = [...s.chronicle].reverse().map((c) =>
+      `<div class="chron-row"><span class="chron-day">Д${c.day} · год ${Math.floor(c.day / 365) + 1}</span><span>${c.text}</span></div>`).join('')
+      || '<div class="hint">Пока ни одной вехи: война только разгорается.</div>';
+    this.chronicleEl.innerHTML = `
+      <div class="chron-inner">
+        <div class="pc-head"><span class="pc-title">📜 ЖУРНАЛ ВОЙНЫ · ДЕНЬ ${s.day}</span>
+          <button class="pc-close" id="chron-close">✕</button></div>
+        <div class="pc-body">
+          <div class="pp-section">Контроль галактики</div>
+          ${this.chronicleChart()}
+          <div class="pp-section">Вехи войны · ${s.chronicle.length}</div>
+          <div class="chron-list">${rows}</div>
+        </div>
+      </div>`;
+    this.chronicleEl.querySelector('#chron-close')?.addEventListener('click', () => this.chronicleEl.classList.add('hidden'));
+    this.chronicleEl.addEventListener('click', (e) => {
+      if (e.target === this.chronicleEl) this.chronicleEl.classList.add('hidden');
+    });
   }
 
   // ---------------- Справка по управлению ----------------
@@ -1704,6 +1908,13 @@ export class UI {
   private pushAlert(a: { planetId: string; text: string; tone: string; voice?: string }): void {
     if (a.voice && a.voice in VOICE_LINES) {
       this.announcer.say(VOICE_LINES[a.voice as keyof typeof VOICE_LINES]);
+    }
+    // Звуковое сопровождение: потеря — удар, угроза — сирена, успех — чайм.
+    if (a.tone === 'bad') {
+      if (a.voice === 'planetLost' || a.voice === 'capitalLost') this.sound.thud();
+      else this.sound.siren();
+    } else if (a.tone === 'good') {
+      this.sound.chime();
     }
     const item = el('div', `combat-alert ${a.tone}`, `<span class="ca-dot"></span>${a.text}`);
     item.addEventListener('click', () => {

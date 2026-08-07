@@ -421,6 +421,11 @@ export class GalaxyScene {
     return this.cinemaPlanet !== null;
   }
 
+  /** Тумблер bloom-постобработки (настройки → эффекты). */
+  setBloomEnabled(on: boolean): void {
+    this.bloom.enabled = on;
+  }
+
   private updateCinema(dt: number): void {
     if (!this.cinemaPlanet) return;
     const p = this.state.galaxy.planets.get(this.cinemaPlanet);
