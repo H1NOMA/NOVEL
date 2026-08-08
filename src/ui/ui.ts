@@ -5,7 +5,7 @@ import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
 import { focusIconURL } from '../render/focusIcons';
-import { orderFleetTo, garrisonReinforce, splitFleet, disbandFleet } from '../game/units';
+import { orderFleetTo, garrisonReinforce, lockedInBattle, splitFleet, disbandFleet } from '../game/units';
 import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, takeStoredShips, yardsOf, SHIPYARD_COST } from '../game/shipyards';
 import { canEnter } from '../game/supply';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
@@ -609,7 +609,7 @@ export class UI {
         <span style="color:${FACTIONS[p.owner].color}">${FACTIONS[p.owner].short} ${controlPct.toFixed(0)}%</span>
         ${b ? `<span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} ${attackerPct.toFixed(0)}%</span>` : ''}
       </div>
-      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день${b.phase ? ` · фаза: <b style="color:var(--gold)">${PHASE_LABEL[b.phase]}</b>` : ''}</div>` : ''}
+      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день${b.phase ? ` · фаза: <b style="color:var(--gold)">${PHASE_LABEL[b.phase]}</b>` : ''}${(b.landed ?? 0) >= 1 ? ` · десант на земле: <b style="color:${FACTIONS[b.attacker].color}">${(b.landed ?? 0).toFixed(0)}</b>` : ''}</div>` : ''}
       ${(() => {
         // Снабжение атаки игрока: с какого плацдарма идёт и не перерезано ли.
         if (!b || b.attacker !== s.player) return '';
@@ -741,7 +741,7 @@ export class UI {
         <div class="grow"><div>${badge}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}</div>
           <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
-        ${p.owner === s.player && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
+        ${(p.owner === s.player || (p.battle && p.battle.attacker === s.player)) && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
         ${p.owner === s.player && p.shipyard && storedHulls(p.shipyard) > 0 ? `<button class="mini-btn" data-act="takeyard" data-fleet="${f.id}">⚓ С ВЕРФИ</button>` : ''}
       </div>`;
     });
@@ -1089,7 +1089,7 @@ export class UI {
       <div class="pc-head"><span class="pc-title">${f.special ? '◆ ' : ''}${this.fleetName(f.id)}</span>
         <button class="pc-close" id="fd-close">✕</button></div>
       <div class="pc-body">
-        <div class="pp-sub">${f.transit ? `В пути → ${at?.name ?? '?'}` : `На орбите: ${at?.name ?? '?'}`}</div>
+        <div class="pp-sub">${f.transit ? `В пути → ${at?.name ?? '?'}` : `На орбите: ${at?.name ?? '?'}`}${lockedInBattle(s, f) ? ' · <span style="color:var(--fed)">⚔ СКОВАНО БОЕМ</span>' : ''}</div>
         <div class="pp-stat"><span>Супер-эсминцы</span><b>${f.ships.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Дредноуты</span><b>${f.dreadnoughts.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Линкоры-флагманы</span><b>${f.battleships.toFixed(0)}</b></div>
@@ -1242,9 +1242,11 @@ export class UI {
     const invade = areHostile(s.player, dest.owner) && dest.owner !== s.player;
     let sent = 0;
     let queued = 0;
+    let locked = 0;
     for (const fid of picks) {
       const f = s.fleets.get(fid);
       if (!f || f.faction !== s.player) continue;
+      if (lockedInBattle(s, f)) { locked++; continue; }
       // Планировщик: занятый флот с Shift копит маршрут из целей.
       const busy = !!f.transit || (f.order && f.order.kind !== 'idle');
       if (queue && busy) {
@@ -1269,6 +1271,8 @@ export class UI {
       this.toast(`ПРИКАЗ: ${invade ? 'ВТОРЖЕНИЕ' : 'ПЕРЕЛЁТ'} · ${dest.name} · ${sent} СОЕД.`);
       this.selectedFleets.clear();
       this.renderForces();
+    } else if (locked) {
+      this.toast('⚔ СОЕДИНЕНИЯ СКОВАНЫ БОЕМ — ОРБИТУ НЕ ПОКИНУТЬ');
     } else {
       this.toast('НЕТ МАРШРУТА СНАБЖЕНИЯ');
     }

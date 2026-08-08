@@ -191,6 +191,8 @@ export interface PlanetBattle {
   days: number;
   /** Текущая фаза операции (выводится из liberation, хранится для UI). */
   phase?: BattlePhase;
+  /** Высаженный на поверхность десант атакующего: дерётся даже без флота. */
+  landed?: number;
 }
 
 export interface SpecialUnitDef {

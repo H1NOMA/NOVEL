@@ -139,6 +139,35 @@ export function resolveGround(state: GameState): void {
     // fleetsAt already excludes fleets still in transit.
     const attackers = fleetsAt(state, id).filter((f) => hostileNow(state, f.faction, planet.owner));
 
+    // Высаженный десант дерётся сам, даже когда орбита потеряна: битва
+    // продолжается силами наземной группировки.
+    if (attackers.length === 0 && planet.battle && (planet.battle.landed ?? 0) >= 1 &&
+        hostileNow(state, planet.battle.attacker, planet.owner)) {
+      const b = planet.battle;
+      b.days++;
+      const phase = battlePhase(b.liberation);
+      b.phase = phase;
+      const attackerForce = (b.landed ?? 0) * combatMult(state, b.attacker);
+      let defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
+      if (planet.buildings.includes('shieldGen') && !planet.puppetOf) defBonus *= 1.35;
+      if (!planet.supplied) defBonus *= 0.55;
+      const defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
+      b.attackerForce = attackerForce;
+      b.defenderForce = defenderForce;
+      const ratio = attackerForce / (attackerForce + defenderForce + 0.001);
+      // Без орбитального прикрытия и подвоза десант наступает медленнее.
+      b.liberation = clamp(b.liberation + (ratio - 0.5) * 16, 0, 100);
+      planet.garrison = Math.max(0, planet.garrison - Math.min(planet.garrison, attackerForce * 0.03));
+      b.landed = Math.max(0, (b.landed ?? 0) - (b.landed ?? 0) * defenderForce * 0.0008 * (1 + planet.fortification * 0.15));
+      if (b.liberation >= 100 || planet.garrison <= 0.5) {
+        capturePlanet(state, planet, b.attacker, []);
+      } else if ((b.landed ?? 0) < 1) {
+        // Десант перебит — штурм угасает обычным порядком.
+        b.landed = 0;
+      }
+      continue;
+    }
+
     if (attackers.length === 0) {
       // ОКРУЖЕНИЕ: отрезанная планета медленно душится — гарнизон тает,
       // контроль утекает к осаждающему соседу, пока мир не падёт без боя.
@@ -196,7 +225,9 @@ export function resolveGround(state: GameState): void {
     let leadVal = 0;
     for (const [fac, val] of attackPower) if (val > leadVal) { leadVal = val; lead = fac; }
 
-    let attackerForce = leadVal;
+    // Высаженный ранее десант ведущего атакующего дерётся вместе с бортовой пехотой.
+    const landedGround = planet.battle && planet.battle.attacker === lead ? (planet.battle.landed ?? 0) : 0;
+    let attackerForce = leadVal + landedGround * combatMult(state, lead);
     let defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
     // Планетарный щит: высадка вязнет в помехах и заградительном огне.
     const shielded = planet.buildings.includes('shieldGen') && !planet.puppetOf;
@@ -307,9 +338,25 @@ export function resolveGround(state: GameState): void {
       // День наземных боёв закаляет десант.
       if (f.faction === lead) gainXp(f, 1.2);
     }
+    // Наземный десант несёт потери наравне с бортовой пехотой.
+    if (b.landed && b.attacker === lead) {
+      b.landed = Math.max(0, b.landed - b.landed * defenderForce * 0.0006 * (1 + planet.fortification * 0.15));
+    }
 
     if (b.liberation >= 100 || planet.garrison <= 0.5) {
       capturePlanet(state, planet, lead, attackers);
+      continue;
+    }
+    // Захлебнувшийся штурм прекращается: контроль на нуле, пехоты не осталось —
+    // сражение сворачивается, и скованные боем флоты снова свободны.
+    if (b.liberation <= 0 && b.days > 8 && leadVal < 0.5 && (b.landed ?? 0) < 1) {
+      planet.battle = undefined;
+      for (const c of planet.cities) c.holder = planet.owner;
+      pushLog(state, {
+        faction: lead,
+        text: `Штурм ${planet.name} захлебнулся: у ${FACTION_GEN[lead]} не осталось десанта. Осада снята.`,
+        tone: planet.owner === state.player ? 'good' : 'info',
+      });
     }
   }
 }
@@ -318,6 +365,8 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   const prev = planet.owner;
   state.lastConqueror[prev] = attacker;
   const garrisonLost = planet.garrison;
+  // Уцелевший наземный десант атакующего станет ядром нового гарнизона.
+  const groundForce = planet.battle && planet.battle.attacker === attacker ? (planet.battle.landed ?? 0) : 0;
   // Долгая мясорубка оставляет на поверхности выжженные шрамы — навсегда.
   if (planet.battle && planet.battle.days >= 20) planet.scarred = true;
   planet.owner = attacker;
@@ -343,7 +392,7 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     harvestPopulation(state, planet.name, garrisonLost, planet.cities.length);
   }
   // Landed infantry becomes the new garrison; ships stay in orbit.
-  let landed = 0;
+  let landed = groundForce;
   for (const f of attackers) {
     if (f.faction === attacker) {
       landed += f.infantry * 0.6;

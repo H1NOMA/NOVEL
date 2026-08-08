@@ -47,7 +47,26 @@ function blobTexture(rgb: string): THREE.Texture {
   return new THREE.CanvasTexture(cv);
 }
 
-/** Цветные туманности на краях владений фракций: живой фон галактики. */
+/** Широкое плоское пятно фонового свечения (для подсветки клина фракции). */
+function glowTexture(rgb: string): THREE.Texture {
+  const size = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d')!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 8, size / 2, size / 2, size / 2);
+  g.addColorStop(0, `rgba(${rgb},0.30)`);
+  g.addColorStop(0.5, `rgba(${rgb},0.12)`);
+  g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(cv);
+}
+
+/**
+ * Цветовые зоны фракций по краям карты: не «облака», а плоская фоновая
+ * подсветка — широкие градиентные пятна, лежащие глубоко ПОД плоскостью
+ * галактики. Читаются как окраска космоса, а не как объекты сцены.
+ */
 export function createFactionNebulae(worldRadius: number): THREE.Group {
   const group = new THREE.Group();
   // [угол клина, цвет]: терминиды — золото, автоматоны — багрянец, иллюминаты — фиолет.
@@ -57,22 +76,24 @@ export function createFactionNebulae(worldRadius: number): THREE.Group {
     [(257 * Math.PI) / 180, '170,110,255'],
   ];
   for (const [ang, rgb] of zones) {
-    const tex = blobTexture(rgb);
-    for (let i = 0; i < 3; i++) {
-      const mat = new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
-        opacity: 0.16 + i * 0.04,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      });
-      const sp = new THREE.Sprite(mat);
-      const a = ang + (i - 1) * 0.28;
-      const r = worldRadius * (1.35 + i * 0.22);
-      sp.position.set(Math.cos(a) * r, -2.5 - i * 1.2, Math.sin(a) * r);
-      sp.scale.setScalar(worldRadius * (0.9 + i * 0.35));
-      group.add(sp);
-    }
+    const tex = glowTexture(rgb);
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    // Одно широкое плоское пятно на зону, растянутое вдоль дуги края карты.
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    const r = worldRadius * 1.3;
+    plane.position.set(Math.cos(ang) * r, -7, Math.sin(ang) * r);
+    plane.rotation.x = -Math.PI / 2;
+    // Вытянуть вдоль касательной к краю (поперёк радиуса).
+    plane.rotation.z = -ang;
+    plane.scale.set(worldRadius * 2.2, worldRadius * 1.2, 1);
+    group.add(plane);
   }
   return group;
 }

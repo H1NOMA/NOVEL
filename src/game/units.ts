@@ -17,12 +17,23 @@ function transitable(state: GameState, p: Planet, faction: FactionId): boolean {
   return p.owner === faction && canEnter(state, faction, p);
 }
 
+/** Флот скован идущей битвой на своей орбите (атакует или обороняет)? */
+export function lockedInBattle(state: GameState, fleet: Fleet): boolean {
+  if (fleet.transit) return false;
+  const here = state.galaxy.planets.get(fleet.at);
+  if (!here?.battle) return false;
+  return here.battle.attacker === fleet.faction || here.owner === fleet.faction;
+}
+
 /** Order a fleet to move/invade toward a target planet along supply lines. */
 export function orderFleetTo(state: GameState, fleet: Fleet, target: string, invade: boolean): boolean {
   if (fleet.at === target && !fleet.transit) {
     fleet.order = { kind: 'idle' };
     return true;
   }
+  // Сцепка боем: пока над планетой идёт сражение, его участники не могут
+  // покинуть орбиту — битва должна решиться (или штурм прекратиться).
+  if (lockedInBattle(state, fleet)) return false;
   const targetPlanet = state.galaxy.planets.get(target);
   if (!targetPlanet || !canEnter(state, fleet.faction, targetPlanet)) return false;
   const from = fleet.transit ? fleet.transit.from : fleet.at;
@@ -189,6 +200,20 @@ export function garrisonReinforce(state: GameState, fleet: Fleet): void {
     pushLog(state, {
       faction: fleet.faction,
       text: `Подкрепление высадилось на ${planet.name}: гарнизон +${fleet.infantry.toFixed(0)}.`,
+      tone: fleet.faction === state.player ? 'good' : 'info',
+    });
+    fleet.infantry = 0;
+    fleet.order = { kind: 'idle' };
+    return;
+  }
+  // Десант на штурмуемую планету: пехота сходит на землю и дерётся в составе
+  // высадки — даже если флот над ней будет разбит.
+  const b = planet.battle;
+  if (b && b.attacker === fleet.faction && fleet.infantry > 0) {
+    b.landed = (b.landed ?? 0) + fleet.infantry;
+    pushLog(state, {
+      faction: fleet.faction,
+      text: `Десант высажен на ${planet.name}: на земле ${b.landed.toFixed(0)} бойцов.`,
       tone: fleet.faction === state.player ? 'good' : 'info',
     });
     fleet.infantry = 0;
