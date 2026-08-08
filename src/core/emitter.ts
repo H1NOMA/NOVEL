@@ -13,7 +13,7 @@ export interface GameEvents extends Record<string, unknown> {
    *  С Shift приказ добавляется в очередь, а не заменяет текущий. */
   planetRightClicked: { id: string; queue?: boolean };
   /** Боевая тревога: кликабельное оповещение с перелётом камеры к планете.
-   *  voice — ключ реплики диктора (см. VOICE_LINES). */
+   *  voice — вид события для звукового сопровождения (thud при потере мира). */
   combatAlert: { planetId: string; text: string; tone: 'bad' | 'alert' | 'good'; voice?: string };
   /** Планета сменила владельца (для диктора и оповещений). */
   planetCaptured: { id: string; by: string; prev: string };

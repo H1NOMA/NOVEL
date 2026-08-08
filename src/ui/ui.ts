@@ -22,7 +22,6 @@ import { PHASE_LABEL } from '../game/combat';
 import { canSabotage, canUprising, opReadyIn, reconActive, runRecon, runSabotage, runUprising, SPEC_OPS } from '../game/specops';
 import { buildShield, buildStation, SHIELD_COST, STATION_COST } from '../game/defense';
 import { nextRankIn, rankOf } from '../game/veterancy';
-import { Announcer, VOICE_LINES } from './announcer';
 import { SoundEngine } from './sound';
 import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
 import { resolveChoice } from '../game/events';
@@ -99,7 +98,6 @@ export class UI {
   /** Активный режим выбора цели спецоперации (id операции или null). */
   private opMode: string | null = null;
   /** Голос Верховного командования (англ. диктор). */
-  private announcer = new Announcer();
   /** Синтезированный звук: эмбиент, блипы, сирены. */
   private sound = new SoundEngine();
   /** Настройки эффектов и автосейва. */
@@ -144,8 +142,6 @@ export class UI {
     this.root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest?.('button')) this.sound.click();
     });
-    // Приветствие Верховного командования (если диктор включён).
-    window.setTimeout(() => this.announcer.say(VOICE_LINES.gameStart), 1500);
     // Туториал: только свежая партия и только если ещё не пройден.
     if (!tutorialDone() && this.state.day <= 2) this.startTutorial();
   }
@@ -192,7 +188,7 @@ export class UI {
     this.tutorialEl = null;
     if (!skipped) {
       this.toast('ОБУЧЕНИЕ ЗАВЕРШЕНО · НЕСИ ДЕМОКРАТИЮ');
-      this.announcer.say(VOICE_LINES.objectiveDone);
+      this.sound.chime();
     }
   }
 
@@ -224,7 +220,6 @@ export class UI {
       <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
       <button class="hud-btn-sq" id="chronicle-btn" title="Журнал войны: летопись и график контроля">📜</button>
       <button class="hud-btn-sq" id="cinema-btn" title="Следить за боем: камера летит к сражению">🎥</button>
-      <button class="hud-btn-sq" id="voice-btn" title="Голос командования (англ. диктор)">${this.announcer.enabled ? '🔊' : '🔇'}</button>
       <button class="hud-btn-sq" id="help-btn" title="Управление и горячие клавиши">⌨</button>`;
     this.sideBtns.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
     this.sideBtns.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
@@ -232,12 +227,6 @@ export class UI {
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
     this.sideBtns.querySelector('#help-btn')!.addEventListener('click', () => this.toggleHelp());
     this.sideBtns.querySelector('#chronicle-btn')!.addEventListener('click', () => this.toggleChronicle());
-    this.sideBtns.querySelector('#voice-btn')!.addEventListener('click', () => {
-      const on = this.announcer.toggle();
-      this.sideBtns.querySelector('#voice-btn')!.textContent = on ? '🔊' : '🔇';
-      this.toast(on ? 'ГОЛОС КОМАНДОВАНИЯ: ВКЛ' : 'ГОЛОС КОМАНДОВАНИЯ: ВЫКЛ');
-      if (on) this.announcer.say(VOICE_LINES.gameStart);
-    });
 
     this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.helpEl, this.chronicleEl, this.logEl, this.toastEl);
   }
@@ -257,13 +246,7 @@ export class UI {
     bus.on('planetsBoxSelected', ({ ids }) => this.onBoxSelected(ids));
     bus.on('planetRightClicked', ({ id, queue }) => this.onPlanetRightClicked(id, !!queue));
     bus.on('combatAlert', (a) => this.pushAlert(a));
-    bus.on('factionDefeated', ({ faction }) => {
-      this.announcer.say(faction === this.state.player ? VOICE_LINES.playerDefeated : VOICE_LINES.enemyDefeated);
-    });
-    bus.on('gameEvent', ({ title }) => {
-      if (title.startsWith('ЦЕЛЬ ВЫПОЛНЕНА')) this.announcer.say(VOICE_LINES.objectiveDone);
-      this.sound.chime();
-    });
+    bus.on('gameEvent', () => this.sound.chime());
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
@@ -528,7 +511,7 @@ export class UI {
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-truce]').forEach((b) =>
       b.addEventListener('click', () => {
         if (buyTruce(this.state, b.dataset.truce as FactionId)) {
-          this.announcer.say(VOICE_LINES.truce);
+          this.sound.chime();
           this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
           this.renderDossier();
           this.renderHud();
@@ -870,7 +853,7 @@ export class UI {
             : runUprising(s, s.player, p.id);
           if (done) {
             this.opMode = null;
-            this.announcer.say(VOICE_LINES.specops);
+            this.sound.chime();
             this.toast(op === 'sabotage' ? '🗡 ДИВЕРСИЯ ВЫПОЛНЕНА' : op === 'recon' ? '👁 СЕКТОР ВСКРЫТ НА 30 ДНЕЙ' : '✊ ВОССТАНИЕ ПОДНЯТО');
             this.scene.refreshOwners();
             this.renderPanel();
@@ -929,7 +912,7 @@ export class UI {
         }
         if (act === 'fire') {
           if (fireSuperweapon(s, s.player, p.id)) {
-            this.announcer.say(VOICE_LINES.superweapon);
+            this.sound.thud();
             this.toast(`☄ ${p.name} — ПЛАНЕТА УНИЧТОЖЕНА`, 3500);
             this.scene.refreshOwners();
             this.renderPanel();
@@ -1716,8 +1699,6 @@ export class UI {
           ${MANUAL_SLOTS.map((sl) => slotRow(sl, true)).join('')}
           <div class="hint">Автосейв: каждые ${getAutosaveDays()} игровых дней.</div>
           <div class="menu-title" style="margin-top:14px">Настройки</div>
-          <div class="set-row"><span>Голос командования</span>
-            <button class="mini-btn ${this.announcer.enabled ? 'sel' : ''}" data-set="voice">${this.announcer.enabled ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
           <div class="set-row"><span>Общая громкость</span>
             <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.master * 100)}" data-vol="master"></div>
           <div class="set-row"><span>Эмбиент</span>
@@ -1766,11 +1747,7 @@ export class UI {
     this.menuEl.querySelectorAll<HTMLButtonElement>('[data-set]').forEach((b) =>
       b.addEventListener('click', () => {
         const key = b.dataset.set!;
-        if (key === 'voice') {
-          this.announcer.toggle();
-          const vb = this.sideBtns.querySelector('#voice-btn');
-          if (vb) vb.textContent = this.announcer.enabled ? '🔊' : '🔇';
-        } else if (key === 'autosave') {
+        if (key === 'autosave') {
           // Цикл интервалов: 180 → 365 → 730 дней.
           this.fx.autosaveDays = this.fx.autosaveDays === 180 ? 365 : this.fx.autosaveDays === 365 ? 730 : 180;
           this.saveFx();
@@ -1893,7 +1870,6 @@ export class UI {
           <div class="pp-section">Кнопки слева</div>
           ${row('◈ ⚙ ⚒', 'Фокусы · Решения · Производство')}
           ${row('🎥', 'Камера летит к идущей битве')}
-          ${row('🔊', 'Голос командования (англ. диктор)')}
         </div>
       </div>`;
     this.helpEl.querySelector('#help-close')?.addEventListener('click', () => this.helpEl.classList.add('hidden'));
@@ -1906,9 +1882,6 @@ export class UI {
 
   /** Кликабельная тревога: клик — камера летит к планете, карточка открыта. */
   private pushAlert(a: { planetId: string; text: string; tone: string; voice?: string }): void {
-    if (a.voice && a.voice in VOICE_LINES) {
-      this.announcer.say(VOICE_LINES[a.voice as keyof typeof VOICE_LINES]);
-    }
     // Звуковое сопровождение: потеря — удар, угроза — сирена, успех — чайм.
     if (a.tone === 'bad') {
       if (a.voice === 'planetLost' || a.voice === 'capitalLost') this.sound.thud();
@@ -2015,7 +1988,7 @@ export class UI {
     if (this.toastEl.dataset.final) return;
     this.toastEl.dataset.final = '1';
     const w = this.state.winner!;
-    this.announcer.say(w === this.state.player ? VOICE_LINES.victory : VOICE_LINES.playerDefeated);
+    if (w === this.state.player) this.sound.chime(); else this.sound.thud();
     this.bannerEl.classList.add('hidden');
     this.toast(
       w === this.state.player
