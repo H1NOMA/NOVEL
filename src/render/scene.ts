@@ -3,7 +3,7 @@ import type { GameState } from '../game/state';
 import { FACTIONS } from '../data/factions';
 import { bus } from '../core/emitter';
 import { createPlanetVisual, type PlanetVisual } from './planetMesh';
-import { createComets, createFactionNebulae, createNebulaDisc, createStarfield, type CometLayer } from './starfield';
+import { createComets, createNebulaDisc, createStarfield, type CometLayer } from './starfield';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -96,8 +96,7 @@ export class GalaxyScene {
   private buildBackground(): void {
     this.scene.add(createStarfield(3200, this.radiusWorld * 16));
     this.scene.add(createNebulaDisc(this.radiusWorld));
-    // Живой фон: цветные туманности у границ фракций и редкие кометы.
-    this.scene.add(createFactionNebulae(this.radiusWorld));
+    // Живой фон: редкие кометы за краем карты.
     this.comets = createComets(this.radiusWorld);
     this.scene.add(this.comets.group);
     const amb = new THREE.AmbientLight(0x8899bb, 0.6);
