@@ -732,7 +732,7 @@ export class UI {
     }
 
     html += `<div class="pp-section">Ваши силы здесь</div>`;
-    if (playerFleets.length === 0) html += `<div class="hint">Флотов Супер-Земли на орбите нет.</div>`;
+    if (playerFleets.length === 0) html += `<div class="hint">Ваших флотов на орбите нет.</div>`;
     playerFleets.forEach((f) => {
       const selCls = s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? 'sel' : '';
       const badge = f.special ? `<span style="color:var(--gold)">◆ ${f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
@@ -1403,6 +1403,18 @@ export class UI {
         case 'unlockSpecial': out.push('Открывает СУПЕРОРУЖИЕ фракции'); break;
         case 'spawnSuperFederation': out.push('Поднимает Супер-Федерацию'); break;
         case 'arkArrival': out.push('Из тьмы прибывает КОВЧЕГ АВТОМАТОНОВ'); break;
+        case 'production': out.push(`+${e.amount} очков производства разом`); break;
+        case 'politicalPower': out.push(`+${e.amount} политической власти`); break;
+        case 'resources': out.push(`Ресурсы: +${e.minerals} ⛏${e.e711 ? ` · +${e.e711} ⛽` : ''}`); break;
+        case 'garrisonAll': out.push(`+${e.amount} гарнизона НА ВСЕХ мирах`); break;
+        case 'fortifyAll': out.push(`+${e.amount} укреплений НА ВСЕХ мирах`); break;
+        case 'xpAll': out.push(`+${e.amount} опыта всем соединениям`); break;
+        case 'revealAll': out.push(`Разведка ВСЕЙ галактики на ${e.days} дн`); break;
+        case 'truceAll': out.push(`Перемирие со всеми на ${e.days} дн`); break;
+        case 'freeDefenses': out.push(`Щит и станция на ${e.count} ценнейших мирах`); break;
+        case 'recallFleets': out.push('Все флоты мгновенно возвращаются к столице'); break;
+        case 'gloomSurge': out.push('Все зачатки Мрака созревают НЕМЕДЛЕННО'); break;
+        case 'heavyFleet': out.push(`Тяжёлое соединение: ${e.ships} ЭСМ, ${e.dreadnoughts} ДРД, ${e.battleships} ЛКР, ${e.infantry} пехоты`); break;
         case 'flag':
           out.push({
             gloomTravel: 'Флоты входят в миры, окутанные Мраком',
@@ -1683,8 +1695,8 @@ export class UI {
           <div class="menu-squad">
             <div class="menu-title">КОМАНДА · 4 МЕСТА</div>
             <div class="squad-slot filled">
-              <span class="fac-dot" style="background:var(--se)"></span>
-              <div class="grow"><b>Вы</b><div class="hint" style="margin-top:0">Супер-Земля · Командующий</div></div>
+              <span class="fac-dot" style="background:${FACTIONS[this.state.player].color}"></span>
+              <div class="grow"><b>Вы</b><div class="hint" style="margin-top:0">${FACTIONS[this.state.player].name} · Командующий</div></div>
             </div>
             ${[2, 3, 4].map((i) => `
             <div class="squad-slot">

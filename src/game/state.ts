@@ -80,7 +80,7 @@ function initFaction(id: FactionId): FactionState {
   };
 }
 
-export function createGame(seed: number): GameState {
+export function createGame(seed: number, player: FactionId = 'superEarth'): GameState {
   const galaxy = generateGalaxy(seed);
   const factions = {} as Record<FactionId, FactionState>;
   for (const id of Object.keys(FACTIONS) as FactionId[]) factions[id] = initFaction(id);
@@ -95,7 +95,7 @@ export function createGame(seed: number): GameState {
     fleetCounter: 0,
     day: 1,
     speed: 0,
-    player: 'superEarth',
+    player,
     selectedPlanet: null,
     selectedFleet: null,
     log: [],
@@ -136,8 +136,11 @@ export function createGame(seed: number): GameState {
     }
   }
 
+  // Стартовый запас политической власти — выбранной фракции игрока.
+  state.factions[player].politicalPower = Math.max(state.factions[player].politicalPower, 30);
+
   pushLog(state, {
-    text: 'Галактическая связь установлена. Вторая Галактическая война началась. За Супер-Землю!',
+    text: `Галактическая связь установлена. Вторая Галактическая война началась. Вы ведёте фракцию «${FACTIONS[player].name}».`,
     tone: 'alert',
   });
   return state;

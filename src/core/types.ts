@@ -222,7 +222,32 @@ export type FocusEffect =
   | { kind: 'spawnSuperFederation' }
   | { kind: 'arkArrival' }
   | { kind: 'flag'; flag: FactionFlag }
-  | { kind: 'custom'; note: string };
+  | { kind: 'custom'; note: string }
+  // --- уникальные разовые эффекты (раунд 39) ---
+  /** Мгновенные очки производства. */
+  | { kind: 'production'; amount: number }
+  /** Мгновенная политическая власть. */
+  | { kind: 'politicalPower'; amount: number }
+  /** Стратегические ресурсы разом. */
+  | { kind: 'resources'; minerals: number; e711: number }
+  /** +N гарнизона на всех своих мирах. */
+  | { kind: 'garrisonAll'; amount: number }
+  /** +N укреплений (до максимума 5) на всех своих мирах. */
+  | { kind: 'fortifyAll'; amount: number }
+  /** Боевой опыт всем соединениям фракции. */
+  | { kind: 'xpAll'; amount: number }
+  /** Разведать все сектора галактики на N дней. */
+  | { kind: 'revealAll'; days: number }
+  /** Перемирие со всеми живыми фракциями на N дней. */
+  | { kind: 'truceAll'; days: number }
+  /** Бесплатные щит и орбитальная станция на N ценнейших мирах. */
+  | { kind: 'freeDefenses'; count: number }
+  /** Пространственный сдвиг: все флоты мгновенно возвращаются к столице. */
+  | { kind: 'recallFleets' }
+  /** Все зреющие зачатки Мрака созревают немедленно. */
+  | { kind: 'gloomSurge' }
+  /** Тяжёлое соединение с дредноутами и линкорами. */
+  | { kind: 'heavyFleet'; ships: number; dreadnoughts: number; battleships: number; infantry: number };
 
 /** Особые способности, открываемые фокусами-спецпроектами. */
 export type FactionFlag = 'gloomTravel' | 'gloomSpread' | 'abyss' | 'e711Mining' | 'termicide' | 'arkPrepared' | 'arkGhost' | 'arkDone';

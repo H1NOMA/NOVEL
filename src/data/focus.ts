@@ -131,6 +131,17 @@ const automatons: FocusNode[] = [
   // --- Альтернативная ветка «Проект Ковчег» (появляется с падением Киберстана) ---
   { id: 'aut_ark_blueprints', faction: 'automatons', title: 'Чертежи «Ковчега»', desc: 'Киберстан пал — РАЗУМ-9 переносит резервные мощности во тьму за краем карты. Начата постройка корабля-исхода.', cost: 15, x: 8, y: 0, requires: [], gate: 'cyberstanLost', branch: 'ark', effects: [{ kind: 'flag', flag: 'arkPrepared' }] },
   { id: 'aut_ark_project', faction: 'automatons', title: 'ПРОЕКТ «КОВЧЕГ»', desc: 'Последний ход машин: когда всё потеряно, из тьмы космоса возвращается Ковчег — флагман, равный целому флоту. Гордость машинного флота.', cost: 30, x: 8, y: 1, requires: ['aut_ark_blueprints'], gate: 'arkReady', branch: 'ark', effects: [{ kind: 'arkArrival' }] },
+
+  // --- Глубокие проекты машин (раунд 39): уникальные разовые операции ---
+  { id: 'aut_prime_fleet', faction: 'automatons', title: 'Флагманы Прайма', desc: 'Со стапелей сходит эскадра тяжёлых корпусов — стальной кулак РАЗУМ-9.', cost: 75, x: 2, y: 4, requires: ['aut_stardestroyer'], effects: [{ kind: 'heavyFleet', ships: 4, dreadnoughts: 2, battleships: 2, infantry: 50 }] },
+  { id: 'aut_iron_horde', faction: 'automatons', title: 'Стальная орда', desc: 'Резервные легионы пробуждаются в законсервированных ангарах.', cost: 70, x: 0, y: 5, requires: ['aut_jets'], effects: [{ kind: 'heavyFleet', ships: 8, dreadnoughts: 3, battleships: 0, infantry: 40 }] },
+  { id: 'aut_sleepless', faction: 'automatons', title: 'Легионы без сна', desc: 'Машины не спят, не едят и не забывают. Каждый бой записан и разобран.', cost: 60, x: 0, y: 6, requires: ['aut_iron_horde'], effects: [{ kind: 'xpAll', amount: 40 }, { kind: 'combat', amount: 0.05 }] },
+  { id: 'aut_cold_calc', faction: 'automatons', title: 'Холодный расчёт', desc: 'Оптимизация без жалости: всё лишнее — в переплавку, всё нужное — на фронт.', cost: 55, x: 5, y: 5, requires: ['aut_strip'], effects: [{ kind: 'production', amount: 120 }, { kind: 'resources', minerals: 40, e711: 0 }] },
+  { id: 'aut_replicate', faction: 'automatons', title: 'Тотальная переплавка', desc: 'Города врага перерождаются в бастионы: сталь помнит новую форму.', cost: 65, x: 5, y: 6, requires: ['aut_cold_calc'], effects: [{ kind: 'fortifyAll', amount: 1 }, { kind: 'garrisonAll', amount: 12 }] },
+  { id: 'aut_watchnet', faction: 'automatons', title: 'Сеть слежения РАЗУМ', desc: 'Миллиард глаз-сенсоров раскрывает каждое движение органиков.', cost: 60, x: 3, y: 6, requires: ['aut_sp_gloomburn'], effects: [{ kind: 'revealAll', days: 45 }] },
+  { id: 'aut_cold_peace', faction: 'automatons', title: 'Протокол холодного мира', desc: 'Машины предлагают тишину. Органики согласятся — на время.', cost: 65, x: 4, y: 6, requires: ['aut_sp_yards'], effects: [{ kind: 'truceAll', days: 60 }, { kind: 'politicalPower', amount: 60 }] },
+  { id: 'aut_auto_bastions', faction: 'automatons', title: 'Автоматические бастионы', desc: 'Щиты и орбитальные батареи собираются без единого приказа.', cost: 70, x: 6, y: 6, requires: ['aut_ter_bastion'], effects: [{ kind: 'freeDefenses', count: 2 }] },
+  { id: 'aut_final_march', faction: 'automatons', title: 'Марш на колыбель', desc: 'Все маршруты просчитаны. Конечная точка — Супер-Земля.', cost: 80, x: 7, y: 5, requires: ['aut_ter_grid'], effects: [{ kind: 'combat', amount: 0.1 }, { kind: 'heavyFleet', ships: 6, dreadnoughts: 2, battleships: 1, infantry: 60 }] },
 ];
 
 // ============================ ИЛЛЮМИНАТЫ ===================================
@@ -180,6 +191,17 @@ const illuminate: FocusNode[] = [
   // --- Контроль территории ---
   { id: 'ill_ter_nexus', faction: 'illuminate', title: 'Нексусы контроля', desc: 'Пси-якоря удерживают завоёванное в покорности.', cost: 60, x: 6, y: 4, requires: ['ill_deepstrike'], effects: [{ kind: 'fortify', amount: 2 }] },
   { id: 'ill_ter_dominion', faction: 'illuminate', title: 'Доминион', desc: 'Галактика — лишь алтарь, ждущий своего часа.', cost: 65, x: 6, y: 5, requires: ['ill_ter_nexus'], effects: [{ kind: 'combat', amount: 0.15 }] },
+
+  // --- Таинства культа (раунд 39): уникальные разовые обряды ---
+  { id: 'ill_eternity_sands', faction: 'illuminate', title: 'Пески вечности', desc: 'Время на наших мирах течёт иначе: стены встают за одну ночь.', cost: 60, x: 0, y: 4, requires: ['ill_harvesters'], effects: [{ kind: 'fortifyAll', amount: 1 }, { kind: 'garrisonAll', amount: 10 }] },
+  { id: 'ill_crystal_res', faction: 'illuminate', title: 'Резонанс кристаллов', desc: 'Песнь кристаллических жил превращается в чистую энергию производства.', cost: 55, x: 1, y: 4, requires: ['ill_stingray'], effects: [{ kind: 'production', amount: 100 }, { kind: 'resources', minerals: 30, e711: 0 }] },
+  { id: 'ill_dawn_armada', faction: 'illuminate', title: 'Армада рассвета', desc: 'Из-за грани реальности выходит эскадра, что помнит Первую войну.', cost: 75, x: 2, y: 4, requires: ['ill_monolith'], effects: [{ kind: 'heavyFleet', ships: 5, dreadnoughts: 2, battleships: 2, infantry: 40 }] },
+  { id: 'ill_void_veterans', faction: 'illuminate', title: 'Избранники Пустоты', desc: 'Экипажи, прошедшие сквозь ничто, не знают страха.', cost: 60, x: 2, y: 5, requires: ['ill_dawn_armada'], effects: [{ kind: 'xpAll', amount: 45 }] },
+  { id: 'ill_mind_harvest', faction: 'illuminate', title: 'Жатва разумов', desc: 'Миллионы обращённых пополняют Безголосых. Их воля — наша.', cost: 65, x: 3, y: 6, requires: ['ill_sp_abyss'], effects: [{ kind: 'manpower', amount: 120 }, { kind: 'politicalPower', amount: 80 }] },
+  { id: 'ill_shift', faction: 'illuminate', title: 'Пространственный сдвиг', desc: 'Весь флот исчезает — и мгновенно возникает над святилищем.', cost: 70, x: 4, y: 6, requires: ['ill_sp_gloompierce'], effects: [{ kind: 'recallFleets' }, { kind: 'xpAll', amount: 30 }] },
+  { id: 'ill_all_eye', faction: 'illuminate', title: 'Всевидящее око', desc: 'Для пробуждённого разума в галактике нет тайн.', cost: 60, x: 5, y: 5, requires: ['ill_dev_choir'], effects: [{ kind: 'revealAll', days: 60 }] },
+  { id: 'ill_word_truth', faction: 'illuminate', title: 'Слово, несущее мир', desc: 'Шёпот культа входит в чужие умы, и оружие опускается само.', cost: 65, x: 5, y: 6, requires: ['ill_all_eye'], effects: [{ kind: 'truceAll', days: 60 }, { kind: 'politicalPower', amount: 40 }] },
+  { id: 'ill_precursor_shields', faction: 'illuminate', title: 'Щиты предтеч', desc: 'Древние генераторы поднимаются из-под песка — как будто ждали.', cost: 70, x: 6, y: 6, requires: ['ill_ter_dominion'], effects: [{ kind: 'freeDefenses', count: 2 }] },
 ];
 
 // ============================ ТЕРМИНИДЫ ====================================
@@ -227,6 +249,17 @@ const terminids: FocusNode[] = [
   // --- Контроль территории ---
   { id: 'term_ter_tunnels', faction: 'terminids', title: 'Глубинные туннели', desc: 'Рой движется под поверхностью — там, куда не достают бомбы.', cost: 60, x: 6, y: 4, requires: ['term_hive'], effects: [{ kind: 'fortify', amount: 2 }] },
   { id: 'term_ter_infest', faction: 'terminids', title: 'Заражение миров', desc: 'Каждый захваченный мир сам становится гнездом.', cost: 60, x: 7, y: 4, requires: ['term_swarm'], effects: [{ kind: 'recruitment', amount: 4 }] },
+
+  // --- Глубинные инстинкты роя (раунд 39): уникальные разовые всплески ---
+  { id: 'term_royal_brood', faction: 'terminids', title: 'Королевские выводки', desc: 'Из глубинных гнёзд поднимаются исполины, рождённые для пустоты.', cost: 75, x: 0, y: 5, requires: ['term_behemoths'], effects: [{ kind: 'heavyFleet', ships: 6, dreadnoughts: 3, battleships: 1, infantry: 50 }] },
+  { id: 'term_apex_guard', faction: 'terminids', title: 'Стражи апекса', desc: 'Старейшие особи роя встают на защиту гнездовий.', cost: 55, x: 0, y: 6, requires: ['term_royal_brood'], effects: [{ kind: 'xpAll', amount: 30 }, { kind: 'garrisonAll', amount: 8 }] },
+  { id: 'term_instinct', faction: 'terminids', title: 'Инстинкт улья', desc: 'Каждая смерть учит весь рой сразу. Ошибки не повторяются.', cost: 60, x: 3, y: 6, requires: ['term_dev_apex'], effects: [{ kind: 'xpAll', amount: 45 }, { kind: 'combat', amount: 0.05 }] },
+  { id: 'term_spore_tide', faction: 'terminids', title: 'Споровый прилив', desc: 'Все зреющие тучи Мрака сгущаются РАЗОМ. Небо гаснет.', cost: 70, x: 4, y: 6, requires: ['term_sp_deepgloom'], effects: [{ kind: 'gloomSurge' }, { kind: 'production', amount: 60 }] },
+  { id: 'term_great_spawn', faction: 'terminids', title: 'Великий нерест', desc: 'Ульи содрогаются: рождается больше, чем гибнет за целую войну.', cost: 70, x: 5, y: 5, requires: ['term_broodmothers'], effects: [{ kind: 'manpower', amount: 150 }, { kind: 'garrisonAll', amount: 15 }] },
+  { id: 'term_torpor', faction: 'terminids', title: 'Оцепенение роя', desc: 'Рой замирает, переваривая съеденное. Галактика затаила дыхание.', cost: 55, x: 5, y: 6, requires: ['term_great_spawn'], effects: [{ kind: 'truceAll', days: 50 }] },
+  { id: 'term_chitin', faction: 'terminids', title: 'Хитиновые бастионы', desc: 'Панцири павших титанов срастаются в живые стены.', cost: 65, x: 6, y: 5, requires: ['term_ter_tunnels'], effects: [{ kind: 'fortifyAll', amount: 1 }, { kind: 'garrisonAll', amount: 10 }] },
+  { id: 'term_endless_tide', faction: 'terminids', title: 'Прилив без конца', desc: 'Биомасса павших миров переварена. Рой сыт — и готов расти дальше.', cost: 60, x: 6, y: 6, requires: ['term_chitin'], effects: [{ kind: 'production', amount: 80 }, { kind: 'resources', minerals: 25, e711: 0 }] },
+  { id: 'term_quiet_spores', faction: 'terminids', title: 'Тихие споры', desc: 'Невидимые споры оседают на чужих мирах и слушают. Рой знает всё.', cost: 60, x: 7, y: 5, requires: ['term_ter_infest'], effects: [{ kind: 'revealAll', days: 45 }] },
 ];
 
 export const FOCUS_TREES: Record<FactionId, FocusNode[]> = {

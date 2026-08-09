@@ -4,6 +4,7 @@ import { FACTIONS, SPECIALS } from '../data/factions';
 import { troopsOf } from '../data/troops';
 import { bus } from '../core/emitter';
 import { fleetsOf, pushLog, spawnFleet, planetsOf, type GameState } from './state';
+import { gainXp } from './veterancy';
 
 const LOW_STABILITY = 40;
 
@@ -129,6 +130,83 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
     case 'arkArrival':
       arkArrival(state);
       break;
+    // --- уникальные разовые эффекты ---
+    case 'production':
+      fs.production += eff.amount;
+      break;
+    case 'politicalPower':
+      fs.politicalPower += eff.amount;
+      break;
+    case 'resources':
+      fs.resources.minerals += eff.minerals;
+      fs.resources.e711 += eff.e711;
+      break;
+    case 'garrisonAll':
+      for (const p of planetsOf(state, faction)) p.garrison += eff.amount;
+      break;
+    case 'fortifyAll':
+      for (const p of planetsOf(state, faction)) p.fortification = Math.min(5, p.fortification + eff.amount);
+      break;
+    case 'xpAll':
+      for (const f of fleetsOf(state, faction)) gainXp(f, eff.amount);
+      break;
+    case 'revealAll': {
+      // Разведать все сектора: срок отсчитывается от текущего дня.
+      const sectors = new Set(state.galaxy.order.map((id) => state.galaxy.planets.get(id)!.sector));
+      for (const sector of sectors) {
+        const cur = state.recons.find((r) => r.sector === sector);
+        const until = state.day + eff.days;
+        if (cur) cur.until = Math.max(cur.until, until);
+        else state.recons.push({ sector, until });
+      }
+      break;
+    }
+    case 'truceAll':
+      for (const other of Object.keys(state.factions) as FactionId[]) {
+        if (other === faction || !state.factions[other].alive) continue;
+        state.truces.push({ a: faction, b: other, until: state.day + eff.days });
+      }
+      break;
+    case 'freeDefenses': {
+      const worlds = planetsOf(state, faction)
+        .filter((p) => p.supplied && !p.abyss)
+        .sort((a, b) => (b.isCapital ? 100 : b.value) - (a.isCapital ? 100 : a.value))
+        .slice(0, eff.count);
+      for (const p of worlds) {
+        if (!p.buildings.includes('shieldGen')) p.buildings.push('shieldGen');
+        if (!p.buildings.includes('orbStation')) p.buildings.push('orbStation');
+      }
+      break;
+    }
+    case 'recallFleets': {
+      const worlds = planetsOf(state, faction);
+      const home = worlds.find((p) => p.isCapital) ?? worlds[0];
+      if (home) {
+        for (const f of fleetsOf(state, faction)) {
+          f.transit = undefined;
+          f.at = home.id;
+          f.order = { kind: 'idle' };
+          f.origin = undefined;
+        }
+      }
+      break;
+    }
+    case 'gloomSurge':
+      for (const seed of state.gloomSeeds) seed.daysLeft = Math.min(seed.daysLeft, 1);
+      break;
+    case 'heavyFleet': {
+      const worlds = planetsOf(state, faction);
+      const home = worlds.find((p) => p.isCapital) ?? worlds[0];
+      if (home) {
+        spawnFleet(state, faction, home.id, {
+          ships: eff.ships,
+          dreadnoughts: eff.dreadnoughts,
+          battleships: eff.battleships,
+          infantry: eff.infantry,
+        });
+      }
+      break;
+    }
     case 'custom':
       break;
   }
@@ -316,8 +394,11 @@ function weight(n: FocusNode): number {
   for (const e of n.effects) {
     if (e.kind === 'unlockSpecial') w += 3;
     if (e.kind === 'flag') w += 3; // спецпроекты (Мрак, Бездна) — приоритет ИИ
+    if (e.kind === 'heavyFleet') w += 3;
     if (e.kind === 'combat') w += 2;
     if (e.kind === 'fleet') w += 2;
+    if (e.kind === 'freeDefenses') w += 2;
+    if (e.kind === 'garrisonAll') w += 1;
     if (e.kind === 'recruitment') w += 1;
     if (e.kind === 'shipCap') w += 1;
   }
