@@ -1018,7 +1018,6 @@ export class UI {
             <div class="fc-comp">В пуле: <b>${(fs.units[t.id] ?? 0).toFixed(0)}</b></div>
             <div class="fc-loc">${t.desc ?? ''}</div>
           </div>`).join('');
-        cards += '<div class="force-empty">Дивизии формируются в «⚒ Производство»</div>';
       } else {
         const fs = s.factions[s.player];
         const sp = SPECIALS[s.player];
@@ -1421,9 +1420,11 @@ export class UI {
     return out.filter(Boolean);
   }
 
-  /** Дальняя связь: соединитель через полдрева не рисуем — только текст. */
+  /** Дальняя связь: линию рисуем ТОЛЬКО к соседнему ряду и не дальше одной
+   *  колонки вбок — всё остальное показывается текстовым требованием в окне
+   *  фокуса. Длинные дуги «в никуда» через всё древо не рисуются. */
   private isRemoteRequire(n: { x: number; y: number }, r: { x: number; y: number }): boolean {
-    return Math.abs(n.x - r.x) >= 3 || n.y - r.y >= 3;
+    return Math.abs(n.x - r.x) >= 2 || n.y - r.y !== 1;
   }
 
   /** Плавающее окно с описанием фокуса поверх древа. */
