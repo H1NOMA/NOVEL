@@ -60,7 +60,6 @@ function showFactionSelect(onPick: (faction: FactionId) => void): void {
           <img src="${emblemDataURL(f)}" alt="">
           <div class="fs-name">${d.name}</div>
           <div class="fs-blurb">${d.blurb}</div>
-          <div class="fs-special">◆ ${d.specialName}</div>
         </button>`;
       }).join('')}
     </div>`;

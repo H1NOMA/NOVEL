@@ -1,5 +1,5 @@
 import type { FactionId } from '../core/types';
-import { pushLog, type GameState } from './state';
+import { modActive, pushLog, type GameState } from './state';
 
 // ---------------------------------------------------------------------------
 // Политическая власть (ПВ). Копится ежедневно; в досье фракции — раскрываемое
@@ -129,5 +129,7 @@ export function accruePower(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (!fs.alive) return;
   const stabMod = faction === 'superEarth' ? 0.5 + fs.stability / 100 : 1;
-  fs.politicalPower += PP_PER_DAY * stabMod;
+  // Условие кампании «Военный пыл»: политвласть копится быстрее.
+  const fervor = modActive(state, 'fervor') ? 1.15 : 1;
+  fs.politicalPower += PP_PER_DAY * stabMod * fervor;
 }

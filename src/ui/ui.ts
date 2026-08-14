@@ -15,7 +15,8 @@ import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '..
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, getAutosaveDays, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
 import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
-import { buyTruce, truceActive, TRUCE_COST, TRUCE_DAYS } from '../game/diplomacy';
+import { buyTruce, truceActive, truceCost, TRUCE_DAYS } from '../game/diplomacy';
+import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { OBJECTIVES } from '../game/objectives';
 import { commanderOf, cycleCommander } from '../game/commanders';
 import { PHASE_LABEL } from '../game/combat';
@@ -471,6 +472,12 @@ export class UI {
           ${this.bonusesOpen ? '▾' : '▸'} Политические решения <span style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)} ПВ</span>
         </div>
         <div id="dos-bonuses" ${this.bonusesOpen ? '' : 'style="display:none"'}>${bonuses}</div>
+        ${s.modifiers.length ? `<div class="pp-section">Условия кампании</div>
+        ${s.modifiers.map((id) => {
+          const m = GALAXY_MODIFIERS.find((g) => g.id === id);
+          return m ? `<div class="dec-item"><b style="color:var(--gold)">◈ ${m.name}</b>
+            <div class="hint" style="margin-top:2px">${m.desc}</div></div>` : '';
+        }).join('')}` : ''}
         <div class="pp-section">Спецоперации</div>
         ${SPEC_OPS.map((op) => {
           const ready = opReadyIn(s, f, op.id);
@@ -487,9 +494,9 @@ export class UI {
         <div class="pp-section">Дипломатия</div>
         ${FACTION_IDS.filter((f2) => f2 !== f && s.factions[f2].alive).map((f2) => {
           const active = truceActive(s, f, f2);
-          const can = fs.politicalPower >= TRUCE_COST && !active;
+          const can = fs.politicalPower >= truceCost(s) && !active;
           return `<div class="bonus-row"><div class="grow"><b style="color:${FACTIONS[f2].color}">${FACTIONS[f2].name}</b>
-            <div class="hint" style="margin-top:2px">${active ? 'Перемирие действует' : `Перемирие на ${TRUCE_DAYS} дн — ${TRUCE_COST} ПВ`}</div></div>
+            <div class="hint" style="margin-top:2px">${active ? 'Перемирие действует' : `Перемирие на ${TRUCE_DAYS} дн — ${truceCost(s)} ПВ`}</div></div>
             ${active ? '<span style="color:#6fe39a">✓</span>' : `<button class="mini-btn ${can ? '' : 'off'}" data-truce="${f2}" ${can ? '' : 'disabled'}>МИР</button>`}</div>`;
         }).join('')}
         <div class="pp-section">Цели кампании</div>

@@ -1,6 +1,6 @@
 import type { BattlePhase, FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
-import { fleetsAt, pushChronicle, pushLog, removeFleet, type GameState } from './state';
+import { fleetsAt, modActive, pushChronicle, pushLog, removeFleet, type GameState } from './state';
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
@@ -23,8 +23,9 @@ import { bus } from '../core/emitter';
 function combatMult(state: GameState, faction: FactionId): number {
   const fs = state.factions[faction];
   // Доля элитных войск (Хеллдайверы, Легионы киборгов, Великий флот…) даёт
-  // бонус к боевой силе фракции.
-  return 1 + fs.bonuses.combat + (fs.warSupport - 50) / 200 + eliteShare(fs) * 0.25;
+  // бонус к боевой силе фракции. «Военный пыл» подстёгивает всех.
+  const fervor = modActive(state, 'fervor') ? 0.05 : 0;
+  return 1 + fs.bonuses.combat + (fs.warSupport - 50) / 200 + eliteShare(fs) * 0.25 + fervor;
 }
 
 /** Суммарная корабельная мощь: эсминцы ×1, дредноуты ×3, линкоры ×6. */
@@ -95,7 +96,8 @@ export function resolveOrbital(state: GameState): void {
       const loss = incoming * 0.16;
       applyShipLosses(state, fleets, loss, planet);
       // Обстрелянные экипажи: день орбитального боя даёт опыт обеим сторонам.
-      for (const f of fleets) gainXp(f, 0.8);
+      const xpMult = modActive(state, 'veteranWar') ? 1.5 : 1;
+      for (const f of fleets) gainXp(f, 0.8 * xpMult);
     }
   }
 }
@@ -248,7 +250,8 @@ export function resolveGround(state: GameState): void {
       return !!o && o.owner === lead && o.supplied && !o.shattered &&
         planet.links.includes(o.id) && !originBlockaded(state, o.id, lead);
     });
-    if (!hasSupplyLine) attackerForce *= 0.75;
+    // «Растянутые коммуникации» бьют по атаке без снабжения ещё жёстче.
+    if (!hasSupplyLine) attackerForce *= modActive(state, 'longSupply') ? 0.6 : 0.75;
     // Термицид выкашивает атакующий рой.
     if (lead === 'terminids' && planet.buildings.includes('termicide')) attackerForce *= 0.45;
     let defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
@@ -336,7 +339,7 @@ export function resolveGround(state: GameState): void {
       const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15);
       f.infantry = Math.max(0, f.infantry - iLoss);
       // День наземных боёв закаляет десант.
-      if (f.faction === lead) gainXp(f, 1.2);
+      if (f.faction === lead) gainXp(f, 1.2 * (modActive(state, 'veteranWar') ? 1.5 : 1));
     }
     // Наземный десант несёт потери наравне с бортовой пехотой.
     if (b.landed && b.attacker === lead) {
@@ -377,7 +380,8 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   // Щит и орбитальная станция гибнут вместе с обороной.
   demolishDefenses(planet);
   // Победный штурм — главная школа десанта.
-  for (const f of attackers) if (f.faction === attacker) gainXp(f, 12);
+  const victoryXp = modActive(state, 'veteranWar') ? 18 : 12;
+  for (const f of attackers) if (f.faction === attacker) gainXp(f, victoryXp);
   // Мрак рассеивается, когда мир отбит у роя, — оставляя богатые залежи Е-711.
   if (planet.gloom && attacker !== 'terminids') {
     planet.gloom = false;

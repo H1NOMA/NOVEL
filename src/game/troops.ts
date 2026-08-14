@@ -1,6 +1,6 @@
 import type { FactionId, FactionState } from '../core/types';
 import { TROOPS, troopsOf } from '../data/troops';
-import { planetsOf, pushLog, type GameState } from './state';
+import { modActive, planetsOf, pushLog, type GameState } from './state';
 
 // ---------------------------------------------------------------------------
 // Людские (и не очень) ресурсы. Пулы войск — единственный источник пехоты:
@@ -70,7 +70,9 @@ export function drawUnits(fs: FactionState, amount: number): number {
 export function mineMinerals(state: GameState, faction: FactionId): number {
   // Балансовые прогоны (5 сидов × 10 лет): при 0.22 машины выигрывали
   // экономику в каждой партии — темп срезан до 0.17.
-  const rate = faction === 'automatons' ? 0.17 : 0.11;
+  let rate = faction === 'automatons' ? 0.17 : 0.11;
+  // Условие кампании «Богатые жилы»: щедрая галактика.
+  if (modActive(state, 'richVeins')) rate *= 1.5;
   let income = 0;
   for (const p of planetsOf(state, faction)) {
     if (!p.supplied) continue;
@@ -91,8 +93,12 @@ export function replenishUnits(state: GameState, faction: FactionId): void {
   const worlds = planetsOf(state, faction);
   const planetCount = worlds.length;
   const rec = fs.bonuses.recruitment;
+  // Поддержка войны реально двигает призыв: 0% → ×0.85, 100% → ×1.15.
+  let morale = 0.85 + fs.warSupport / 333;
+  // Условие кампании «Век роя»: биомасса терминидов цветёт.
+  if (faction === 'terminids' && modActive(state, 'swarmAge')) morale *= 1.4;
   const grow = (unit: string, amount: number, cap: number) => {
-    fs.units[unit] = Math.min(cap, (fs.units[unit] ?? 0) + amount * (1 + rec));
+    fs.units[unit] = Math.min(cap, (fs.units[unit] ?? 0) + amount * (1 + rec) * morale);
   };
 
   switch (faction) {

@@ -54,6 +54,7 @@ interface SaveBlob {
   recons?: { sector: string; until: number }[];
   chronicle?: { day: number; text: string }[];
   history?: { day: number; control: Partial<Record<FactionId, number>> }[];
+  modifiers?: string[];
 }
 
 function storage(): Storage | null {
@@ -102,6 +103,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     recons: state.recons,
     chronicle: state.chronicle,
     history: state.history,
+    modifiers: state.modifiers,
   };
   return JSON.stringify(blob);
 }
@@ -153,6 +155,7 @@ export function deserializeState(json: string): GameState {
     recons: b.recons ?? [],
     chronicle: b.chronicle ?? [],
     history: b.history ?? [],
+    modifiers: b.modifiers ?? [],
   };
 }
 

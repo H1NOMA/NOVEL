@@ -7,6 +7,7 @@ import type {
   Planet,
 } from '../core/types';
 import { FACTION_IDS, FACTIONS } from '../data/factions';
+import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { generateGalaxy, type Galaxy } from './galaxy';
 import { initUnits } from './troops';
 import { RNG } from '../core/rng';
@@ -53,6 +54,8 @@ export interface GameState {
   chronicle: { day: number; text: string }[];
   /** История контроля: снапшоты числа планет по фракциям (раз в 30 дней). */
   history: { day: number; control: Partial<Record<FactionId, number>> }[];
+  /** Галактические модификаторы партии (id из GALAXY_MODIFIERS). */
+  modifiers: string[];
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -114,6 +117,7 @@ export function createGame(seed: number, player: FactionId = 'superEarth'): Game
     recons: [],
     chronicle: [],
     history: [],
+    modifiers: [],
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.
@@ -139,11 +143,25 @@ export function createGame(seed: number, player: FactionId = 'superEarth'): Game
   // Стартовый запас политической власти — выбранной фракции игрока.
   state.factions[player].politicalPower = Math.max(state.factions[player].politicalPower, 30);
 
+  // Условия кампании: два случайных галактических модификатора по сиду.
+  const pool = [...GALAXY_MODIFIERS];
+  state.rng.shuffle(pool);
+  state.modifiers = pool.slice(0, 2).map((m) => m.id);
+
   pushLog(state, {
     text: `Галактическая связь установлена. Вторая Галактическая война началась. Вы ведёте фракцию «${FACTIONS[player].name}».`,
     tone: 'alert',
   });
+  for (const id of state.modifiers) {
+    const m = GALAXY_MODIFIERS.find((g) => g.id === id)!;
+    pushLog(state, { text: `Условие кампании — «${m.name}»: ${m.desc}`, tone: 'info' });
+  }
   return state;
+}
+
+/** Действует ли галактический модификатор в этой партии. */
+export function modActive(state: GameState, id: string): boolean {
+  return state.modifiers.includes(id);
 }
 
 export function spawnFleet(

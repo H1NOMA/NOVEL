@@ -1,6 +1,6 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS } from '../data/factions';
-import { fleetsOf, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
+import { fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
 import { hostileNow } from './diplomacy';
@@ -46,7 +46,12 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   }
 
   const income = worlds.reduce((s, p) => s + p.value, 0);
-  fs.production += 0.4 * (fs.industry + income * 0.3);
+  // Стабильность Супер-Земли реально двигает промышленность: 0% → ×0.75,
+  // 100% → ×1.25. Плюс условие кампании «Холодные кузницы».
+  let prodMult = 1;
+  if (faction === 'superEarth') prodMult *= 0.75 + fs.stability / 200;
+  if (modActive(state, 'coldForges')) prodMult *= 0.85;
+  fs.production += 0.4 * (fs.industry + income * 0.3) * prodMult;
   accruePower(state, faction);
 
   // Добыча ископаемых, пополнение пулов войск, добыча Е-711.
@@ -55,8 +60,10 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   if (faction === 'superEarth') mineE711(state);
 
   // Содержание флота: каждый корпус ежедневно ест производство.
+  // Условие кампании «Дефицит корпусов» делает флот дороже.
+  const upkeepRate = modActive(state, 'scrapShortage') ? 0.07 : 0.05;
   const upkeep = fleetsOf(state, faction)
-    .reduce((s, f) => s + f.ships + f.dreadnoughts * 2 + f.battleships * 4, 0) * 0.05;
+    .reduce((s, f) => s + f.ships + f.dreadnoughts * 2 + f.battleships * 4, 0) * upkeepRate;
   fs.production = Math.max(0, fs.production - upkeep);
 
   // Build a new fleet when affordable and under the cap.
