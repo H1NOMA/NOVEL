@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { FactionId } from '../core/types';
+import { shipAsset, stationAsset } from './shipAssets';
 
 // ---------------------------------------------------------------------------
 // Процедурные low-poly модели кораблей. Супер-эсминец собран по каноничному
@@ -294,6 +295,8 @@ function terminidBattleship(accent: THREE.Color): THREE.Group {
 
 /** Особая техника: орбитальная станция (сфера с экваториальным кольцом). */
 export function stationModel(accent: THREE.Color): THREE.Group {
+  const asset = stationAsset(accent);
+  if (asset) return asset;
   const g = new THREE.Group();
   const acc = accentMat(accent);
   g.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 14), HULL_DARK));
@@ -315,6 +318,9 @@ const BUILDERS: Record<'se' | 'aut' | 'ill' | 'trm', Record<ShipClass, (c: THREE
 
 /** Модель по фракции и классу тяжелейшего корпуса соединения. */
 export function shipModel(faction: FactionId, color: THREE.Color, cls: ShipClass = 'destroyer'): THREE.Group {
+  // Blender-модель (GLB), если загружена; иначе процедурный силуэт.
+  const asset = shipAsset(faction, color, cls);
+  if (asset) return asset;
   switch (faction) {
     case 'superEarth':
     case 'superFederation':

@@ -6,6 +6,7 @@ import { GalaxyScene } from './render/scene';
 import { UI } from './ui/ui';
 import { FACTIONS, FACTION_IDS } from './data/factions';
 import { emblemDataURL } from './render/emblems';
+import { preloadShipModels } from './render/shipAssets';
 import type { FactionId } from './core/types';
 import type { GameState } from './game/state';
 
@@ -72,7 +73,10 @@ function showFactionSelect(onPick: (faction: FactionId) => void): void {
     }));
 }
 
-function boot(): void {
+async function boot(): Promise<void> {
+  // 3D-модели флота (Blender → GLB) грузятся до старта сцены, за экраном
+  // загрузки; при сбое рендер откатится на процедурные силуэты.
+  await preloadShipModels();
   // Если запрошена загрузка сейва — поднимаем состояние из него без выбора.
   const pending = takePendingLoad();
   if (pending) {
@@ -93,4 +97,4 @@ function boot(): void {
   });
 }
 
-boot();
+void boot();

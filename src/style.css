@@ -813,10 +813,15 @@ body.no-vignette #vignette { display: none; }
 /* ---------- Выбор фракции (раунд 39) ---------- */
 #faction-select {
   position: fixed; inset: 0; z-index: 55;
-  background-color: rgba(5, 5, 4, 0.97);
-  background-image: var(--cross), var(--cross), var(--cross), var(--cross);
+  background-color: #050504;
+  /* Ключевой арт (Blender/Cycles) под затемнением + угловые кресты поверх */
+  background-image:
+    var(--cross), var(--cross), var(--cross), var(--cross),
+    linear-gradient(rgba(5, 5, 4, 0.72), rgba(5, 5, 4, 0.88)),
+    url('./assets/keyart.webp');
   background-repeat: no-repeat;
-  background-position: 14px 14px, calc(100% - 14px) 14px, 14px calc(100% - 14px), calc(100% - 14px) calc(100% - 14px);
+  background-size: auto, auto, auto, auto, cover, cover;
+  background-position: 14px 14px, calc(100% - 14px) 14px, 14px calc(100% - 14px), calc(100% - 14px) calc(100% - 14px), center, center;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
 }
 .fs-title {
