@@ -1,4 +1,46 @@
 /* ===========================================================================
+   Шрифты (вшиты в сборку, лицензия SIL OFL): Oswald — узкий милитари-гротеск
+   с кириллицей для всего интерфейса; JetBrains Mono — цифры и «машинный»
+   текст. Переменные файлы: один woff2 покрывает все начертания.
+   =========================================================================== */
+@font-face {
+  font-family: 'Oswald';
+  src: url('./fonts/oswald-500-cyrillic-ext.woff2') format('woff2');
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+  font-family: 'Oswald';
+  src: url('./fonts/oswald-500-cyrillic.woff2') format('woff2');
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Oswald';
+  src: url('./fonts/oswald-500-latin.woff2') format('woff2');
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/jbmono-400-cyrillic-ext.woff2') format('woff2');
+  font-weight: 100 800; font-style: normal; font-display: swap;
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/jbmono-400-cyrillic.woff2') format('woff2');
+  font-weight: 100 800; font-style: normal; font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/jbmono-400-latin.woff2') format('woff2');
+  font-weight: 100 800; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ===========================================================================
    Тема «Терминал Супер-Земли» — милитари-эстетика по мотивам интерфейсов HD2.
    Принципы: угольный чёрный без синевы, сигнальный жёлтый строго как акцент,
    белый каркас тонких линий, скошенные углы (панель — два противоположных,
@@ -54,9 +96,9 @@
   --cut-tab: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
   --cut-chip: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
 
-  /* типографика: узкий милитари-гротеск + моно для цифр */
-  --font-ui: 'Bahnschrift SemiCondensed', Bahnschrift, 'Arial Narrow', 'Liberation Sans Narrow', 'Segoe UI', 'Roboto Condensed', system-ui, sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, Menlo, 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  /* типографика: вшитый Oswald (узкий милитари-гротеск) + JetBrains Mono */
+  --font-ui: 'Oswald', 'Bahnschrift SemiCondensed', Bahnschrift, 'Arial Narrow', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, Menlo, 'Liberation Mono', monospace;
 
   color-scheme: dark;
   font-family: var(--font-ui);
@@ -535,27 +577,32 @@ kbd {
   display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; max-width: 56vw;
   pointer-events: auto;
 }
+/* Вертикальные карточки соединений: скруглённые, компактные, значок класса
+   крупно сверху (по прямому пожеланию пользователя — со сглаженными углами). */
 .force-card {
-  min-width: 148px; flex: 0 0 auto; padding: 8px 11px; cursor: pointer;
-  position: relative; z-index: 0; border: none;
-  background: rgba(255, 255, 255, 0.12); clip-path: var(--cut-tab);
-  font-size: 12px; line-height: 1.4; user-select: none;
+  width: 104px; min-width: 104px; flex: 0 0 auto; padding: 9px 8px 8px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 12px;
+  font-size: 11px; line-height: 1.35; user-select: none; text-align: center;
+  transition: border-color 0.12s, background 0.12s;
 }
-.force-card::before {
-  content: ''; position: absolute; inset: 1px; z-index: -1;
-  background: var(--panel); clip-path: var(--cut-tab);
-}
-.force-card:hover { background: var(--edge-strong); }
-.force-card.open { background: var(--yel); }
-.force-card.open::before { background: #14130c; }
-.force-card.multi { background: rgba(255, 255, 255, 0.75); }
-.force-card.static { cursor: default; }
+.force-card:hover { border-color: var(--edge-strong); background: var(--panel-hi); }
+.force-card.open { border-color: var(--yel); background: #14130c; box-shadow: 0 0 0 1px var(--yel); }
+.force-card.multi { border-color: rgba(255, 255, 255, 0.8); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8); }
+.force-card.static { cursor: default; width: auto; min-width: 148px; align-items: flex-start; text-align: left; }
 .force-card.wide-card { min-width: 260px; max-width: 340px; }
-.fc-name { font-weight: 700; color: var(--se); letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
+.fc-ico { height: 26px; display: flex; align-items: center; justify-content: center; color: var(--se); font-size: 20px; line-height: 1; }
+.fc-ico svg { width: 24px; height: 24px; }
+.force-card.open .fc-ico { color: var(--yel); }
+.fc-name { font-weight: 700; color: var(--se); letter-spacing: 0.04em; text-transform: uppercase; font-size: 11.5px; }
+.force-card.open .fc-name { color: var(--yel); }
 .force-card.multi .fc-name { color: #fff; }
 .fc-check { color: #fff; }
-.fc-comp { color: var(--text); font-family: var(--font-mono); font-size: 11px; }
-.fc-loc { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.fc-comp { color: var(--text); font-family: var(--font-mono); font-size: 10.5px; }
+.fc-loc {
+  color: var(--muted); font-size: 10px; margin-top: 1px; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .force-empty {
   align-self: center; color: var(--muted); font-size: 12px; padding: 10px 14px;
   background: var(--panel); border: 1px dashed var(--edge); white-space: nowrap;
@@ -777,16 +824,25 @@ body.no-vignette #vignette { display: none; }
   color: var(--yel); text-transform: uppercase;
 }
 .fs-sub { color: var(--muted); letter-spacing: 0.06em; margin-bottom: 22px; }
-.fs-cards { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; max-width: 1100px; }
+.fs-cards { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; max-width: 1100px; align-items: flex-start; }
 .fs-card {
-  width: 240px; padding: 18px 16px 14px; cursor: pointer; text-align: center;
+  width: 240px; padding: 20px 16px 16px; cursor: pointer; text-align: center;
   background: var(--panel); border: 1px solid var(--edge); border-top: 3px solid var(--fac);
   color: var(--text); font-family: var(--font-ui);
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   clip-path: var(--cut-tab);
+  transition: background 0.15s, border-color 0.15s;
 }
-.fs-card img { width: 84px; height: 84px; }
-.fs-card:hover { border-color: var(--yel); background: var(--yel-tint); }
-.fs-name { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--fac); }
-.fs-blurb { font-size: 11.5px; color: var(--muted); line-height: 1.4; min-height: 60px; }
+.fs-card img { width: 96px; height: 96px; transition: transform 0.15s; }
+.fs-card:hover { border-color: var(--fac); background: var(--panel-hi); }
+.fs-card:hover img { transform: scale(1.06); }
+.fs-name { font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--fac); }
+/* Описание и супероружие скрыты — выплывают только при наведении курсора. */
+.fs-blurb, .fs-special {
+  max-height: 0; opacity: 0; overflow: hidden; margin: 0;
+  transition: max-height 0.22s ease, opacity 0.18s ease;
+}
+.fs-card:hover .fs-blurb { max-height: 220px; opacity: 1; }
+.fs-card:hover .fs-special { max-height: 48px; opacity: 1; }
+.fs-blurb { font-size: 11.5px; color: var(--text); line-height: 1.5; text-align: left; }
 .fs-special { font-size: 11px; color: var(--yel); letter-spacing: 0.04em; }

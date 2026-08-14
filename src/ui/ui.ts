@@ -1001,13 +1001,15 @@ export class UI {
           const open = this.detailFleet === f.id;
           const rank = rankOf(f);
           const qn = f.orderQueue?.length ?? 0;
-          // Иконка тяжелейшего класса: ✦ линкор, ◈ дредноут.
-          const clsIcon = f.battleships >= 1 ? '✦ ' : f.dreadnoughts >= 1 ? '◈ ' : '';
+          const hulls = f.ships + f.dreadnoughts + f.battleships;
+          // Крупный значок тяжелейшего класса: ✦ линкор, ◈ дредноут, силуэт эсминца.
+          const clsIcon = f.special ? '◆' : f.battleships >= 1 ? '✦' : f.dreadnoughts >= 1 ? '◈' : ICON_DESTROYER;
+          const num = this.fleetName(f.id).replace('Соединение ', '');
           return `<div class="force-card ${open ? 'open' : ''} ${multi ? 'multi' : ''}" data-card-fleet="${f.id}">
-            <div class="fc-name">${f.special ? '◆ ' : clsIcon}${f.commander ? '★ ' : ''}${this.fleetName(f.id)}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
-            <div class="fc-comp">ЭСМ ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}</div>
-            <div class="fc-comp">Пехота ${f.infantry.toFixed(0)}</div>
-            <div class="fc-loc">${f.transit ? '⇢ ' : '⚓ '}${where}${qn ? ` <span style="color:var(--gold)">+${qn} в очереди</span>` : ''}</div>
+            <div class="fc-ico">${clsIcon}</div>
+            <div class="fc-name">${num}${f.commander ? ' ★' : ''}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
+            <div class="fc-comp">${hulls.toFixed(0)} корп · ${f.infantry.toFixed(0)} пех</div>
+            <div class="fc-loc">${f.transit ? '⇢ ' : ''}${where}${qn ? ` <b style="color:var(--gold)">+${qn}</b>` : ''}</div>
           </div>`;
         }).join('') || '<div class="force-empty">Флотов нет — стройте корабли на верфях (⚒)</div>';
       } else if (this.forcesTab === 'army') {
