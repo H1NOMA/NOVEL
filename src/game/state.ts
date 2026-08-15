@@ -22,7 +22,17 @@ export interface GameState {
   fleetCounter: number;
   day: number;
   speed: GameSpeed;
+  /**
+   * Фракция, глазами которой смотрит ЭТОТ экран: чьи панели рисуются, чей
+   * туман войны, чьи приказы отдаёт мышь. В сетевой партии у каждого
+   * участника она своя, состояние при этом общее.
+   */
   player: FactionId;
+  /**
+   * Все фракции под управлением людей. ИИ не трогает их: в сетевой партии
+   * это список занятых мест, в одиночной — ровно один игрок.
+   */
+  humans: FactionId[];
   selectedPlanet: string | null;
   selectedFleet: string | null;
   log: LogEntry[];
@@ -99,6 +109,7 @@ export function createGame(seed: number, player: FactionId = 'superEarth'): Game
     day: 1,
     speed: 0,
     player,
+    humans: [player],
     selectedPlanet: null,
     selectedFleet: null,
     log: [],
@@ -235,3 +246,8 @@ export function fleetsOf(state: GameState, faction: FactionId): Fleet[] {
     .filter((f) => f && f.faction === faction);
 }
 
+
+/** Управляет ли фракцией живой игрок (в одиночной партии — только свой). */
+export function isHuman(state: GameState, faction: FactionId): boolean {
+  return state.humans ? state.humans.includes(faction) : faction === state.player;
+}

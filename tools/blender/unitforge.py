@@ -730,5 +730,136 @@ def main():
         print(f'[unitforge] {name} ({faction}): {os.path.getsize(path) / 1024:.0f} KB -> {path}')
 
 
+
+
+# ---------------------------------------------------------------------------
+# Политика и спецоперации: предметные иконки вместо глифов.
+# Кадрируются тем же портретным способом, палитра — Супер-Земли (в интерфейсе
+# перекрашиваются фильтром под цвет фракции не нужно: значки нейтральные).
+# ---------------------------------------------------------------------------
+
+def pol_propaganda():
+    """Пропаганда: трибуна с рупором и вымпелом."""
+    box(0.26, 0.16, 0.10, 'armor', (0, 0, -0.16), taper=0.85, bevel=0.014, name='podium')
+    box(0.20, 0.03, 0.09, 'accent', (0, 0.085, -0.15), bevel=0.006, name='crest')
+    cyl(0.014, 0.014, 0.26, 'armorDark', (-0.02, 0.0, 0.02), axis='Z', verts=10, name='mast')
+    h = cone(0.085, 0.17, 'armor', (0.055, 0.05, 0.10), axis='Y', verts=16, name='horn')
+    h.rotation_euler = (0, 0.35, -0.5)
+    cyl(0.022, 0.022, 0.06, 'armorDark', (-0.005, -0.03, 0.10), axis='Y', verts=10, name='grip')
+    sphere(0.018, 'glow', (0.115, 0.13, 0.135), seg=12, rings=10, name='beam')
+
+
+def pol_recruitment():
+    """Призыв: шеренга шлемов на стойке."""
+    for i, x in enumerate((-0.11, 0.0, 0.11)):
+        z = 0.02 - abs(i - 1) * 0.02
+        helm(0.105, 0.10, 0.10, (x, 0, z), 'armor', 0.03, name=f'helm_{i}')
+        box(0.085, 0.025, 0.025, 'glow', (x, 0.055, z + 0.012), bevel=0.003, name=f'visor_{i}')
+    box(0.34, 0.12, 0.04, 'armorDark', (0, 0, -0.10), bevel=0.008, name='rack')
+    box(0.30, 0.03, 0.05, 'accent', (0, 0.06, -0.155), bevel=0.005, name='plate')
+
+
+def pol_industry():
+    """Промышленность: шестерня и наковальня."""
+    torus(0.115, 0.030, 'armor', (0, 0, 0.03), rot=(math.pi / 2, 0, 0), seg=10, name='gear')
+    for i in range(9):
+        a = i * 2 * math.pi / 9
+        box(0.035, 0.030, 0.045, 'armor', (math.cos(a) * 0.135, 0, 0.03 + math.sin(a) * 0.135),
+            rot=(0, -a, 0), bevel=0.004, name=f'tooth_{i}')
+    cyl(0.042, 0.042, 0.05, 'armorDark', (0, 0, 0.03), axis='Y', verts=14, name='hub')
+    box(0.24, 0.10, 0.05, 'armorDark', (0, 0, -0.14), taper=0.7, bevel=0.008, name='anvil')
+    box(0.10, 0.06, 0.03, 'accent', (0, 0.03, -0.185), bevel=0.005, name='base')
+
+
+def pol_shipcap():
+    """Верфи: стапель с корпусом на нём."""
+    for s in (-1, 1):
+        box(0.035, 0.10, 0.30, 'armorDark', (s * 0.135, 0, 0.0), bevel=0.006, name=f'gantry_{s}')
+        for k in range(3):
+            box(0.24, 0.03, 0.02, 'armorDark', (0, 0, 0.10 - k * 0.10), bevel=0.003,
+                name=f'beam_{s}_{k}')
+    box(0.13, 0.24, 0.10, 'armor', (0, 0.02, 0.02), taper=0.55, bevel=0.012, name='hull')
+    box(0.075, 0.05, 0.045, 'accent', (0, 0.055, 0.055), bevel=0.005, name='stripe')
+    for i, x in enumerate((-0.03, 0.03)):
+        cyl(0.017, 0.017, 0.03, 'glow', (x, -0.115, 0.02), axis='Y', verts=10, name=f'jet_{i}')
+
+
+def pol_emergency():
+    """Чрезвычайные меры: сирена под колпаком."""
+    cyl(0.10, 0.115, 0.09, 'armorDark', (0, 0, -0.14), axis='Z', verts=18, name='base')
+    cyl(0.085, 0.085, 0.14, 'glow', (0, 0, -0.02), axis='Z', verts=18, name='lamp')
+    for i in range(6):
+        a = i * math.pi / 3
+        box(0.016, 0.016, 0.15, 'armorDark', (math.cos(a) * 0.086, math.sin(a) * 0.086, -0.02),
+            bevel=0.003, name=f'cage_{i}')
+    cyl(0.10, 0.075, 0.06, 'armor', (0, 0, 0.08), axis='Z', verts=18, name='cap')
+    torus(0.095, 0.012, 'accent', (0, 0, 0.055), name='ring')
+
+
+def pol_fortify():
+    """Укрепления: бастион с зубцами и щитом."""
+    box(0.30, 0.14, 0.16, 'armorDark', (0, 0, -0.10), taper=0.9, bevel=0.012, name='wall')
+    for i, x in enumerate((-0.115, -0.038, 0.038, 0.115)):
+        box(0.055, 0.14, 0.06, 'armorDark', (x, 0, 0.0), bevel=0.006, name=f'merlon_{i}')
+    b = box(0.15, 0.05, 0.19, 'armor', (0, 0.085, -0.05), taper=0.55, bevel=0.012, name='shield')
+    void = b  # noqa: F841
+    box(0.10, 0.03, 0.035, 'accent', (0, 0.115, -0.02), bevel=0.005, name='band')
+
+
+def op_sabotage():
+    """Диверсия: заряд с таймером."""
+    cyl(0.10, 0.10, 0.20, 'armorDark', (0, 0, -0.02), axis='Z', verts=16, name='charge')
+    torus(0.102, 0.012, 'accent', (0, 0, 0.04), name='band1')
+    torus(0.102, 0.012, 'accent', (0, 0, -0.06), name='band2')
+    box(0.11, 0.045, 0.06, 'armor', (0, 0.075, 0.08), bevel=0.006, name='timer')
+    box(0.075, 0.02, 0.03, 'glow', (0, 0.10, 0.085), bevel=0.003, name='display')
+    for s in (-1, 1):
+        c = cyl(0.008, 0.008, 0.13, 'armorDark', (s * 0.06, 0.03, 0.14), axis='Z', verts=8,
+                name=f'wire_{s}')
+        c.rotation_euler.y = s * 0.5
+
+
+def op_recon():
+    """Разведка: зонд с тарелкой и линзой."""
+    sphere(0.095, 'armor', (0, 0, 0), scale=(1, 1, 0.9), seg=22, rings=16, name='body')
+    c = cone(0.10, 0.07, 'armorDark', (0, 0.10, 0.02), axis='Y', verts=20, name='dish')
+    void = c  # noqa: F841
+    cyl(0.020, 0.020, 0.03, 'glow', (0, 0.135, 0.02), axis='Y', verts=12, name='lens')
+    for s in (-1, 1):
+        box(0.075, 0.045, 0.006, 'glow', (s * 0.155, -0.02, 0), bevel=0.002, name=f'panel_{s}')
+        cyl(0.007, 0.007, 0.06, 'armorDark', (s * 0.11, -0.02, 0), axis='X', verts=8,
+            name=f'arm_{s}')
+    cyl(0.005, 0.004, 0.14, 'armorDark', (0, -0.05, 0.11), axis='Z', verts=8, name='ant')
+
+
+def op_uprising():
+    """Восстание: поднятый кулак со сломанной цепью."""
+    box(0.10, 0.085, 0.115, 'flesh', (0, 0, 0.06), taper=0.9, bevel=0.022, name='fist')
+    for i, x in enumerate((-0.028, 0.0, 0.028)):
+        box(0.024, 0.075, 0.028, 'flesh', (x, 0.015, 0.125), bevel=0.008, name=f'knuckle_{i}')
+    box(0.055, 0.075, 0.03, 'flesh', (0.052, 0.01, 0.075), rot=(0, 0, -0.4), bevel=0.01,
+        name='thumb')
+    cyl(0.048, 0.055, 0.13, 'armorDark', (0, 0, -0.07), axis='Z', verts=14, name='wrist')
+    # обрывок цепи
+    for i, (x, z) in enumerate(((-0.075, -0.10), (-0.11, -0.16), (0.075, -0.11))):
+        t = torus(0.028, 0.010, 'armor', (x, 0, z), rot=(math.pi / 2 * (i % 2), 0, 0),
+                  seg=14, name=f'link_{i}')
+        void = t  # noqa: F841
+    box(0.085, 0.04, 0.03, 'accent', (0, 0.05, -0.15), bevel=0.005, name='band')
+
+
+UNITS.update({
+    'pol_propaganda': ('superEarth', pol_propaganda),
+    'pol_recruitment': ('superEarth', pol_recruitment),
+    'pol_industry': ('superEarth', pol_industry),
+    'pol_shipCap': ('superEarth', pol_shipcap),
+    'pol_emergency': ('superEarth', pol_emergency),
+    'pol_fortify': ('superEarth', pol_fortify),
+    'op_sabotage': ('superEarth', op_sabotage),
+    'op_recon': ('superEarth', op_recon),
+    'op_uprising': ('superEarth', op_uprising),
+})
+
+
 if __name__ == '__main__':
     main()

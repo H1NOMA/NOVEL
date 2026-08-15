@@ -1,6 +1,6 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
 import { areHostile, FACTIONS } from '../data/factions';
-import { fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
+import { isHuman, fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
 import { hostileNow } from './diplomacy';
@@ -69,7 +69,7 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   // Build a new fleet when affordable and under the cap.
   // Игрок строит корабли сам — на верфях; автосборка флотов только у ИИ.
   const fleets = fleetsOf(state, faction);
-  if (faction !== state.player && fs.production >= FLEET_COST && fleets.length < fleetCap(state, faction) && totalUnits(fs) >= 20) {
+  if (!isHuman(state, faction) && fs.production >= FLEET_COST && fleets.length < fleetCap(state, faction) && totalUnits(fs) >= 20) {
     fs.production -= FLEET_COST;
     const crew = drawUnits(fs, 20);
     const yard = worlds.find((p) => p.isCapital) ?? worlds[0]!;

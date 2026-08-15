@@ -230,9 +230,11 @@ void main(){
   col *= uDim;
 
   // Фракционный ободок — единственная цветовая кодировка на сфере.
-  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 3.0);
-  col += uTint * fres * 1.15;
-  col += uAtmo * fres * 0.12;
+  // Показатель степени высокий намеренно: кайма должна быть узкой полоской
+  // у самого края, а не широкой заливкой в полпланеты.
+  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 6.5);
+  col += uTint * fres * 1.3;
+  col += uAtmo * fres * 0.10;
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -252,8 +254,9 @@ varying vec3 vNormal; varying vec3 vView;
 void main(){
   vec3 nrm = normalize(vNormal);
   vec3 vd = normalize(vView);
-  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 3.4);
-  gl_FragColor = vec4(uColor, fres * 0.5);
+  // Атмосферная оболочка: тонкий нимб у самого лимба, без раздутого гало.
+  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 7.0);
+  gl_FragColor = vec4(uColor, fres * 0.55);
 }
 `;
 
@@ -522,7 +525,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     blending: THREE.AdditiveBlending,
   });
   const atmo = new THREE.Mesh(SHELL_GEO, atmoMat);
-  atmo.scale.setScalar(baseRadius * 1.15);
+  atmo.scale.setScalar(baseRadius * 1.045);
 
   // Кольцо наведения (появляется только при hover/выборе, крутится вокруг оси).
   const hoverRing = buildHoverRing();

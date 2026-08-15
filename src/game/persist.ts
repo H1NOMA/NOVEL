@@ -55,6 +55,7 @@ interface SaveBlob {
   chronicle?: { day: number; text: string }[];
   history?: { day: number; control: Partial<Record<FactionId, number>> }[];
   modifiers?: string[];
+  humans?: FactionId[];
 }
 
 function storage(): Storage | null {
@@ -104,6 +105,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     chronicle: state.chronicle,
     history: state.history,
     modifiers: state.modifiers,
+    humans: state.humans,
   };
   return JSON.stringify(blob);
 }
@@ -137,6 +139,8 @@ export function deserializeState(json: string): GameState {
     day: b.day,
     speed: 0,
     player: b.player,
+    // Старые сейвы не знают о сетевых партиях: игрок в них ровно один.
+    humans: b.humans ?? [b.player],
     selectedPlanet: null,
     selectedFleet: null,
     log: b.log,

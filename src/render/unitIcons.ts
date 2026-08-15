@@ -21,6 +21,15 @@ import dss from '../assets/units/dss.webp?url';
 import starDestroyer from '../assets/units/starDestroyer.webp?url';
 import monolith from '../assets/units/monolith.webp?url';
 import superColony from '../assets/units/superColony.webp?url';
+import polPropaganda from '../assets/units/pol_propaganda.webp?url';
+import polRecruitment from '../assets/units/pol_recruitment.webp?url';
+import polIndustry from '../assets/units/pol_industry.webp?url';
+import polShipCap from '../assets/units/pol_shipCap.webp?url';
+import polEmergency from '../assets/units/pol_emergency.webp?url';
+import polFortify from '../assets/units/pol_fortify.webp?url';
+import opSabotage from '../assets/units/op_sabotage.webp?url';
+import opRecon from '../assets/units/op_recon.webp?url';
+import opUprising from '../assets/units/op_uprising.webp?url';
 
 /** id подразделения (TROOPS) или супероружия (SPECIALS) → адрес картинки. */
 const ICONS: Record<string, string> = {
@@ -30,6 +39,16 @@ const ICONS: Record<string, string> = {
   greatFleet, voteless, confiscators,
   fedArmy, fedGuard,
   dss, starDestroyer, monolith, superColony,
+  // Политика и спецоперации: предметные значки вместо глифов.
+  pol_propaganda: polPropaganda,
+  pol_recruitment: polRecruitment,
+  pol_industry: polIndustry,
+  pol_shipCap: polShipCap,
+  pol_emergency: polEmergency,
+  pol_fortify: polFortify,
+  op_sabotage: opSabotage,
+  op_recon: opRecon,
+  op_uprising: opUprising,
 };
 
 export function unitIcon(id: string): string | undefined {

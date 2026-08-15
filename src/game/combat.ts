@@ -190,7 +190,7 @@ export function resolveGround(state: GameState): void {
             if (planet.owner === state.player) {
               bus.emit('combatAlert', {
                 planetId: planet.id,
-                text: `${planet.name} — в осаде: мир отрезан и медленно душится`,
+                text: `${planet.name} — осада: мир отрезан`,
                 tone: 'bad',
                 voice: 'siege',
               });

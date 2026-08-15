@@ -1,7 +1,7 @@
 import type { FactionId } from '../core/types';
 import { FACTIONS, FACTION_IDS } from '../data/factions';
 import { bus } from '../core/emitter';
-import { fleetsOf, planetsOf, pushChronicle, pushLog, snapshotControl, type GameState } from './state';
+import { fleetsOf, isHuman, planetsOf, pushChronicle, pushLog, snapshotControl, type GameState } from './state';
 import { runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
 import { resolveGround, resolveOrbital } from './combat';
@@ -57,7 +57,7 @@ export function advanceDay(state: GameState): void {
     stepFocus(state, fid);
   }
   for (const fid of activeFactions) {
-    if (fid !== state.player) runAI(state, fid);
+    if (!isHuman(state, fid)) runAI(state, fid);
   }
 
   recomputeSupply(state);
@@ -72,7 +72,7 @@ export function advanceDay(state: GameState): void {
 
   // ИИ строит щиты и станции на столицах и ценных мирах.
   for (const fid of activeFactions) {
-    if (fid !== state.player && state.day % 9 === 0) aiBuildDefenses(state, fid);
+    if (!isHuman(state, fid) && state.day % 9 === 0) aiBuildDefenses(state, fid);
   }
 
   // Обломки на орбитах постепенно тают.
@@ -105,7 +105,7 @@ export function advanceDay(state: GameState): void {
   state.attackPlans = state.attackPlans.filter((plan) => {
     const from = state.galaxy.planets.get(plan.from);
     const to = state.galaxy.planets.get(plan.to);
-    return !!from && !!to && from.owner === state.player && to.owner !== state.player &&
+    return !!from && !!to && isHuman(state, from.owner) && to.owner !== from.owner &&
       !to.shattered && !from.shattered && from.links.includes(plan.to);
   });
 

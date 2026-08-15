@@ -448,7 +448,9 @@ export class UI {
       const bought = timesBought(s, f, b.id);
       const can = canBuyBonus(s, f, b.id);
       const soldOut = !b.repeatable && bought > 0;
-      return `<div class="bonus-row">
+      const art = unitIcon(`pol_${b.id}`);
+      return `<div class="bonus-row" title="${esc(b.desc)}">
+        ${art ? `<img class="row-art" src="${art}" alt="">` : ''}
         <div class="grow">
           <b>${b.name}</b>${bought ? ` <span class="bonus-count">×${bought}</span>` : ''}
           <div class="hint" style="margin-top:2px">${b.desc}</div>
@@ -504,7 +506,9 @@ export class UI {
           const ready = opReadyIn(s, f, op.id);
           const can = ready === 0 && fs.politicalPower >= op.cost;
           const active = this.opMode === op.id;
-          return `<div class="bonus-row">
+          const art = unitIcon(`op_${op.id}`);
+          return `<div class="bonus-row" title="${esc(op.desc)}">
+            ${art ? `<img class="row-art" src="${art}" alt="">` : ''}
             <div class="grow"><b>${op.name}</b>
               <div class="hint" style="margin-top:2px">${op.desc}</div></div>
             <button class="mini-btn ${active ? 'sel' : can ? '' : 'off'}" data-op="${op.id}" ${can || active ? '' : 'disabled'}>
@@ -731,7 +735,7 @@ export class UI {
       html += `<div class="pp-section">Города</div>`;
       p.cities.forEach((c) => {
         const spec = c.spec === 'yard' ? '⚓ верфь −25% срока' : c.spec === 'academy' ? '🎓 академия +пополнение' : c.spec === 'mine' ? '⛏ шахта +руда' : '';
-        html += `<div class="pp-stat"><span>🏙 ${c.name}${spec ? ` <span style="color:var(--muted);font-size:11px">· ${spec}</span>` : ''}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
+        html += `<div class="pp-stat"><span>🏙 ${c.name}${spec ? ` <span style="color:var(--muted);font-size:0.7rem">· ${spec}</span>` : ''}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
       });
     }
 
@@ -767,7 +771,7 @@ export class UI {
       const rank = rankOf(f);
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}</div>
-          <div style="color:var(--muted);font-size:11px">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
+          <div style="color:var(--muted);font-size:0.7rem">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         ${(p.owner === s.player || (p.battle && p.battle.attacker === s.player)) && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
         ${p.owner === s.player && p.shipyard && storedHulls(p.shipyard) > 0 ? `<button class="mini-btn" data-act="takeyard" data-fleet="${f.id}">⚓ С ВЕРФИ</button>` : ''}
@@ -779,7 +783,7 @@ export class UI {
       enemyFleets.forEach((f) => {
         html += `<div class="fleet-row"><div class="grow"><div style="color:${FACTIONS[f.faction].color}">
           ${f.special ? '◆ ' + (f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name) : 'Флот ' + FACTION_GEN[f.faction]}</div>
-          <div style="color:var(--muted);font-size:11px">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div></div>`;
+          <div style="color:var(--muted);font-size:0.7rem">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div></div>`;
       });
     }
 

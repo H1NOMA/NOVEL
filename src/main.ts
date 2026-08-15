@@ -4,14 +4,16 @@ import { deserializeState, readSave, takePendingLoad } from './game/persist';
 import { GameClock } from './game/clock';
 import { GalaxyScene } from './render/scene';
 import { UI } from './ui/ui';
-import { FACTIONS, FACTION_IDS } from './data/factions';
-import { emblemDataURL } from './render/emblems';
 import { preloadShipModels } from './render/shipAssets';
 import { preloadPlanetModels } from './render/planetAssets';
+import { applyUiScale } from './ui/uiScale';
+import { MainMenu } from './ui/mainMenu';
+import { attachState, hostStartGame } from './net/session';
+import { applySnapshot } from './net/snapshot';
 import type { FactionId } from './core/types';
 import type { GameState } from './game/state';
 
-function startGame(state: GameState): void {
+function startGame(state: GameState, opts: { host?: boolean } = {}): void {
   const canvas = document.getElementById('scene') as HTMLCanvasElement;
 
   // Кинематографичная виньетка поверх сцены (чистый CSS-оверлей).
@@ -22,6 +24,11 @@ function startGame(state: GameState): void {
   const scene = new GalaxyScene(canvas, state);
   const clock = new GameClock(state);
   const ui = new UI(state, scene, clock);
+
+  // Сетевая партия: состояние привязывается к сессии — хост начинает рассылку,
+  // клиент начинает принимать срезы в этот же объект.
+  attachState(state);
+  if (opts.host) hostStartGame(state);
 
   // Отладочный крючок для автотестов и консоли (не влияет на игру).
   (window as unknown as Record<string, unknown>).__game = { state, scene, clock, ui };
@@ -44,41 +51,13 @@ function startGame(state: GameState): void {
   }, 700);
 }
 
-/** Экран выбора фракции: карточки всех играбельных сторон войны. */
-function showFactionSelect(onPick: (faction: FactionId) => void): void {
-  const loading = document.getElementById('loading');
-  loading?.classList.add('hidden');
-
-  const overlay = document.createElement('div');
-  overlay.id = 'faction-select';
-  const playable = FACTION_IDS.filter((f) => FACTIONS[f].playable);
-  overlay.innerHTML = `
-    <div class="fs-title">ВТОРАЯ ГАЛАКТИЧЕСКАЯ ВОЙНА</div>
-    <div class="fs-sub">Выберите сторону, за которую поведёте десятилетнюю войну</div>
-    <div class="fs-cards">
-      ${playable.map((f) => {
-        const d = FACTIONS[f];
-        return `<button class="fs-card" data-fac="${f}" style="--fac:${d.color}">
-          <img src="${emblemDataURL(f)}" alt="">
-          <div class="fs-name">${d.name}</div>
-          <div class="fs-blurb">${d.blurb}</div>
-        </button>`;
-      }).join('')}
-    </div>`;
-  document.body.appendChild(overlay);
-  overlay.querySelectorAll<HTMLButtonElement>('.fs-card').forEach((b) =>
-    b.addEventListener('click', () => {
-      overlay.remove();
-      loading?.classList.remove('hidden');
-      onPick(b.dataset.fac as FactionId);
-    }));
-}
-
 async function boot(): Promise<void> {
-  // 3D-модели флота (Blender → GLB) грузятся до старта сцены, за экраном
-  // загрузки; при сбое рендер откатится на процедурные силуэты.
+  applyUiScale();
+  // 3D-модели флота и миров (Blender → GLB) грузятся до старта сцены, за
+  // экраном загрузки; при сбое рендер откатится на процедурные силуэты.
   await Promise.all([preloadShipModels(), preloadPlanetModels()]);
-  // Если запрошена загрузка сейва — поднимаем состояние из него без выбора.
+
+  // Запрошена загрузка сейва из игры — поднимаем сразу, без меню.
   const pending = takePendingLoad();
   if (pending) {
     const raw = readSave(pending);
@@ -91,10 +70,34 @@ async function boot(): Promise<void> {
       }
     }
   }
-  // Новая партия: выбор фракции, затем генерация галактики.
-  showFactionSelect((faction) => {
-    const seed = Math.floor(Math.random() * 1e9);
-    startGame(createGame(seed, faction));
+
+  const loading = document.getElementById('loading');
+  loading?.classList.add('hidden');
+
+  new MainMenu({
+    newGame(faction: FactionId) {
+      loading?.classList.remove('hidden');
+      startGame(createGame(Math.floor(Math.random() * 1e9), faction));
+    },
+    loadGame(slot: string) {
+      const raw = readSave(slot);
+      if (!raw) return;
+      loading?.classList.remove('hidden');
+      startGame(deserializeState(raw));
+    },
+    hostGame(faction: FactionId) {
+      loading?.classList.remove('hidden');
+      startGame(createGame(Math.floor(Math.random() * 1e9), faction), { host: true });
+    },
+    joinedGame(faction: FactionId, snapshot: string) {
+      loading?.classList.remove('hidden');
+      // Клиент не генерирует галактику: каркас создаётся любым сидом и тут же
+      // перезаписывается состоянием хоста.
+      const state = createGame(1, faction);
+      applySnapshot(state, snapshot);
+      state.player = faction;
+      startGame(state);
+    },
   });
 }
 

@@ -3,7 +3,7 @@ import { FOCUS_TREES, FEDERATION_BRANCH } from '../data/focus';
 import { FACTIONS, SPECIALS } from '../data/factions';
 import { troopsOf } from '../data/troops';
 import { bus } from '../core/emitter';
-import { fleetsOf, pushLog, spawnFleet, planetsOf, type GameState } from './state';
+import { isHuman, fleetsOf, pushLog, spawnFleet, planetsOf, type GameState } from './state';
 import { gainXp } from './veterancy';
 
 const LOW_STABILITY = 40;
@@ -46,7 +46,7 @@ export function stepFocus(state: GameState, faction: FactionId): void {
   if (!fs.alive) return;
   if (!fs.activeFocus) {
     // AI / auto: pick the next sensible focus.
-    if (faction !== state.player) autoPickFocus(state, faction);
+    if (!isHuman(state, faction)) autoPickFocus(state, faction);
     return;
   }
   const rate = 1 + fs.bonuses.industry * 0.02;
