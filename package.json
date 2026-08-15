@@ -13,6 +13,8 @@
     "test": "node tests/run.mjs",
     "assets:ships": "python3 tools/blender/shipforge.py --out src/assets/ships",
     "assets:keyart": "python3 tools/blender/keyart.py --out src/assets/keyart.webp",
+    "assets:units": "python3 tools/blender/unitforge.py --out src/assets/units",
+    "assets:planets": "python3 tools/blender/planetforge.py --out src/assets/planets",
     "app": "npm run build && electron .",
     "app:win": "npm run build && node scripts/package.mjs win32 x64",
     "app:linux": "npm run build && node scripts/package.mjs linux x64",

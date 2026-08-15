@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Planet } from '../core/types';
 import { BIOMES } from '../data/biomes';
 import { FACTIONS } from '../data/factions';
+import { moonGeometry, reliefGeometry, ringGeometry } from './planetAssets';
 
 // Ashima simplex noise (3D) + fbm, used to give every planet a unique,
 // volumetric procedural surface instead of a flat sprite.
@@ -304,6 +305,8 @@ export interface PlanetVisual {
   setWreckage(amount: number): void;
   /** Уровень детализации шейдера: октавы шума (5 — вблизи, 3 — издали). */
   setLod(octaves: number): void;
+  /** Вблизи — рельефная геометрия из Blender, издали — гладкая сфера. */
+  setRelief(on: boolean): void;
   /** Планетарный щит: голубая сфера; active — под ударом (ярче, пульс). */
   setShield(on: boolean, active: boolean): void;
   /** Орбитальная боевая станция, кружащая над планетой. */
@@ -460,10 +463,53 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     },
   });
 
-  const surface = new THREE.Mesh(SPHERE_GEO, material);
+  // Рельефная геометрия из Blender: у мира появляется настоящий силуэт гор,
+  // кратеров и разломов. Издали её подменяет гладкая сфера (см. setRelief).
+  // Старт всегда с гладкой сферы: на общем плане галактики рельеф не читается,
+  // зато его нормали дают мерцание на планетах размером в десяток пикселей.
+  const relief = reliefGeometry(planet.biome, planet.seed);
+  // Тип геометрии — общий BufferGeometry: меш переключается между гладкой
+  // сферой и рельефным мешем из Blender (см. setRelief).
+  const surface: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> =
+    new THREE.Mesh(SPHERE_GEO, material);
   surface.scale.setScalar(baseRadius);
-  surface.rotation.z = tilt;
   surface.userData.planetId = planet.id;
+  // Наклон оси вынесен на родителя: если крутить сам меш по Y поверх поворота
+  // по Z, полюс уходит конусом (прецессия) вместо честного вращения.
+  // Дополнительный поворот по X разворачивает рельеф — миры одного семейства
+  // показывают разные свои стороны и не выглядят копиями.
+  const axis = new THREE.Object3D();
+  axis.rotation.set(rand() * Math.PI * 2, 0, tilt);
+  axis.add(surface);
+
+  // Кольца: у газовых гигантов почти всегда, у прочих крупных миров изредка.
+  // Геометрия — набор концентрических полос из Blender (щели видны на просвет).
+  const wantsRing = planet.biome === 'gas' ? rand() < 0.8 : rand() < 0.07;
+  const ringGeo = wantsRing ? ringGeometry() : null;
+  let ringMesh: THREE.Mesh | null = null;
+  if (ringGeo) {
+    const ringMat = new THREE.MeshLambertMaterial({
+      color: land.clone().lerp(new THREE.Color(0xffffff), 0.35),
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.scale.setScalar(baseRadius);
+    // В glTF кольцо уже лежит горизонтально — нужен только лёгкий наклон.
+    ringMesh.rotation.x = rand() * 0.44 - 0.22;
+    ringMesh.rotation.z = rand() * 0.44 - 0.22;
+  }
+
+  // Луна: спутник-обломок у части крупных миров.
+  const moonGeo = planet.scale > 0.9 && rand() < 0.3 ? moonGeometry() : null;
+  let moonMesh: THREE.Mesh | null = null;
+  const moonOrbit = { r: baseRadius * (2.4 + rand() * 0.9), phase: rand() * Math.PI * 2, speed: 0.12 + rand() * 0.16, y: (rand() * 2 - 1) * baseRadius * 0.5 };
+  if (moonGeo) {
+    moonMesh = new THREE.Mesh(moonGeo, new THREE.MeshLambertMaterial({ color: 0x8d8577 }));
+    moonMesh.scale.setScalar(baseRadius * (0.16 + rand() * 0.1));
+  }
 
   // Faction-coloured halo — ownership is always read from this one colour.
   const atmoMat = new THREE.ShaderMaterial({
@@ -587,7 +633,9 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   stationGrp.visible = false;
 
   const group = new THREE.Group();
-  group.add(surface, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris, wreck, shield, stationGrp);
+  group.add(axis, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris, wreck, shield, stationGrp);
+  if (ringMesh) group.add(ringMesh);
+  if (moonMesh) group.add(moonMesh);
   group.userData.planetId = planet.id;
 
   let spin = rand() * Math.PI * 2;
@@ -612,7 +660,9 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     baseRadius,
     update(t: number, dt: number) {
       material.uniforms.uTime.value = t;
-      spin += spinSpeed;
+      // Скорость вращения задана «на кадр при 60 Гц» — приводим к времени,
+      // иначе на 144-герцовом мониторе миры крутятся вдвое быстрее.
+      spin += spinSpeed * dt * 60;
       surface.rotation.y = spin;
       if (hoverRing.visible) hoverRing.rotation.z += dt * 0.9;
       if (gloomShell.visible) {
@@ -623,6 +673,11 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
         gloomShell.scale.setScalar(baseRadius * 1.28 * puff);
       }
       if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
+      if (moonMesh) {
+        const a = t * moonOrbit.speed + moonOrbit.phase;
+        moonMesh.position.set(Math.cos(a) * moonOrbit.r, moonOrbit.y, Math.sin(a) * moonOrbit.r);
+        moonMesh.rotation.y += dt * 0.25;
+      }
       if (debris.visible) debris.rotation.y += dt * 0.08;
       if (wreck.visible) wreck.rotation.y += dt * 0.05;
       if (shield.visible) {
@@ -690,6 +745,13 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     },
     setLod(octaves: number) {
       material.uniforms.uOct.value = octaves;
+    },
+    setRelief(on: boolean) {
+      // Вблизи — вытесненная геометрия (16 тыс. треугольников), издали общая
+      // гладкая сфера: на общем плане рельеф всё равно не читается.
+      if (!relief) return;
+      const want: THREE.BufferGeometry = on ? relief : SPHERE_GEO;
+      if (surface.geometry !== want) surface.geometry = want;
     },
     setShield(on: boolean, active: boolean) {
       shield.visible = on && surface.visible;

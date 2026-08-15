@@ -589,12 +589,26 @@ kbd {
 .force-card:hover { border-color: var(--edge-strong); background: var(--panel-hi); }
 .force-card.open { border-color: var(--yel); background: #14130c; box-shadow: 0 0 0 1px var(--yel); }
 .force-card.multi { border-color: rgba(255, 255, 255, 0.8); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8); }
-.force-card.static { cursor: default; width: auto; min-width: 148px; align-items: flex-start; text-align: left; }
-.force-card.wide-card { min-width: 260px; max-width: 340px; }
+/* Войска и супероружие — та же карточка, что у соединений: отличается только
+   тем, что её нельзя выбрать (курсор обычный). Геометрия общая. */
+.force-card.static { cursor: default; }
+.force-card.lost { border-color: rgba(214, 60, 46, 0.7); }
 .fc-ico { height: 26px; display: flex; align-items: center; justify-content: center; color: var(--se); font-size: 20px; line-height: 1; }
 .fc-ico svg { width: 24px; height: 24px; }
 .force-card.open .fc-ico { color: var(--yel); }
-.fc-name { font-weight: 700; color: var(--se); letter-spacing: 0.04em; text-transform: uppercase; font-size: 11.5px; }
+/* Отрендеренный бюст подразделения. Слегка выступает над строкой значка —
+   ровно настолько, чтобы не заезжать на соседние панели интерфейса. */
+.fc-art {
+  width: 46px; height: 46px; margin-top: -6px; object-fit: contain; display: block;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
+}
+.force-card.static { padding-top: 12px; }
+.force-card.lost .fc-art { filter: grayscale(1) brightness(0.6); }
+.fc-name {
+  font-weight: 700; color: var(--se); letter-spacing: 0.04em; text-transform: uppercase;
+  font-size: 11.5px; min-height: 2.6em; display: flex; align-items: center;
+  justify-content: center; overflow-wrap: anywhere; hyphens: auto;
+}
 .force-card.open .fc-name { color: var(--yel); }
 .force-card.multi .fc-name { color: #fff; }
 .fc-check { color: #fff; }

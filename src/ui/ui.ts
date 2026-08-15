@@ -28,6 +28,27 @@ import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
 import { resolveChoice } from '../game/events';
 import { TIMELINE_EVENTS } from '../data/events';
 import { emblemDataURL } from '../render/emblems';
+import { unitIcon } from '../render/unitIcons';
+
+/** Подпись роли подразделения в карточке (третья строка, как «место» у флота). */
+const ROLE_LABEL: Record<string, string> = {
+  elite: 'Элита',
+  mass: 'Линейные',
+  special: 'Особые',
+};
+
+/** Короткие имена супероружия — полное уходит в подсказку карточки. */
+const SPECIAL_SHORT: Record<string, string> = {
+  dss: 'ДКС',
+  starDestroyer: 'АКС',
+  monolith: 'Монолит',
+  superColony: 'Суперколония',
+};
+
+/** Экранирование для подсказок: в описаниях встречаются кавычки. */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 import { portraitDataURL, RULERS } from '../render/portraits';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
@@ -1021,31 +1042,56 @@ export class UI {
         }).join('') || '<div class="force-empty">Флотов нет — стройте корабли на верфях (⚒)</div>';
       } else if (this.forcesTab === 'army') {
         const fs = s.factions[s.player];
-        cards = troopsOf(s.player).map((t) => `
-          <div class="force-card static">
+        cards = troopsOf(s.player).map((t) => {
+          const pool = fs.units[t.id] ?? 0;
+          const art = unitIcon(t.id);
+          return `<div class="force-card static" title="${esc(t.name)} — ${esc(t.desc ?? '')}">
+            <div class="fc-ico">${art ? `<img class="fc-art" src="${art}" alt="">` : '⛊'}</div>
             <div class="fc-name">${t.name}</div>
-            <div class="fc-comp">В пуле: <b>${(fs.units[t.id] ?? 0).toFixed(0)}</b></div>
-            <div class="fc-loc">${t.desc ?? ''}</div>
-          </div>`).join('');
+            <div class="fc-comp">${pool.toFixed(0)}</div>
+            <div class="fc-loc">${ROLE_LABEL[t.role]}</div>
+          </div>`;
+        }).join('');
       } else {
         const fs = s.factions[s.player];
         const sp = SPECIALS[s.player];
         const station = fleetsOf(s, s.player).find((f) => f.special);
-        let status: string;
-        if (!fs.specialUnlocked) status = 'Не разработана — откройте через древо фокусов';
-        else if (fs.lostSpecial) status = '<span style="color:var(--fed)">УНИЧТОЖЕНА</span> — восстановление в «⚙ Решения»';
-        else if (station) {
+        // Короткая строка для карточки и полная — под ней.
+        let state: string;
+        let where: string;
+        if (!fs.specialUnlocked) {
+          state = 'НЕ ОТКРЫТА';
+          where = 'откройте в древе фокусов';
+        } else if (fs.lostSpecial) {
+          state = '<b style="color:var(--fed)">УНИЧТОЖЕНА</b>';
+          where = 'восстановление в «Решениях»';
+        } else if (station) {
           const at = s.galaxy.planets.get(station.transit ? station.transit.to : station.at);
-          status = `На орбите: ${at?.name ?? '?'}`;
-        } else status = 'Статус неизвестен';
+          state = 'В СТРОЮ';
+          where = `${station.transit ? '⇢ ' : ''}${at?.name ?? '?'}`;
+        } else {
+          state = 'НЕТ СВЯЗИ';
+          where = 'положение неизвестно';
+        }
         const ready = superShotReadyIn(s, s.player);
-        cards = `<div class="force-card static wide-card">
-          <div class="fc-name">◆ ${sp.name}</div>
-          <div class="fc-comp">${sp.blurb}</div>
-          <div class="fc-loc">${status}</div>
-          ${fs.specialUnlocked && !fs.lostSpecial && (s.player === 'superEarth' || s.player === 'automatons')
-            ? `<div class="fc-loc">☄ Планетарный залп: ${ready === 0 ? '<b style="color:var(--gold)">ЗАРЯЖЕН</b>' : 'перезарядка ' + ready + ' дн'}</div>` : ''}
-        </div>`;
+        const art = unitIcon(sp.id);
+        const dead = fs.specialUnlocked && fs.lostSpecial;
+        // Карточка супероружия — та же геометрия, что у флотской: значок сверху,
+        // название, состояние. Полное имя и описание уходят в подсказку.
+        cards = `<div class="force-card static ${dead ? 'lost' : ''}" title="${esc(sp.name)} — ${esc(sp.blurb)}">
+            <div class="fc-ico">${art ? `<img class="fc-art" src="${art}" alt="">` : '◆'}</div>
+            <div class="fc-name">${SPECIAL_SHORT[sp.id] ?? sp.name}</div>
+            <div class="fc-comp">${state}</div>
+            <div class="fc-loc">${where}</div>
+          </div>`;
+        if (fs.specialUnlocked && !fs.lostSpecial && (s.player === 'superEarth' || s.player === 'automatons')) {
+          cards += `<div class="force-card static" title="Планетарный залп супероружия">
+            <div class="fc-ico">☄</div>
+            <div class="fc-name">Залп</div>
+            <div class="fc-comp">${ready === 0 ? '<b style="color:var(--gold)">ЗАРЯЖЕН</b>' : ready + ' дн'}</div>
+            <div class="fc-loc">${ready === 0 ? 'готов к удару' : 'перезарядка'}</div>
+          </div>`;
+        }
       }
     }
     this.forcesEl.innerHTML = `

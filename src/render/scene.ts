@@ -745,6 +745,7 @@ export class GalaxyScene {
   }
 
   private lodOct = 5;
+  private lodRelief = false;
 
   render(): void {
     const dt = this.clock.getDelta();
@@ -754,6 +755,13 @@ export class GalaxyScene {
     if (wantOct !== this.lodOct) {
       this.lodOct = wantOct;
       for (const vis of this.planets.values()) vis.setLod(wantOct);
+    }
+    // Геометрический LOD: рельефные меши (16 тыс. треугольников) включаются
+    // только на подлёте, когда в кадре остаётся часть галактики.
+    const wantRelief = this.distance < 13;
+    if (wantRelief !== this.lodRelief) {
+      this.lodRelief = wantRelief;
+      for (const vis of this.planets.values()) vis.setRelief(wantRelief);
     }
     for (const vis of this.planets.values()) vis.update(t, dt);
     for (const m of this.homeMarkers) {

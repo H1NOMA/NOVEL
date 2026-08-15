@@ -73,7 +73,9 @@ function parseGlb(buf: Buffer): GltfJson {
   ok(ships.includes('stationAsset('), 'станция использует GLB с фолбэком');
 
   const main = readFileSync(join(ROOT, 'src', 'main.ts'), 'utf8');
-  ok(main.includes('await preloadShipModels()'), 'модели грузятся до старта сцены');
+  // Загрузка идёт вместе с мешами миров (раунд 43), поэтому проверяем
+  // не дословный вызов, а факт ожидания до startGame.
+  ok(/await[\s\S]{0,80}preloadShipModels\(\)/.test(main), 'модели грузятся до старта сцены');
 
   const css = readFileSync(join(ROOT, 'src', 'style.css'), 'utf8');
   ok(css.includes('keyart.webp'), 'ключевой арт подключён к экрану выбора');
