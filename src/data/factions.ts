@@ -144,13 +144,6 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
 };
 
 /** Diplomatic matrix — true means the two factions are hostile. */
-export function areHostile(a: FactionId, b: FactionId): boolean {
-  if (a === b) return false;
-  // Everyone is hostile to everyone in the Second Galactic War, except a
-  // faction with itself. Super Federation fights Super Earth and all others.
-  return true;
-}
-
 export function factionColor(id: FactionId): string {
   return FACTIONS[id].color;
 }

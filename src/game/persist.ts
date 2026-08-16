@@ -1,6 +1,22 @@
 import type { FactionId, FactionState, Fleet, LogEntry, Planet, SupplyLine } from '../core/types';
 import { RNG } from '../core/rng';
 import type { Sector } from './galaxy';
+import { pairKey, type Relation } from './relations';
+import { FACTION_IDS } from '../data/factions';
+
+/** Старые сохранения не знают об отношениях: восстанавливаем всеобщую войну. */
+function legacyRelations(): Relation[] {
+  const out: Relation[] = [];
+  for (let i = 0; i < FACTION_IDS.length; i++) {
+    for (let j = i + 1; j < FACTION_IDS.length; j++) {
+      const a = FACTION_IDS[i]!;
+      const b = FACTION_IDS[j]!;
+      void pairKey(a, b);
+      out.push({ a, b, value: -80, war: true, warSince: 1 });
+    }
+  }
+  return out;
+}
 import type { GameState } from './state';
 
 // ---------------------------------------------------------------------------
@@ -56,6 +72,12 @@ interface SaveBlob {
   history?: { day: number; control: Partial<Record<FactionId, number>> }[];
   modifiers?: string[];
   humans?: FactionId[];
+  relations?: Relation[];
+  swarmAwake?: boolean;
+  subjugated?: Partial<Record<FactionId, FactionId>>;
+  puppets?: Partial<Record<FactionId, FactionId>>;
+  trophies?: Partial<Record<FactionId, FactionId[]>>;
+  focusVariants?: Record<string, string>;
 }
 
 function storage(): Storage | null {
@@ -106,6 +128,12 @@ export function serializeState(state: GameState, slot: string, name: string): st
     history: state.history,
     modifiers: state.modifiers,
     humans: state.humans,
+    relations: state.relations,
+    swarmAwake: state.swarmAwake,
+    subjugated: state.subjugated,
+    puppets: state.puppets,
+    trophies: state.trophies,
+    focusVariants: state.focusVariants,
   };
   return JSON.stringify(blob);
 }
@@ -141,6 +169,13 @@ export function deserializeState(json: string): GameState {
     player: b.player,
     // Старые сейвы не знают о сетевых партиях: игрок в них ровно один.
     humans: b.humans ?? [b.player],
+    // Сейвы до системы отношений: считаем, что война уже идёт у всех со всеми.
+    relations: b.relations ?? legacyRelations(),
+    swarmAwake: b.swarmAwake ?? true,
+    subjugated: b.subjugated ?? {},
+    puppets: b.puppets ?? {},
+    trophies: b.trophies ?? {},
+    focusVariants: b.focusVariants ?? {},
     selectedPlanet: null,
     selectedFleet: null,
     log: b.log,

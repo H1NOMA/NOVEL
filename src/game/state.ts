@@ -11,6 +11,8 @@ import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { generateGalaxy, type Galaxy } from './galaxy';
 import { initUnits } from './troops';
 import { RNG } from '../core/rng';
+import { initRelations, type Relation } from './relations';
+import { rollFocusVariants } from './trophies';
 
 export interface GameState {
   seed: number;
@@ -66,6 +68,18 @@ export interface GameState {
   history: { day: number; control: Partial<Record<FactionId, number>> }[];
   /** Галактические модификаторы партии (id из GALAXY_MODIFIERS). */
   modifiers: string[];
+  /** Отношения между парами фракций: симпатия и состояние войны. */
+  relations: Relation[];
+  /** Рой проснулся: терминиды вступили в войну и мира уже не заключат. */
+  swarmAwake: boolean;
+  /** Чья столица пала и кому: порабощённый → поработитель. */
+  subjugated: Partial<Record<FactionId, FactionId>>;
+  /** Марионетки: вассал → сюзерен-освободитель. */
+  puppets: Partial<Record<FactionId, FactionId>>;
+  /** Трофейные технологии: победитель → список покорённых им фракций. */
+  trophies: Partial<Record<FactionId, FactionId[]>>;
+  /** Выбранные в этой партии варианты узлов древа фокусов. */
+  focusVariants: Record<string, string>;
 }
 
 function initFaction(id: FactionId): FactionState {
@@ -129,6 +143,12 @@ export function createGame(seed: number, player: FactionId = 'superEarth'): Game
     chronicle: [],
     history: [],
     modifiers: [],
+    relations: [],
+    swarmAwake: false,
+    subjugated: {},
+    puppets: {},
+    trophies: {},
+    focusVariants: {},
   };
 
   // Seed each active faction with starting fleets at their capital-ish worlds.
@@ -153,6 +173,11 @@ export function createGame(seed: number, player: FactionId = 'superEarth'): Game
 
   // Стартовый запас политической власти — выбранной фракции игрока.
   state.factions[player].politicalPower = Math.max(state.factions[player].politicalPower, 30);
+
+  // Партия начинается в мире: у каждой пары фракций своя стартовая симпатия.
+  initRelations(state);
+  // Доктрины партии: у каждой фракции свой вариант ключевого узла древа.
+  rollFocusVariants(state);
 
   // Условия кампании: два случайных галактических модификатора по сиду.
   const pool = [...GALAXY_MODIFIERS];

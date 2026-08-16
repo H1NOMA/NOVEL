@@ -50,34 +50,34 @@
 
 :root {
   /* фракции (идентификация: доты, бары контроля, имена) */
-  --se: #4fb4ff;
-  --aut: #e0342b;
-  --ill: #9b66e8;
-  --term: #d29a26;
-  --fed: #ff8a1f;
+  --se: #6fbdf5;
+  --aut: #d4574c;
+  --ill: #a181e0;
+  --term: #d2a851;
+  --fed: #ec9448;
 
   /* терминал */
-  --bg: #060606;
+  --bg: #0a0a0c;
   --panel: rgba(10, 10, 9, 0.94);
-  --panel-solid: #0d0d0c;
-  --panel-hi: #17171a;
-  --text: #ecece7;
-  --text-hi: #ffffff;
-  --muted: #a0a298;
+  --panel-solid: #121214;
+  --panel-hi: #1c1c20;
+  --text: #e2e3e0;
+  --text-hi: #f7f8f6;
+  --muted: #9ba09c;
   --faint: #63665e;
 
   /* сигнальный жёлтый */
-  --yel: #ffe11c;
-  --yel-dim: #b7a51d;
-  --yel-hot: #fff65e;
-  --yel-ink: #0b0a05;
-  --yel-tint: rgba(255, 225, 28, 0.09);
+  --yel: #f2d24e;
+  --yel-dim: #9c8a3c;
+  --yel-hot: #ffe98c;
+  --yel-ink: #100e07;
+  --yel-tint: rgba(242, 210, 78, 0.10);
   --gold: var(--yel); /* легаси-алиас: инлайн-стили интерфейса читают --gold */
 
   /* тревога */
-  --alr: #ff4b36;
-  --alr-dim: rgba(255, 75, 54, 0.14);
-  --ok: #86c95c;
+  --alr: #e2695a;
+  --alr-dim: rgba(226, 105, 90, 0.15);
+  --ok: #8fc177;
 
   /* каркас */
   --edge: rgba(255, 255, 255, 0.14);
@@ -998,3 +998,13 @@ body.no-vignette #vignette { display: none; }
   width: 2.2rem; height: 2.2rem; flex: 0 0 2.2rem; object-fit: contain;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
 }
+
+/* Шкала симпатии между фракциями во вкладке дипломатии. */
+.rel-bar {
+  height: 0.28rem; margin-top: 0.25rem; background: var(--track);
+  border: 1px solid var(--edge); overflow: hidden;
+}
+.rel-bar i { display: block; height: 100%; transition: width 0.2s steps(1, end); }
+
+/* Ряд кнопок «передать мир» в карточке планеты. */
+.cede-row { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.3rem; }

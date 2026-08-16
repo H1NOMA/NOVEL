@@ -10,6 +10,23 @@ import { gainXp, rankOf, nextRankIn } from '../src/game/veterancy';
 import { serializeState, deserializeState } from '../src/game/persist';
 import { emptyYard } from '../src/game/shipyards';
 
+/**
+ * Партия, уже находящаяся в войне. С раунда 45 игра начинается в мире, но
+ * эти проверки о боевых механиках, а не о дипломатии, — поэтому галактика
+ * приводится в состояние всеобщей войны явно.
+ */
+function warGame(seed: number, player?: any) {
+  const s = player ? createGame(seed, player) : createGame(seed);
+  for (const r of s.relations) {
+    r.war = true;
+    r.value = -80;
+    r.warSince = 1;
+  }
+  s.swarmAwake = true;
+  return s;
+}
+
+
 let checks = 0;
 function ok(cond: boolean, msg: string): void {
   checks++;
@@ -21,7 +38,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Спецоперации -----------------------------------------------------------
 {
-  const s = createGame(7);
+  const s = warGame(7);
   const se = s.factions.superEarth;
   se.politicalPower = 500;
 
@@ -60,7 +77,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Оборона: щит и орбитальная станция ------------------------------------
 {
-  const s = createGame(11);
+  const s = warGame(11);
   const se = s.factions.superEarth;
   se.production = 1000;
   const home = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!).find((p) => p.owner === 'superEarth' && p.supplied)!;
@@ -83,7 +100,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Опыт и ранги -----------------------------------------------------------
 {
-  const s = createGame(13);
+  const s = warGame(13);
   const f = spawnFleet(s, 'superEarth', 'p_super_earth', { ships: 5, infantry: 10 });
   ok(rankOf(f).name === 'Новобранцы', 'старт — новобранцы');
   gainXp(f, 30);
@@ -96,7 +113,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Перехват снабжения атаки ----------------------------------------------
 {
-  const s = createGame(17);
+  const s = warGame(17);
   const origin = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!).find((p) => p.owner === 'superEarth')!;
   ok(!originBlockaded(s, origin.id, 'superEarth'), 'плацдарм чист');
   spawnFleet(s, 'automatons', origin.id, { ships: 6, infantry: 3 });
@@ -106,7 +123,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Очередь приказов -------------------------------------------------------
 {
-  const s = createGame(23);
+  const s = warGame(23);
   const start = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!).find((p) => p.owner === 'superEarth' && p.links.length >= 2)!;
   // Цепочка своих планет: соседняя своя, затем ещё одна.
   const hop1 = start.links.map((id) => s.galaxy.planets.get(id)!).find((p) => p.owner === 'superEarth');
@@ -125,7 +142,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Шрамы долгих битв ------------------------------------------------------
 {
-  const s = createGame(29);
+  const s = warGame(29);
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons' && p.supplied)!;
   target.garrison = 30;
@@ -145,7 +162,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Сейв: новые поля переживают (де)сериализацию ---------------------------
 {
-  const s = createGame(31);
+  const s = warGame(31);
   const f = spawnFleet(s, 'superEarth', 'p_super_earth', { ships: 3, infantry: 5 });
   gainXp(f, 80);
   f.orderQueue = [{ target: s.galaxy.order[3]! }];

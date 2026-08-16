@@ -65,12 +65,17 @@ float fbm(vec3 p){
 `;
 
 const VERT = /* glsl */ `
+uniform vec3 uRingN;
 varying vec3 vObj;
 varying vec3 vNormal;
 varying vec3 vView;
+// Нормаль плоскости колец в пространстве вида: normalMatrix доступен только
+// здесь, а тень колец считается во фрагментном шейдере.
+varying vec3 vRingN;
 void main(){
   vObj = position;
   vNormal = normalize(normalMatrix * normal);
+  vRingN = normalize(normalMatrix * uRingN);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vView = -mv.xyz;
   gl_Position = projectionMatrix * mv;
@@ -88,7 +93,9 @@ uniform float uRidges; uniform float uCraters;
 uniform float uBattle; uniform float uDim; uniform float uScar;
 uniform float uOct; uniform float uLava; uniform float uIce; uniform float uToxic;
 uniform sampler2D uMask; uniform float uUseMask;
-varying vec3 vObj; varying vec3 vNormal; varying vec3 vView;
+// Тень кольца: нормаль плоскости кольца в системе планеты и его радиусы.
+uniform vec3 uRingN; uniform float uRingIn; uniform float uRingOut; uniform float uHasRing;
+varying vec3 vObj; varying vec3 vNormal; varying vec3 vView; varying vec3 vRingN;
 ${NOISE_GLSL}
 void main(){
   vec3 n = normalize(vObj);
@@ -173,20 +180,53 @@ void main(){
   vec3 cloudCol = mix(vec3(1.0), vec3(0.72, 1.0, 0.5), uToxic);
   surf = mix(surf, cloudCol, clamp(clouds, 0.0, 1.0) * 0.6);
 
-  // Освещение.
+  // --- Освещение ------------------------------------------------------------
+  // Свет намеренно мягкий. Обычный ламбертов множитель даёт жёсткую границу
+  // дня и ночи и проваленную теневую сторону; здесь свет «заворачивается» за
+  // терминатор (wrap-diffuse), а вместо плоской подсветки работает полусферный
+  // ambient: сверху холодное небо, снизу тёплый отсвет системы.
   vec3 nrm = normalize(vNormal);
   vec3 sun = normalize(vec3(0.55, 0.35, 0.75));
-  float diff = clamp(dot(nrm, sun), 0.0, 1.0);
-  vec3 col = surf * (0.26 + 1.0 * diff);
+  float ndl = dot(nrm, sun);
+  const float WRAP = 0.28;
+  float diff = clamp((ndl + WRAP) / (1.0 + WRAP), 0.0, 1.0);
+  diff *= diff * (3.0 - 2.0 * diff);            // мягкое S-образное спадание
+
+  vec3 skyAmb = vec3(0.13, 0.16, 0.22);          // холодное небо сверху
+  vec3 gndAmb = vec3(0.10, 0.085, 0.075);        // тёплый отсвет снизу
+  vec3 ambient = mix(gndAmb, skyAmb, nrm.y * 0.5 + 0.5);
+  // Тень от колец: луч на солнце из точки поверхности пересекается с
+  // плоскостью кольца; попадание между внутренним и внешним радиусом гасит
+  // прямой свет. Полоса тени ползёт по глобусу вместе с наклоном кольца.
+  float ringShadow = 1.0;
+  if (uHasRing > 0.5) {
+    // Нормаль кольца уже переведена в пространство вида вершинным шейдером —
+    // там же живут nrm и sun, иначе полоса легла бы мимо освещённой стороны.
+    vec3 rn = normalize(vRingN);
+    float denom = dot(rn, sun);
+    if (abs(denom) > 1e-4) {
+      float t = -dot(rn, nrm) / denom;           // nrm на сфере = точка на ней
+      if (t > 0.0) {
+        vec3 hit = nrm + sun * t;
+        float r = length(hit - rn * dot(rn, hit));
+        float band = smoothstep(uRingIn, uRingIn + 0.06, r) *
+                     (1.0 - smoothstep(uRingOut - 0.06, uRingOut, r));
+        ringShadow = 1.0 - band * 0.62;
+      }
+    }
+  }
+
+  vec3 sunCol = vec3(1.0, 0.965, 0.90);
+  vec3 col = surf * (ambient + sunCol * diff * 1.12 * ringShadow);
 
   // Тёплая полоса терминатора — «закат» на границе дня и ночи.
-  float term = smoothstep(0.0, 0.14, diff) * (1.0 - smoothstep(0.14, 0.4, diff));
-  col += vec3(0.45, 0.22, 0.07) * term * 0.3 * (1.0 - clouds * 0.5);
+  float term = smoothstep(0.0, 0.22, diff) * (1.0 - smoothstep(0.22, 0.52, diff));
+  col += vec3(0.40, 0.21, 0.09) * term * 0.26 * (1.0 - clouds * 0.5);
 
-  // Солнечный блик на воде.
+  // Солнечный блик на воде: шире и слабее, чтобы не резал глаз.
   vec3 vd = normalize(vView);
-  float spec = pow(clamp(dot(reflect(-sun, nrm), vd), 0.0, 1.0), 28.0);
-  col += vec3(1.0, 0.97, 0.85) * spec * (1.0 - land) * (1.0 - clouds) * 0.55;
+  float spec = pow(clamp(dot(reflect(-sun, nrm), vd), 0.0, 1.0), 42.0);
+  col += vec3(1.0, 0.97, 0.88) * spec * (1.0 - land) * (1.0 - clouds) * 0.26;
 
   // Ледяные миры: сеть трещин и холодный зеркальный блеск.
   if (uIce > 0.5) {
@@ -463,6 +503,11 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uToxic: { value: planet.biome === 'toxic' ? 1 : 0 },
       uMask: { value: mask.tex },
       uUseMask: { value: mask.use },
+      // Тень колец: заполняется ниже, когда решено, есть ли у мира кольцо.
+      uRingN: { value: new THREE.Vector3(0, 1, 0) },
+      uRingIn: { value: 1.32 },
+      uRingOut: { value: 2.18 },
+      uHasRing: { value: 0 },
     },
   });
 
@@ -503,6 +548,12 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     // В glTF кольцо уже лежит горизонтально — нужен только лёгкий наклон.
     ringMesh.rotation.x = rand() * 0.44 - 0.22;
     ringMesh.rotation.z = rand() * 0.44 - 0.22;
+    // Нормаль плоскости кольца в системе планеты — по ней шейдер поверхности
+    // считает, куда ложится теневая полоса.
+    const ringNormal = new THREE.Vector3(0, 1, 0)
+      .applyEuler(new THREE.Euler(ringMesh.rotation.x, 0, ringMesh.rotation.z));
+    material.uniforms.uRingN.value.copy(ringNormal);
+    material.uniforms.uHasRing.value = 1;
   }
 
   // Луна: спутник-обломок у части крупных миров.

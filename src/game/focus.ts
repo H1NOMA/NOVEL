@@ -1,5 +1,7 @@
 import type { FactionId, FocusEffect, FocusNode } from '../core/types';
 import { FOCUS_TREES, FEDERATION_BRANCH } from '../data/focus';
+import { treeFor } from './trophies';
+import { adjustRelation, riseFederation } from './relations';
 import { FACTIONS, SPECIALS } from '../data/factions';
 import { troopsOf } from '../data/troops';
 import { bus } from '../core/emitter';
@@ -34,7 +36,7 @@ export function canSelectFocus(state: GameState, faction: FactionId, node: Focus
 }
 
 export function selectFocus(state: GameState, faction: FactionId, id: string): boolean {
-  const node = FOCUS_TREES[faction].find((f) => f.id === id);
+  const node = treeFor(state, faction).find((f) => f.id === id);
   if (!node || !canSelectFocus(state, faction, node)) return false;
   state.factions[faction].activeFocus = { id, remaining: node.cost };
   return true;
@@ -59,7 +61,7 @@ export function stepFocus(state: GameState, faction: FactionId): void {
 }
 
 function completeFocus(state: GameState, faction: FactionId, id: string): void {
-  const node = FOCUS_TREES[faction].find((f) => f.id === id);
+  const node = treeFor(state, faction).find((f) => f.id === id);
   if (!node) return;
   const fs = state.factions[faction];
   fs.completedFocus.push(id);
@@ -167,6 +169,25 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
         state.truces.push({ a: faction, b: other, until: state.day + eff.days });
       }
       break;
+    case 'returnTerritory': {
+      // Возврат земель: отдаём захваченные миры их исконным хозяевам. Каждый
+      // такой жест резко чинит отношения, а иногда и заканчивает войну.
+      const conquered = planetsOf(state, faction)
+        .filter((p) => p.origin !== faction && state.factions[p.origin]?.alive && !p.isCapital && !p.battle)
+        .sort((a, b) => a.value - b.value)
+        .slice(0, eff.count);
+      for (const p of conquered) {
+        const to = p.origin;
+        p.owner = to;
+        adjustRelation(state, faction, to, 22);
+        pushLog(state, {
+          faction,
+          text: `${p.name} возвращён фракции «${FACTIONS[to].name}». Земля в обмен на мир.`,
+          tone: 'info',
+        });
+      }
+      break;
+    }
     case 'freeDefenses': {
       const worlds = planetsOf(state, faction)
         .filter((p) => p.supplied && !p.abyss)
@@ -307,6 +328,8 @@ export function arkArrival(state: GameState): void {
 export function riseSuperFederation(state: GameState): void {
   if (state.superFederationRisen) return;
   state.superFederationRisen = true;
+  // Конкорд поднимается сразу против всех — мира с ним ни у кого нет.
+  riseFederation(state);
   const fed = state.factions.superFederation;
   fed.alive = true;
 
@@ -360,8 +383,8 @@ const AI_GOALS: Partial<Record<FactionId, string>> = {
 };
 
 /** Все предки узла (включая его самого) по графу requires. */
-function ancestorsOf(faction: FactionId, id: string): Set<string> {
-  const tree = FOCUS_TREES[faction];
+function ancestorsOf(state: GameState, faction: FactionId, id: string): Set<string> {
+  const tree = treeFor(state, faction);
   const acc = new Set<string>();
   const stack = [id];
   while (stack.length) {
@@ -378,11 +401,11 @@ function ancestorsOf(faction: FactionId, id: string): Set<string> {
 export function autoPickFocus(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (fs.activeFocus) return;
-  const options = FOCUS_TREES[faction].filter((n) => canSelectFocus(state, faction, n));
+  const options = treeFor(state, faction).filter((n) => canSelectFocus(state, faction, n));
   if (!options.length) return;
   // Фракция с ключевым спецпроектом целенаправленно прокладывает путь к нему.
   const goal = AI_GOALS[faction];
-  const path = goal && !fs.completedFocus.includes(goal) ? ancestorsOf(faction, goal) : null;
+  const path = goal && !fs.completedFocus.includes(goal) ? ancestorsOf(state, faction, goal) : null;
   const bonus = (n: FocusNode) => (path?.has(n.id) ? 10 : 0);
   options.sort((a, b) => weight(b) + bonus(b) - weight(a) - bonus(a) || a.cost - b.cost);
   const pick = options[0]!;

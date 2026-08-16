@@ -99,12 +99,18 @@ export class GalaxyScene {
     // Живой фон: редкие кометы за краем карты.
     this.comets = createComets(this.radiusWorld);
     this.scene.add(this.comets.group);
-    const amb = new THREE.AmbientLight(0x8899bb, 0.6);
-    const key = new THREE.DirectionalLight(0xffffff, 1.1);
+    // Свет карты мягкий и объёмный: вместо плоской подсветки — полусферный
+    // источник (холодное небо сверху, тёплый отсвет галактического диска
+    // снизу), ключ приглушён и слегка тёплый, плюс холодная подсветка сзади,
+    // чтобы корпуса кораблей не тонули в чёрном силуэте.
+    const hemi = new THREE.HemisphereLight(0x8ea6c8, 0x2e2620, 0.46);
+    const key = new THREE.DirectionalLight(0xfff3e2, 0.9);
     key.position.set(6, 10, 8);
-    this.scene.add(amb, key);
+    const fill = new THREE.DirectionalLight(0x8ba6ff, 0.26);
+    fill.position.set(-7, 4, -6);
+    this.scene.add(hemi, key, fill);
     // Central Super Earth glow.
-    const glow = new THREE.PointLight(0x7fc4ff, 1.3, 22);
+    const glow = new THREE.PointLight(0x8fc9ff, 1.0, 24);
     glow.position.set(0, 1, 0);
     this.scene.add(glow);
   }

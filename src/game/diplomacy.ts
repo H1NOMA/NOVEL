@@ -1,5 +1,5 @@
 import type { FactionId } from '../core/types';
-import { areHostile } from '../data/factions';
+import { atWar } from './relations';
 import { modActive, pushLog, type GameState } from './state';
 
 // Перемирия: временный мир между парой фракций. Пока действует, стороны не
@@ -18,9 +18,12 @@ export function truceActive(state: GameState, a: FactionId, b: FactionId): boole
     ((t.a === a && t.b === b) || (t.a === b && t.b === a)));
 }
 
-/** Враждебны ли фракции ПРЯМО СЕЙЧАС (вражда минус перемирие). */
+/**
+ * Враждебны ли фракции ПРЯМО СЕЙЧАС. Единственная точка правды о том, кто
+ * кому враг: состояние войны из системы отношений минус действующее перемирие.
+ */
 export function hostileNow(state: GameState, a: FactionId, b: FactionId): boolean {
-  return areHostile(a, b) && !truceActive(state, a, b);
+  return atWar(state, a, b) && !truceActive(state, a, b);
 }
 
 /** Купить перемирие за политвласть (игрок → фракция). */

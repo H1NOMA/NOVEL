@@ -4,6 +4,23 @@ import { createGame, spawnFleet } from '../src/game/state';
 import { resolveGround } from '../src/game/combat';
 import { garrisonReinforce, lockedInBattle, orderFleetTo } from '../src/game/units';
 
+/**
+ * Партия, уже находящаяся в войне. С раунда 45 игра начинается в мире, но
+ * эти проверки о боевых механиках, а не о дипломатии, — поэтому галактика
+ * приводится в состояние всеобщей войны явно.
+ */
+function warGame(seed: number, player?: any) {
+  const s = player ? createGame(seed, player) : createGame(seed);
+  for (const r of s.relations) {
+    r.war = true;
+    r.value = -80;
+    r.warSince = 1;
+  }
+  s.swarmAwake = true;
+  return s;
+}
+
+
 let checks = 0;
 function ok(cond: boolean, msg: string): void {
   checks++;
@@ -15,7 +32,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Сцепка боем ------------------------------------------------------------
 {
-  const s = createGame(41);
+  const s = warGame(41);
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons' && p.links.length > 0)!;
   target.garrison = 50;
@@ -35,7 +52,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Высадка десанта на атакуемую планету -----------------------------------
 {
-  const s = createGame(43);
+  const s = warGame(43);
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons')!;
   target.garrison = 60;
@@ -61,7 +78,7 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Захлебнувшийся штурм прекращается ---------------------------------------
 {
-  const s = createGame(47);
+  const s = warGame(47);
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons')!;
   target.garrison = 80;

@@ -78,6 +78,7 @@ const superEarth: FocusNode[] = [
   { id: 'se_secede', faction: 'superEarth', title: 'Сецессия колоний', desc: 'Целые сектора готовятся порвать с Супер-Землёй.', cost: 60, x: 3, y: 7, requires: ['se_fed_path'], branch: 'federation', effects: [{ kind: 'stability', amount: -10 }] },
   { id: 'se_charter', faction: 'superEarth', title: 'Хартия Федерации', desc: 'Перебежчики тайно ратифицируют новую конституцию.', cost: 60, x: 5, y: 7, requires: ['se_fed_path'], branch: 'federation', effects: [{ kind: 'stability', amount: -6 }] },
   { id: 'se_declare', faction: 'superEarth', title: 'Провозгласить Федерацию', desc: 'Случайные сектора отделяются и поднимают оранжевое знамя Супер-Федерации.', cost: 70, x: 4, y: 8, requires: ['se_secede', 'se_charter'], branch: 'federation', effects: [{ kind: 'spawnSuperFederation' }] },
+  { id: 'se_good_neighbour', faction: 'superEarth', title: 'Политика доброго соседа', desc: 'Верховное командование возвращает занятые миры прежним хозяевам. Дорого для гордости, бесценно для дипломатии.', cost: 70, x: 6, y: 4, requires: ['se_truth'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'politicalPower', amount: 60 }] },
 ];
 
 // ============================ АВТОМАТОНЫ ===================================
@@ -142,6 +143,7 @@ const automatons: FocusNode[] = [
   { id: 'aut_cold_peace', faction: 'automatons', title: 'Протокол холодного мира', desc: 'Машины предлагают тишину. Органики согласятся — на время.', cost: 65, x: 4, y: 6, requires: ['aut_sp_yards', 'aut_uplinks'], effects: [{ kind: 'truceAll', days: 60 }, { kind: 'politicalPower', amount: 60 }] },
   { id: 'aut_auto_bastions', faction: 'automatons', title: 'Автоматические бастионы', desc: 'Щиты и орбитальные батареи собираются без единого приказа.', cost: 70, x: 6, y: 6, requires: ['aut_ter_bastion', 'aut_selfrep'], effects: [{ kind: 'freeDefenses', count: 2 }] },
   { id: 'aut_final_march', faction: 'automatons', title: 'Марш на колыбель', desc: 'Все маршруты просчитаны. Конечная точка — Супер-Земля.', cost: 80, x: 7, y: 5, requires: ['aut_ter_grid', 'aut_purge'], effects: [{ kind: 'combat', amount: 0.1 }, { kind: 'heavyFleet', ships: 6, dreadnoughts: 2, battleships: 1, infantry: 60 }] },
+  { id: 'aut_cold_ledger', faction: 'automatons', title: 'Холодный расчёт границ', desc: 'Машинная логика признаёт удержание дальних миров убыточным и возвращает их.', cost: 70, x: 6, y: 4, requires: ['aut_cold_calc'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'industry', amount: 5 }] },
 ];
 
 // ============================ ИЛЛЮМИНАТЫ ===================================
@@ -202,6 +204,7 @@ const illuminate: FocusNode[] = [
   { id: 'ill_all_eye', faction: 'illuminate', title: 'Всевидящее око', desc: 'Для пробуждённого разума в галактике нет тайн.', cost: 60, x: 5, y: 5, requires: ['ill_dev_choir'], effects: [{ kind: 'revealAll', days: 60 }] },
   { id: 'ill_word_truth', faction: 'illuminate', title: 'Слово, несущее мир', desc: 'Шёпот культа входит в чужие умы, и оружие опускается само.', cost: 65, x: 5, y: 6, requires: ['ill_all_eye', 'ill_mindfog'], effects: [{ kind: 'truceAll', days: 60 }, { kind: 'politicalPower', amount: 40 }] },
   { id: 'ill_precursor_shields', faction: 'illuminate', title: 'Щиты предтеч', desc: 'Древние генераторы поднимаются из-под песка — как будто ждали.', cost: 70, x: 6, y: 6, requires: ['ill_ter_dominion'], effects: [{ kind: 'freeDefenses', count: 2 }] },
+  { id: 'ill_hollow_gift', faction: 'illuminate', title: 'Дар пустоты', desc: 'Великое Воинство отдаёт миры: плоть земли ему не нужна, нужны умы.', cost: 70, x: 6, y: 4, requires: ['ill_word_truth'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'politicalPower', amount: 70 }] },
 ];
 
 // ============================ ТЕРМИНИДЫ ====================================

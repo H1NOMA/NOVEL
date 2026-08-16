@@ -1,5 +1,5 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
-import { areHostile, FACTIONS } from '../data/factions';
+import { FACTIONS } from '../data/factions';
 import { isHuman, fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
 import { canEnter } from './supply';
@@ -166,7 +166,7 @@ export function updatePlan(state: GameState, faction: FactionId): void {
   for (const sector of state.galaxy.sectors.values()) {
     const ps = sector.planets.map((id) => state.galaxy.planets.get(id)!).filter((p) => !p.shattered && !p.abyss);
     const own = ps.filter((p) => p.owner === faction).length;
-    const missing = ps.filter((p) => p.owner !== faction && areHostile(faction, p.owner));
+    const missing = ps.filter((p) => p.owner !== faction && hostileNow(state, faction, p.owner));
     if (own > 0 && missing.length > 0 && (!best || own > best.own)) {
       const t = missing.sort((a, b) => a.garrison - b.garrison)[0]!;
       best = { target: t.id, own };
@@ -181,7 +181,7 @@ export function updatePlan(state: GameState, faction: FactionId): void {
     // фронтирный вражеский мир становится целью кампании.
     const push = state.galaxy.order
       .map((id) => state.galaxy.planets.get(id)!)
-      .filter((p) => areHostile(faction, p.owner) && !p.shattered && !p.abyss &&
+      .filter((p) => hostileNow(state, faction, p.owner) && !p.shattered && !p.abyss &&
         p.links.some((l) => state.galaxy.planets.get(l)!.owner === faction))
       .sort((a, b) => a.radius - b.radius)[0];
     if (push) {
@@ -228,7 +228,7 @@ export function runAI(state: GameState, faction: FactionId): void {
       continue;
     }
     // Уже штурмует вражеский мир — держит хватку.
-    if (here.owner !== faction && areHostile(faction, here.owner)) continue;
+    if (here.owner !== faction && hostileNow(state, faction, here.owner)) continue;
 
     // Оборона прежде всего: если наш мир под серьёзным ударом — на выручку.
     const threat = mostThreatenedWorld(state, faction);

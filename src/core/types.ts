@@ -240,6 +240,8 @@ export type FocusEffect =
   | { kind: 'revealAll'; days: number }
   /** Перемирие со всеми живыми фракциями на N дней. */
   | { kind: 'truceAll'; days: number }
+  /** Вернуть исконным владельцам до N завоёванных миров: мир в обмен на землю. */
+  | { kind: 'returnTerritory'; count: number }
   /** Бесплатные щит и орбитальная станция на N ценнейших мирах. */
   | { kind: 'freeDefenses'; count: number }
   /** Пространственный сдвиг: все флоты мгновенно возвращаются к столице. */

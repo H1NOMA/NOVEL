@@ -1,11 +1,12 @@
 import type { BattlePhase, FactionId, Fleet, Planet } from '../core/types';
-import { areHostile, FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
+import { FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
 import { fleetsAt, modActive, pushChronicle, pushLog, removeFleet, type GameState } from './state';
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
 import { scuttleYard } from './shipyards';
 import { hostileNow } from './diplomacy';
+import { adjustRelation, onCapitalCaptured, onCapitalLiberated } from './relations';
 import { commanderOf } from './commanders';
 import { demolishDefenses, STATION_POWER } from './defense';
 import { gainXp, rankOf } from './veterancy';
@@ -90,7 +91,7 @@ export function resolveOrbital(state: GameState): void {
     for (const [fac, fleets] of byFaction) {
       let incoming = 0;
       for (const [other, op] of power) {
-        if (other !== fac && areHostile(fac, other)) incoming += op;
+        if (other !== fac && hostileNow(state, fac, other)) incoming += op;
       }
       if (incoming <= 0) continue;
       const loss = incoming * 0.16;
@@ -375,6 +376,20 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   planet.owner = attacker;
   planet.battle = undefined;
   planet.puppetOf = undefined;
+
+  // Падение столицы — поворот всей партии. Родная столица делает победителя
+  // хозяином технологий побеждённого; отбитая у поработителя чужая столица,
+  // наоборот, возвращает фракцию в войну марионеткой освободителя.
+  if (planet.isCapital) {
+    if (planet.origin === prev) {
+      onCapitalCaptured(state, prev, attacker);
+    } else if (state.subjugated?.[planet.origin] === prev) {
+      onCapitalLiberated(state, planet.origin, attacker);
+      planet.owner = attacker === planet.origin ? planet.origin : planet.origin;
+    }
+  }
+  // Захват мира — прямое оскорбление: симпатия к захватчику падает у всех.
+  adjustRelation(state, prev, attacker, -6);
   // Верфь достаётся победителю, но склад и стапель защитники уничтожают.
   scuttleYard(planet);
   // Щит и орбитальная станция гибнут вместе с обороной.

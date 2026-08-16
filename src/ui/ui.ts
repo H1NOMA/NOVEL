@@ -1,6 +1,6 @@
 import type { FactionId, Planet } from '../core/types';
 import { bus } from '../core/emitter';
-import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, areHostile } from '../data/factions';
+import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS } from '../data/factions';
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
@@ -15,7 +15,8 @@ import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '..
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, getAutosaveDays, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
 import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
-import { buyTruce, truceActive, truceCost, TRUCE_DAYS } from '../game/diplomacy';
+import { buyTruce, hostileNow, truceActive, truceCost } from '../game/diplomacy';
+import { atWar, canNegotiate, cedePlanet, declareWar, makePeace, relationLabel, relationOf, CEDE_COST, PEACE_THRESHOLD, WAR_THRESHOLD } from '../game/relations';
 import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { OBJECTIVES } from '../game/objectives';
 import { commanderOf, cycleCommander } from '../game/commanders';
@@ -519,11 +520,36 @@ export class UI {
         <div class="pp-section">Дипломатия</div>
         ${FACTION_IDS.filter((f2) => f2 !== f && s.factions[f2].alive).map((f2) => {
           const active = truceActive(s, f, f2);
-          const can = fs.politicalPower >= truceCost(s) && !active;
-          return `<div class="bonus-row"><div class="grow"><b style="color:${FACTIONS[f2].color}">${FACTIONS[f2].name}</b>
-            <div class="hint" style="margin-top:2px">${active ? 'Перемирие действует' : `Перемирие на ${TRUCE_DAYS} дн — ${truceCost(s)} ПВ`}</div></div>
-            ${active ? '<span style="color:#6fe39a">✓</span>' : `<button class="mini-btn ${can ? '' : 'off'}" data-truce="${f2}" ${can ? '' : 'disabled'}>МИР</button>`}</div>`;
+          const rel = relationOf(s, f, f2);
+          const war = atWar(s, f, f2);
+          const vassal = s.puppets?.[f2] === f;
+          const master = s.puppets?.[f] === f2;
+          const canTalk = canNegotiate(f, f2);
+          const canTruce = fs.politicalPower >= truceCost(s) && !active && war && canTalk;
+          const canPeace = war && canTalk && rel > PEACE_THRESHOLD;
+          // Шкала симпатии: цвет и ширина сразу показывают, к чему идёт дело.
+          const pct = Math.round((rel + 100) / 2);
+          const relColor = rel <= WAR_THRESHOLD ? 'var(--alr)' : rel < -20 ? 'var(--fed)' : rel < 20 ? 'var(--muted)' : 'var(--ok)';
+          const status = vassal ? 'ваша марионетка'
+            : master ? 'вы под её протекторатом'
+            : war ? 'ВОЙНА' : canTalk ? relationLabel(rel) : 'рой не ведёт переговоров';
+          return `<div class="bonus-row" title="Симпатия ${rel.toFixed(0)}">
+            <div class="grow"><b style="color:${FACTIONS[f2].color}">${FACTIONS[f2].name}</b>
+              <span style="color:${relColor};font-size:0.7rem"> · ${status}</span>
+              <div class="rel-bar"><i style="width:${pct}%;background:${relColor}"></i></div>
+            </div>
+            ${canPeace ? `<button class="mini-btn" data-peace="${f2}">МИР</button>`
+              : canTruce ? `<button class="mini-btn" data-truce="${f2}">ПЕРЕМИРИЕ · ${truceCost(s)} ПВ</button>`
+              : active ? '<span style="color:var(--ok)">перемирие</span>'
+              : !war && canTalk ? `<button class="mini-btn ${fs.politicalPower >= 40 ? '' : 'off'}" data-declare="${f2}" ${fs.politicalPower >= 40 ? '' : 'disabled'}>ВОЙНА</button>`
+              : ''}</div>`;
         }).join('')}
+        ${(() => {
+          const beaten = s.trophies?.[f] ?? [];
+          if (!beaten.length) return '';
+          return `<div class="pp-section">Трофейные технологии</div>
+            <div class="hint">Взяв столицу, вы получили доступ к чужим школам: ${beaten.map((v) => FACTIONS[v].name).join(', ')}. Трофейные фокусы открыты в древе.</div>`;
+        })()}
         <div class="pp-section">Цели кампании</div>
         ${OBJECTIVES.map((o) => {
           const done = s.doneObjectives.includes(o.id);
@@ -545,6 +571,30 @@ export class UI {
         if (buyTruce(this.state, b.dataset.truce as FactionId)) {
           this.sound.chime();
           this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
+          this.renderDossier();
+          this.renderHud();
+        }
+      }));
+    // Объявление войны стоит политвласти: решение должно быть весомым.
+    this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-declare]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const s2 = this.state;
+        const target = b.dataset.declare as FactionId;
+        const fs2 = s2.factions[s2.player];
+        if (fs2.politicalPower < 40) return;
+        if (declareWar(s2, s2.player, target, 'решение верховного командования')) {
+          fs2.politicalPower -= 40;
+          this.sound.siren();
+          this.toast('ВОЙНА ОБЪЯВЛЕНА');
+          this.renderDossier();
+          this.renderHud();
+        }
+      }));
+    this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-peace]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (makePeace(this.state, this.state.player, b.dataset.peace as FactionId)) {
+          this.sound.chime();
+          this.toast('МИР ПОДПИСАН');
           this.renderDossier();
           this.renderHud();
         }
@@ -650,7 +700,7 @@ export class UI {
           const o = s.galaxy.planets.get(f.origin!);
           if (!o) continue;
           const ok = o.owner === s.player && o.supplied && !o.shattered && p.links.includes(o.id);
-          const blocked = ok && fleetsAt(s, o.id).some((h) => areHostile(h.faction, s.player));
+          const blocked = ok && fleetsAt(s, o.id).some((h) => hostileNow(s, h.faction, s.player));
           return `<div class="pp-stat"><span>Снабжение атаки</span><b>${
             !ok ? '<span style="color:var(--fed)">⛔ плацдарм потерян</span>'
             : blocked ? `<span style="color:var(--fed)">⛔ ${o.name} блокирован врагом</span>`
@@ -678,6 +728,16 @@ export class UI {
     if (p.owner === s.player && !p.depot) {
       const can = s.factions[s.player].production >= DEPOT_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="depot" ${can ? '' : 'disabled'}>▣ Построить точку снабжения (${DEPOT_COST} пр. · есть ${s.factions[s.player].production.toFixed(0)})</button>`;
+      // Добровольная передача мира: дорогой, но сильный дипломатический жест.
+      if (!p.isCapital && !p.battle) {
+        const takers = FACTION_IDS.filter((f2) => f2 !== s.player && s.factions[f2].alive && canNegotiate(s.player, f2));
+        if (takers.length) {
+          const canCede = s.factions[s.player].politicalPower >= CEDE_COST;
+          html += `<div class="pp-section">Передать мир</div>
+            <div class="hint">Дар соседу резко улучшает отношения. Столицу и планету под огнём передать нельзя.</div>
+            <div class="cede-row">${takers.map((f2) => `<button class="mini-btn ${canCede ? '' : 'off'}" data-cede="${f2}" ${canCede ? '' : 'disabled'} title="Передать ${p.name} фракции «${FACTIONS[f2].name}» за ${CEDE_COST} ПВ" style="border-color:${FACTIONS[f2].color}">${FACTIONS[f2].short}</button>`).join('')}</div>`;
+        }
+      }
     }
     if (p.owner === s.player && !p.shipyard && p.supplied) {
       const can = s.factions[s.player].production >= SHIPYARD_COST;
@@ -743,7 +803,7 @@ export class UI {
     if (p.owner === s.player) {
       const hostiles = p.links
         .map((lid) => s.galaxy.planets.get(lid)!)
-        .filter((n) => n && areHostile(s.player, n.owner) && !n.shattered && canEnter(s, s.player, n));
+        .filter((n) => n && hostileNow(s, s.player, n.owner) && !n.shattered && canEnter(s, s.player, n));
       const plansFrom = s.attackPlans.filter((pl) => pl.from === p.id);
       if (hostiles.length || plansFrom.length) {
         html += `<div class="pp-section">Заготовка атаки</div>`;
@@ -843,6 +903,17 @@ export class UI {
       });
     }
 
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-cede]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (cedePlanet(s, s.player, btn.dataset.cede as FactionId, p.id)) {
+          this.sound.chime();
+          this.toast('МИР ПЕРЕДАН СОЮЗНИКУ');
+          this.renderPanel();
+          this.renderHud();
+        }
+      });
+    });
     this.panel.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1272,7 +1343,7 @@ export class UI {
         const db = Math.hypot(b.pos.x - from.pos.x, b.pos.y - from.pos.y);
         return da - db;
       })[0]!;
-      const invade = areHostile(s.player, best.owner) && best.owner !== s.player;
+      const invade = hostileNow(s, s.player, best.owner) && best.owner !== s.player;
       if (f.at === best.id && !f.transit) {
         load.set(best.id, load.get(best.id)! + 1);
         continue;
@@ -1297,7 +1368,7 @@ export class UI {
       ? [...this.selectedFleets]
       : s.selectedFleet ? [s.selectedFleet] : [];
     if (!picks.length) return;
-    const invade = areHostile(s.player, dest.owner) && dest.owner !== s.player;
+    const invade = hostileNow(s, s.player, dest.owner) && dest.owner !== s.player;
     let sent = 0;
     let queued = 0;
     let locked = 0;

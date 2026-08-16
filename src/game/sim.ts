@@ -2,6 +2,8 @@ import type { FactionId } from '../core/types';
 import { FACTIONS, FACTION_IDS } from '../data/factions';
 import { bus } from '../core/emitter';
 import { fleetsOf, isHuman, planetsOf, pushChronicle, pushLog, snapshotControl, type GameState } from './state';
+import { collectTribute, stepRelations } from './relations';
+import { stepAiDiplomacy, stepDiploEvents } from './diploEvents';
 import { runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
 import { resolveGround, resolveOrbital } from './combat';
@@ -67,6 +69,10 @@ export function advanceDay(state: GameState): void {
   stepDecisions(state);
   stepEvents(state);
   stepTruces(state);
+  stepRelations(state);
+  stepDiploEvents(state);
+  stepAiDiplomacy(state);
+  collectTribute(state);
   stepRecons(state);
   checkObjectives(state);
 
