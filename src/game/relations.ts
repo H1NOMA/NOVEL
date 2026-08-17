@@ -1,6 +1,7 @@
 import type { FactionId } from '../core/types';
 import { FACTIONS, FACTION_IDS } from '../data/factions';
 import { pushChronicle, pushLog, type GameState } from './state';
+import { careerPeace } from './career';
 
 // ---------------------------------------------------------------------------
 // Отношения фракций.
@@ -132,6 +133,8 @@ export function makePeace(state: GameState, a: FactionId, b: FactionId): boolean
     tone: 'good',
   });
   pushChronicle(state, `Мир: ${FACTIONS[a].name} и ${FACTIONS[b].name}`);
+  // Подписанные миры — редкость, карьера считает их отдельной строкой.
+  if (a === state.player || b === state.player) careerPeace();
   return true;
 }
 

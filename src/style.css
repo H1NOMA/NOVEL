@@ -878,11 +878,15 @@ body.no-vignette #vignette { display: none; }
 .fs-special { font-size: 0.6875rem; color: var(--yel); letter-spacing: 0.04em; }
 
 /* ===========================================================================
-   Главное меню. Фон — рендер Blender (tools/blender/menuart.py): композиция
-   специально держит левую половину тёмной, поэтому текст и кнопки ложатся
-   поверх без подложек. Всё в rem — масштаб интерфейса действует и здесь.
+   Стартовое меню. Фон — кадр рубки (src/assets/menubg.webp), прогнанный через
+   tools/images/enhance.py. Композиция кадра держит левую треть тёмной, а
+   вуаль сверху дожимает её ещё сильнее — логотип и кнопки ложатся поверх без
+   собственных подложек. Всё в rem: масштаб интерфейса действует и здесь.
+
+   Идентификатор именно #start-menu: #main-menu — это меню паузы внутри игры,
+   и его заливка с центрированием сюда попадать не должна.
    =========================================================================== */
-#main-menu { position: fixed; inset: 0; z-index: 60; overflow: hidden; }
+#start-menu { position: fixed; inset: 0; z-index: 60; overflow: hidden; }
 .mm-bg {
   position: absolute; inset: 0;
   background: #05060a url('./assets/menubg.webp') center/cover no-repeat;
@@ -890,38 +894,86 @@ body.no-vignette #vignette { display: none; }
   animation: mm-drift 48s ease-in-out infinite alternate;
 }
 @keyframes mm-drift { from { transform: scale(1.04) translateX(0.6%); } to { transform: scale(1.1) translateX(-0.6%); } }
+/* Затемнение: слева плотная шторка под интерфейс, справа лёгкая виньетка,
+   чтобы голограмма не спорила по яркости с текстом. */
 .mm-veil {
   position: absolute; inset: 0;
   background:
-    linear-gradient(90deg, rgba(4,4,6,0.94) 0%, rgba(4,4,6,0.82) 34%, rgba(4,4,6,0.28) 62%, rgba(4,4,6,0.55) 100%),
-    linear-gradient(180deg, rgba(4,4,6,0.75) 0%, transparent 22%, transparent 74%, rgba(4,4,6,0.88) 100%),
+    linear-gradient(90deg,
+      rgba(3,4,6,0.94) 0%, rgba(3,4,6,0.92) 18%, rgba(3,4,6,0.86) 28%,
+      rgba(3,4,6,0.74) 36%, rgba(3,4,6,0.54) 43%, rgba(3,4,6,0.32) 50%,
+      rgba(3,4,6,0.16) 57%, rgba(3,4,6,0.05) 66%, rgba(3,4,6,0.05) 82%,
+      rgba(3,4,6,0.40) 100%),
+    linear-gradient(180deg, rgba(3,4,6,0.70) 0%, transparent 20%, transparent 72%, rgba(3,4,6,0.88) 100%),
+    radial-gradient(120% 90% at 68% 44%, transparent 40%, rgba(3,4,6,0.45) 100%),
     var(--scan);
 }
+/* Колонка интерфейса прижата к левому краю — там же, где тёмная часть кадра.
+   `safe center` важен: на низком окне развёрнутая панель иначе уезжает
+   верхом за край экрана, и до заголовка уже не доскроллить. */
 .mm-inner {
   position: relative; height: 100%; display: flex; flex-direction: column;
-  justify-content: center; gap: 2rem; padding: 3rem 4rem; max-width: 46rem;
+  align-items: flex-start; justify-content: center; justify-content: safe center;
+  gap: 1.5rem; padding: 3rem 3.5rem 4.5rem; max-width: 46rem;
+  overflow-y: auto; scrollbar-width: thin;
 }
-.mm-head { border-left: 3px solid var(--yel); padding-left: 1rem; }
-.mm-title {
-  font-size: 2.6rem; font-weight: 700; letter-spacing: 0.13em; line-height: 1.05;
-  color: var(--yel); text-transform: uppercase; text-shadow: 0 0.15rem 1rem rgba(0,0,0,0.9);
+.mm-inner > * { flex: 0 0 auto; }
+/* На вложенных экранах знак ужимается: место нужнее панели, а не заголовку. */
+.mm-inner.sub { gap: 1.1rem; }
+.mm-inner.sub .logo-mark { width: min(15rem, 24vw); }
+.mm-inner.sub .mm-sub { font-size: 0.74rem; }
+
+/* --- логотип -------------------------------------------------------------- */
+.logo { display: block; }
+.mm-head { display: flex; flex-direction: column; gap: 0.7rem; align-items: flex-start; }
+.logo-mark {
+  display: block; width: min(24rem, 36vw); height: auto;
+  /* знак вырезан по альфе — тень кладём на сам силуэт, а не на бокс */
+  filter: drop-shadow(0 0.2rem 0.9rem rgba(0,0,0,0.85))
+          drop-shadow(0 0 2.2rem rgba(255,225,28,0.10));
+  user-select: none; -webkit-user-drag: none;
 }
-.mm-sub { color: var(--muted); letter-spacing: 0.12em; margin-top: 0.4rem; font-size: 0.95rem; }
-.mm-menu { display: flex; flex-direction: column; gap: 0.6rem; max-width: 30rem; }
+/* Подпись под знаком: тонкая линейка и разрядка, как на корабельной табличке. */
+.mm-sub {
+  color: var(--muted); letter-spacing: 0.16em; font-size: 0.82rem;
+  text-transform: uppercase; padding-left: 0.7rem;
+  border-left: 2px solid var(--yel-dim);
+}
+
+/* --- список кнопок -------------------------------------------------------- */
+.mm-menu { display: flex; flex-direction: column; gap: 0.35rem; width: min(24rem, 36vw); }
 .mm-btn {
-  display: flex; flex-direction: column; gap: 0.15rem; text-align: left;
-  padding: 0.85rem 1.1rem; cursor: pointer; width: 100%;
-  background: rgba(10, 10, 9, 0.82); color: var(--text);
+  display: flex; align-items: center; gap: 0.9rem; text-align: left;
+  padding: 0.7rem 1rem; cursor: pointer; width: 100%;
+  background: linear-gradient(90deg, rgba(12,12,11,0.90), rgba(12,12,11,0.62));
+  color: var(--text);
   border: 1px solid var(--edge); border-left: 3px solid var(--yel-dim);
   clip-path: var(--cut-btn); font-family: var(--font-ui);
-  transition: background 0.12s steps(1, end), border-color 0.12s steps(1, end);
+  transition: background 0.12s steps(1, end), border-color 0.12s steps(1, end),
+              transform 0.12s steps(2, end);
 }
-.mm-btn:hover { background: rgba(255, 225, 28, 0.14); border-left-color: var(--yel); }
+.mm-btn:hover:not(.off) {
+  background: linear-gradient(90deg, rgba(255,225,28,0.18), rgba(255,225,28,0.05));
+  border-left-color: var(--yel); transform: translateX(0.35rem);
+}
 .mm-btn.wide { max-width: none; }
 .mm-btn.narrow { flex: 0 0 auto; width: auto; padding: 0.7rem 1.2rem; }
-.mm-btn-label { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.1em; color: var(--text-hi); }
-.mm-btn:hover .mm-btn-label { color: var(--yel); }
-.mm-btn-hint { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.03em; }
+/* Недоступный пункт не исчезает, а гаснет: порядок кнопок остаётся заученным. */
+.mm-btn.off { opacity: 0.38; cursor: default; border-left-color: var(--edge); }
+.mm-btn-idx {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.78rem;
+  color: var(--yel-dim); letter-spacing: 0.05em;
+}
+.mm-btn:hover:not(.off) .mm-btn-idx { color: var(--yel); }
+.mm-btn-text { display: flex; flex-direction: column; gap: 0.1rem; flex: 1 1 auto; min-width: 0; }
+.mm-btn-label { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.1em; color: var(--text-hi); }
+.mm-btn:hover:not(.off) .mm-btn-label { color: var(--yel); }
+.mm-btn-hint {
+  font-size: 0.76rem; color: var(--muted); letter-spacing: 0.03em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mm-btn-arrow { flex: 0 0 auto; color: var(--yel-dim); font-size: 0.9rem; opacity: 0; }
+.mm-btn:hover:not(.off) .mm-btn-arrow { opacity: 1; color: var(--yel); }
 .mm-foot {
   position: absolute; left: 4rem; bottom: 1.4rem; color: var(--faint);
   font-size: 0.75rem; letter-spacing: 0.1em; z-index: 1;
@@ -931,6 +983,29 @@ body.no-vignette #vignette { display: none; }
   clip-path: var(--cut-panel); padding: 1.4rem 1.6rem; max-width: 42rem;
   display: flex; flex-direction: column; gap: 1rem;
 }
+.mm-panel.wide { max-width: 46rem; }
+.mm-row { display: flex; gap: 1.4rem; align-items: center; }
+.mm-back.danger { color: var(--alr); }
+.mm-back.danger:hover { color: var(--yel); }
+
+/* --- карьера -------------------------------------------------------------- */
+.mm-rank {
+  display: flex; flex-direction: column; gap: 0.2rem;
+  border-left: 3px solid var(--yel); padding-left: 0.9rem;
+}
+.mm-rank-title {
+  font-size: 1.5rem; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--yel); text-transform: uppercase;
+}
+.mm-rank-next { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.04em; }
+/* Две колонки: строк много, а панель не должна уезжать вниз за экран. */
+.mm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1.6rem; }
+.mm-stat {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 0.8rem;
+  font-size: 0.85rem; padding: 0.28rem 0; border-bottom: 1px solid var(--edge);
+}
+.mm-stat span { color: var(--muted); }
+.mm-stat b { font-family: var(--font-mono); color: var(--text-hi); }
 .mm-panel-title {
   font-size: 1.1rem; font-weight: 700; letter-spacing: 0.14em;
   color: var(--yel); text-transform: uppercase;
@@ -953,12 +1028,20 @@ body.no-vignette #vignette { display: none; }
 .mm-fac:hover { border-color: var(--fac); background: rgba(255,255,255,0.05); }
 .mm-fac img { width: 3.4rem; height: 3.4rem; }
 .mm-fac-name { font-weight: 700; letter-spacing: 0.06em; color: var(--fac); font-size: 0.95rem; }
-/* Описание фракции — только по наведению: карточки остаются читаемыми. */
+/* Описание фракции — только по наведению: карточки остаются читаемыми.
+   Высота раскрытия ограничена: иначе наведение на длинное описание распирает
+   экран и «Назад» уезжает под нижний край. */
 .mm-fac-blurb {
   font-size: 0.75rem; color: var(--muted); line-height: 1.35; text-align: left;
   max-height: 0; opacity: 0; overflow: hidden; transition: max-height 0.16s, opacity 0.16s;
 }
-.mm-fac:hover .mm-fac-blurb { max-height: 12rem; opacity: 1; }
+/* Хвост описания гаснет к нижнему краю — обрыв читается как «есть ещё», а не
+   как ошибка вёрстки; докрутить можно колесом прямо в карточке. */
+.mm-fac:hover .mm-fac-blurb {
+  max-height: 8.5rem; opacity: 1; overflow-y: auto; scrollbar-width: none;
+  mask-image: linear-gradient(180deg, #000 74%, transparent 100%);
+}
+.mm-fac-blurb::-webkit-scrollbar { width: 0; }
 .mm-saves { display: flex; flex-direction: column; gap: 0.4rem; }
 .mm-save {
   display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;

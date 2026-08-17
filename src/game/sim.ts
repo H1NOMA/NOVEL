@@ -3,6 +3,7 @@ import { FACTIONS, FACTION_IDS } from '../data/factions';
 import { bus } from '../core/emitter';
 import { fleetsOf, isHuman, planetsOf, pushChronicle, pushLog, snapshotControl, type GameState } from './state';
 import { collectTribute, stepRelations } from './relations';
+import { careerFinish, careerSync } from './career';
 import { stepAiDiplomacy, stepDiploEvents } from './diploEvents';
 import { runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
@@ -117,7 +118,10 @@ export function advanceDay(state: GameState): void {
 
   checkVictory(state);
   // График журнала войны: срез контроля раз в 30 дней (и в первый день).
-  if (state.day % 30 === 0 || state.history.length === 0) snapshotControl(state);
+  if (state.day % 30 === 0 || state.history.length === 0) {
+    snapshotControl(state);
+    careerSync(state);
+  }
   autosaveTick(state);
   bus.emit('dayPassed', { day: state.day });
   bus.emit('stateChanged', undefined);
@@ -177,7 +181,10 @@ function checkVictory(state: GameState): void {
   const seCapital = state.galaxy.planets.get('p_super_earth');
   if (seCapital && (seCapital.shattered || seCapital.owner !== 'superEarth') && state.factions.superEarth.alive) {
     state.factions.superEarth.alive = false;
-    if (state.player === 'superEarth') state.playerDefeated = true;
+    if (state.player === 'superEarth') {
+      state.playerDefeated = true;
+      careerFinish(state, false);
+    }
     pushChronicle(state, seCapital.shattered
       ? 'Супер-Земля уничтожена орбитальным залпом.'
       : 'Супер-Земля пала: колыбель человечества в руках врага.');
@@ -205,6 +212,8 @@ function checkVictory(state: GameState): void {
 
   if (contenders.length === 1) {
     state.winner = contenders[0]!;
+    // Итог кампании уходит в карьеру: победа считается по своей фракции.
+    careerFinish(state, state.winner === state.player);
     state.speed = 0;
     pushChronicle(state, `Война окончена: галактикой владеет фракция «${FACTIONS[state.winner].name}».`);
     pushLog(state, {

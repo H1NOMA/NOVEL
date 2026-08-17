@@ -50,7 +50,7 @@ const css = readFileSync(join(ROOT, 'src', 'style.css'), 'utf8');
   ok(existsSync(join(ROOT, 'src', 'assets', 'menubg.webp')), 'фон меню на месте');
   const bg = readFileSync(join(ROOT, 'src', 'assets', 'menubg.webp'));
   ok(bg.length > 10_000 && bg.length < 400_000, `фон меню разумного веса (${bg.length} байт)`);
-  ok(css.includes('#main-menu') && css.includes('.mm-btn'), 'стили меню на месте');
+  ok(css.includes('#start-menu') && css.includes('.mm-btn'), 'стили меню на месте');
   const main = readFileSync(join(ROOT, 'src', 'main.ts'), 'utf8');
   ok(main.includes('new MainMenu('), 'меню — точка входа в игру');
   console.log('главное меню: OK');

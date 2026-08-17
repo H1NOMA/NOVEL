@@ -4,6 +4,8 @@ import { emblemDataURL } from '../render/emblems';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, saveMeta } from '../game/persist';
 import { getUiScale, setUiScale, UI_SCALE_MAX, UI_SCALE_MIN } from './uiScale';
 import { netAvailable } from '../net/bridge';
+import { careerLines, careerRank, loadCareer, resetCareer } from '../game/career';
+import { logoBlock } from './logo';
 import {
   claimFaction, getLobbySlots, joinGame, setLobbyHandlers, startHosting,
   leave as leaveNet,
@@ -26,7 +28,7 @@ export interface MenuActions {
   joinedGame(faction: FactionId, snapshot: string): void;
 }
 
-type Screen = 'root' | 'faction' | 'load' | 'settings' | 'net' | 'lobby';
+type Screen = 'root' | 'faction' | 'load' | 'career' | 'settings' | 'net' | 'lobby';
 
 const el = (tag: string, cls?: string, html?: string): HTMLElement => {
   const e = document.createElement(tag);
@@ -44,7 +46,9 @@ export class MainMenu {
   private isHost = false;
 
   constructor(private actions: MenuActions) {
-    this.root.id = 'main-menu';
+    // Идентификатор свой: #main-menu занят внутриигровым меню паузы (ui.ts),
+    // и его стили — заливка и центрирование — ломали бы стартовый экран.
+    this.root.id = 'start-menu';
     document.body.appendChild(this.root);
     setLobbyHandlers({
       onLobby: () => {
@@ -82,6 +86,7 @@ export class MainMenu {
       this.screen === 'root' ? this.rootScreen()
       : this.screen === 'faction' ? this.factionScreen()
       : this.screen === 'load' ? this.loadScreen()
+      : this.screen === 'career' ? this.careerScreen()
       : this.screen === 'settings' ? this.settingsScreen()
       : this.screen === 'net' ? this.netScreen()
       : this.lobbyScreen();
@@ -89,9 +94,9 @@ export class MainMenu {
     this.root.innerHTML = `
       <div class="mm-bg"></div>
       <div class="mm-veil"></div>
-      <div class="mm-inner">
+      <div class="mm-inner${this.screen === 'root' ? '' : ' sub'}">
         <div class="mm-head">
-          <div class="mm-title">ВТОРАЯ ГАЛАКТИЧЕСКАЯ ВОЙНА</div>
+          ${logoBlock()}
           <div class="mm-sub">Терминал Верховного командования Супер-Земли</div>
         </div>
         ${body}
@@ -103,21 +108,50 @@ export class MainMenu {
   private rootScreen(): string {
     const auto = saveMeta(AUTOSAVE_SLOT);
     const hasSaves = !!auto || MANUAL_SLOTS.some((s) => !!saveMeta(s));
-    const items: [string, string, string][] = [];
-    if (auto) items.push(['continue', 'ПРОДОЛЖИТЬ', `Автосейв · день ${auto.day}`]);
-    items.push(['new', 'НОВАЯ КАМПАНИЯ', 'Выбрать фракцию и начать войну']);
-    if (hasSaves) items.push(['load', 'ЗАГРУЗИТЬ', 'Сохранённые партии']);
-    items.push(['net', 'ПО СЕТИ', netAvailable()
-      ? 'Своя партия или подключение к товарищу'
-      : 'Только в десктопной сборке']);
-    items.push(['settings', 'НАСТРОЙКИ', 'Масштаб интерфейса и звук']);
+    const career = loadCareer();
+    const rank = careerRank(career);
+    // Порядок пунктов постоянный: недоступное гасится, но не исчезает —
+    // иначе кнопки прыгают под курсором от запуска к запуску.
+    const items: [string, string, string, boolean][] = [
+      ['continue', 'ПРОДОЛЖИТЬ', auto ? `Автосейв · день ${auto.day}` : 'Автосейва пока нет', !!auto],
+      ['new', 'НАЧАТЬ НОВУЮ ИГРУ', 'Выбрать сторону и начать войну', true],
+      ['load', 'ЗАГРУЗИТЬ', hasSaves ? 'Сохранённые партии' : 'Сохранений нет', hasSaves],
+      ['career', 'КАРЬЕРА', `${rank.title} · побед: ${career.wins}`, true],
+      ['settings', 'НАСТРОЙКИ', 'Масштаб интерфейса, звук, сеть', true],
+      ['quit', 'ВЫЙТИ', 'Завершить работу терминала', true],
+    ];
 
     return `<div class="mm-menu">
-      ${items.map(([id, label, hint]) => `
-        <button class="mm-btn" data-go="${id}">
-          <span class="mm-btn-label">${label}</span>
-          <span class="mm-btn-hint">${hint}</span>
+      ${items.map(([id, label, hint, on], i) => `
+        <button class="mm-btn ${on ? '' : 'off'}" data-go="${id}" ${on ? '' : 'disabled'}>
+          <span class="mm-btn-idx">${String(i + 1).padStart(2, '0')}</span>
+          <span class="mm-btn-text">
+            <span class="mm-btn-label">${label}</span>
+            <span class="mm-btn-hint">${hint}</span>
+          </span>
+          <span class="mm-btn-arrow">▸</span>
         </button>`).join('')}
+    </div>`;
+  }
+
+  private careerScreen(): string {
+    const c = loadCareer();
+    const rank = careerRank(c);
+    return `<div class="mm-panel wide">
+      <div class="mm-panel-title">Карьера</div>
+      <div class="mm-rank">
+        <div class="mm-rank-title">${rank.title}</div>
+        <div class="mm-rank-next">${rank.next ?? 'Выше звания нет — только новые войны.'}</div>
+      </div>
+      <div class="mm-stats">
+        ${careerLines(c).map(([k, v]) => `
+          <div class="mm-stat"><span>${k}</span><b>${v}</b></div>`).join('')}
+      </div>
+      ${c.wonAs.length ? `<div class="mm-set-hint">Победы одержаны за: ${c.wonAs.map((f) => FACTIONS[f].name).join(', ')}.</div>` : ''}
+      <div class="mm-row">
+        <button class="mm-back" data-go="root">← Назад</button>
+        <button class="mm-back danger" id="mm-career-reset">Обнулить карьеру</button>
+      </div>
     </div>`;
   }
 
@@ -159,6 +193,13 @@ export class MainMenu {
     return `<div class="mm-panel">
       <div class="mm-panel-title">Настройки</div>
       <div class="mm-set">
+        <button class="mm-btn" data-go="net">
+          <span class="mm-btn-text">
+            <span class="mm-btn-label">СЕТЕВАЯ ПАРТИЯ</span>
+            <span class="mm-btn-hint">${netAvailable() ? 'Создать партию или подключиться' : 'Только в десктопной сборке'}</span>
+          </span>
+          <span class="mm-btn-arrow">▸</span>
+        </button>
         <label class="mm-set-row">
           <span>Масштаб интерфейса</span>
           <input type="range" id="mm-scale" min="${UI_SCALE_MIN}" max="${UI_SCALE_MAX}"
@@ -185,8 +226,11 @@ export class MainMenu {
       ${this.netInfo ? `<div class="mm-note">${this.netInfo}</div>` : ''}
       <div class="mm-net">
         <button class="mm-btn" data-go="host">
-          <span class="mm-btn-label">СОЗДАТЬ ПАРТИЮ</span>
-          <span class="mm-btn-hint">Ваш компьютер станет сервером. Симуляцию ведёт хост.</span>
+          <span class="mm-btn-text">
+            <span class="mm-btn-label">СОЗДАТЬ ПАРТИЮ</span>
+            <span class="mm-btn-hint">Ваш компьютер станет сервером. Симуляцию ведёт хост.</span>
+          </span>
+          <span class="mm-btn-arrow">▸</span>
         </button>
         <div class="mm-join">
           <input id="mm-addr" type="text" placeholder="Адрес хоста, например 192.168.1.42" autocomplete="off">
@@ -213,7 +257,13 @@ export class MainMenu {
           </button>`).join('')}
       </div>
       ${this.isHost
-        ? '<button class="mm-btn wide" id="mm-launch"><span class="mm-btn-label">НАЧАТЬ ВОЙНУ</span><span class="mm-btn-hint">Свободные места останутся за ИИ</span></button>'
+        ? `<button class="mm-btn wide" id="mm-launch">
+             <span class="mm-btn-text">
+               <span class="mm-btn-label">НАЧАТЬ ВОЙНУ</span>
+               <span class="mm-btn-hint">Свободные места останутся за ИИ</span>
+             </span>
+             <span class="mm-btn-arrow">▸</span>
+           </button>`
         : '<div class="mm-set-hint">Займите фракцию и дождитесь хоста.</div>'}
       <button class="mm-back" data-go="leave">← Покинуть</button>
     </div>`;
@@ -233,6 +283,9 @@ export class MainMenu {
           this.go('faction');
         } else if (to === 'continue') {
           this.actions.loadGame(AUTOSAVE_SLOT);
+        } else if (to === 'quit') {
+          // В десктопной сборке окно закрывается, в браузере — просто нечего делать.
+          window.close();
         } else if (to === 'leave') {
           leaveNet();
           this.isHost = false;
@@ -295,6 +348,11 @@ export class MainMenu {
     this.root.querySelector('#mm-launch')?.addEventListener('click', () => {
       this.close();
       this.actions.hostGame(this.hostFaction);
+    });
+
+    this.root.querySelector('#mm-career-reset')?.addEventListener('click', () => {
+      resetCareer();
+      this.render();
     });
 
     const scale = this.root.querySelector<HTMLInputElement>('#mm-scale');

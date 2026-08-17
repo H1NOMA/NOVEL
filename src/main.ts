@@ -8,6 +8,7 @@ import { preloadShipModels } from './render/shipAssets';
 import { preloadPlanetModels } from './render/planetAssets';
 import { applyUiScale } from './ui/uiScale';
 import { MainMenu } from './ui/mainMenu';
+import { careerStart } from './game/career';
 import { attachState, hostStartGame } from './net/session';
 import { applySnapshot } from './net/snapshot';
 import type { FactionId } from './core/types';
@@ -77,6 +78,7 @@ async function boot(): Promise<void> {
   new MainMenu({
     newGame(faction: FactionId) {
       loading?.classList.remove('hidden');
+      careerStart(faction);
       startGame(createGame(Math.floor(Math.random() * 1e9), faction));
     },
     loadGame(slot: string) {
@@ -87,10 +89,12 @@ async function boot(): Promise<void> {
     },
     hostGame(faction: FactionId) {
       loading?.classList.remove('hidden');
+      careerStart(faction);
       startGame(createGame(Math.floor(Math.random() * 1e9), faction), { host: true });
     },
     joinedGame(faction: FactionId, snapshot: string) {
       loading?.classList.remove('hidden');
+      careerStart(faction);
       // Клиент не генерирует галактику: каркас создаётся любым сидом и тут же
       // перезаписывается состоянием хоста.
       const state = createGame(1, faction);
