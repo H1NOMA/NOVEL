@@ -100,8 +100,7 @@ export class MainMenu {
           <div class="mm-sub">Терминал Верховного командования Супер-Земли</div>
         </div>
         ${body}
-      </div>
-      <div class="mm-foot">Управляемая демократия · личный проект по мотивам Helldivers 2</div>`;
+      </div>`;
     this.wire();
   }
 

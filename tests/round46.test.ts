@@ -170,12 +170,20 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(css.includes("url('./assets/menubg.webp')"), 'фон меню — кадр рубки');
   // Стартовый экран и меню паузы больше не делят один id: раньше стили паузы
   // центрировали стартовый блок и закрашивали кадр своей заливкой.
-  ok(read('src', 'ui', 'mainMenu.ts').includes("this.root.id = 'start-menu'"),
+  const menu = read('src', 'ui', 'mainMenu.ts');
+  ok(menu.includes("this.root.id = 'start-menu'"),
     'у стартового меню свой идентификатор');
   ok(read('src', 'ui', 'ui.ts').includes("menuEl.id = 'main-menu'"),
     'меню паузы осталось на своём id');
   ok(css.includes('#start-menu {'), 'стили стартового экрана привязаны к новому id');
   ok(css.includes('.mm-inner.sub'), 'на вложенных экранах знак ужимается');
+  // Подпись внизу слева убрана: экран держат логотип и кнопки.
+  ok(!menu.includes('mm-foot'), 'подписи под меню нет в разметке');
+  ok(!css.includes('.mm-foot'), 'её стиль тоже убран');
+  // Колонка прижата к левому краю — там же, где самая тёмная часть кадра.
+  const inner = css.slice(css.indexOf('.mm-inner {'), css.indexOf('.mm-inner > *'));
+  const pad = /padding:\s*([\d.]+)rem\s+([\d.]+)rem\s+([\d.]+)rem\s+([\d.]+)rem/.exec(inner);
+  ok(!!pad && Number(pad[4]) < 2, `левый отступ узкий (${pad?.[4]}rem)`);
   // Разметка и стили не должны разъезжаться: каждый класс из меню описан.
   for (const cls of ['.logo-mark', '.mm-btn-idx', '.mm-btn-text', '.mm-btn-arrow', '.mm-btn.off',
                      '.mm-rank', '.mm-rank-title', '.mm-rank-next', '.mm-stats', '.mm-stat',

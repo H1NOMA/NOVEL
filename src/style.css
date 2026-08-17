@@ -876,7 +876,7 @@ body.no-vignette #vignette { display: none; }
 .mm-inner {
   position: relative; height: 100%; display: flex; flex-direction: column;
   align-items: flex-start; justify-content: center; justify-content: safe center;
-  gap: 1.5rem; padding: 3rem 3.5rem 4.5rem; max-width: 46rem;
+  gap: 1.5rem; padding: 3rem 3rem 3rem 1.6rem; max-width: 44rem;
   overflow-y: auto; scrollbar-width: thin;
 }
 .mm-inner > * { flex: 0 0 auto; }
@@ -936,10 +936,6 @@ body.no-vignette #vignette { display: none; }
 }
 .mm-btn-arrow { flex: 0 0 auto; color: var(--yel-dim); font-size: 0.9rem; opacity: 0; }
 .mm-btn:hover:not(.off) .mm-btn-arrow { opacity: 1; color: var(--yel); }
-.mm-foot {
-  position: absolute; left: 4rem; bottom: 1.4rem; color: var(--faint);
-  font-size: 0.75rem; letter-spacing: 0.1em; z-index: 1;
-}
 .mm-panel {
   background: rgba(8, 8, 7, 0.9); border: 1px solid var(--edge);
   clip-path: var(--cut-panel); padding: 1.4rem 1.6rem; max-width: 42rem;
