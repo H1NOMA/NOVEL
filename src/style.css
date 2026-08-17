@@ -914,11 +914,6 @@ body.no-vignette #vignette { display: none; }
 .mm-btn.narrow { flex: 0 0 auto; width: auto; padding: 0.7rem 1.2rem; }
 /* Недоступный пункт не исчезает, а гаснет: порядок кнопок остаётся заученным. */
 .mm-btn.off { opacity: 0.38; cursor: default; border-left-color: var(--edge); }
-.mm-btn-idx {
-  flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.78rem;
-  color: var(--yel-dim); letter-spacing: 0.05em;
-}
-.mm-btn:hover:not(.off) .mm-btn-idx { color: var(--yel); }
 .mm-btn-text { display: flex; flex-direction: column; gap: 0.1rem; flex: 1 1 auto; min-width: 0; }
 .mm-btn-label { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.1em; color: var(--text-hi); }
 .mm-btn:hover:not(.off) .mm-btn-label { color: var(--yel); }
@@ -929,14 +924,13 @@ body.no-vignette #vignette { display: none; }
 .mm-btn-arrow { flex: 0 0 auto; color: var(--yel-dim); font-size: 0.9rem; opacity: 0; }
 .mm-btn:hover:not(.off) .mm-btn-arrow { opacity: 1; color: var(--yel); }
 
-/* Кнопки корневого меню: надпись строго по центру, номер и стрелка вынесены
-   на края абсолютом — иначе разная ширина боковин утащила бы текст вбок.
+/* Кнопки корневого меню: надпись строго по центру, стрелка вынесена вправо
+   абсолютом — во flex-потоке она сдвигала бы текст влево от центра.
    Высота фиксированная, поэтому надписи стоят ровной колонкой. */
 .mm-btn.plain {
   position: relative; justify-content: center; gap: 0;
-  height: 3.3rem; padding: 0 2.8rem;
+  height: 3.3rem; padding: 0 2.2rem;
 }
-.mm-btn.plain .mm-btn-idx { position: absolute; left: 1rem; }
 .mm-btn.plain .mm-btn-arrow { position: absolute; right: 1rem; }
 .mm-btn.plain .mm-btn-label {
   text-align: center; line-height: 1;

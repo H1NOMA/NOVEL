@@ -156,6 +156,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   const rootBlock = menu.slice(menu.indexOf('rootScreen'), menu.indexOf('careerScreen'));
   ok(!rootBlock.includes('mm-btn-hint'), 'подсказок под кнопками меню нет');
   ok(!rootBlock.includes('mm-btn-text'), 'обёртка под две строки больше не нужна');
+  ok(!rootBlock.includes('mm-btn-idx'), 'нумерации слева от надписей нет');
   ok(!menu.includes('mm-sub'), 'подзаголовок над меню убран');
   // Сеть уехала из корня в настройки: корневых пунктов ровно шесть.
   const root = menu.slice(menu.indexOf('rootScreen'), menu.indexOf('careerScreen'));
@@ -186,6 +187,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(!menu.includes('mm-foot'), 'подписи под меню нет в разметке');
   ok(!css.includes('.mm-foot'), 'её стиль тоже убран');
   ok(!css.includes('.mm-sub'), 'стиль подзаголовка тоже убран');
+  ok(!css.includes('.mm-btn-idx'), 'стиль нумерации тоже убран');
   // Надписи по центру и одинаковой высоты.
   const plain = css.slice(css.indexOf('.mm-btn.plain {'), css.indexOf('.mm-panel {'));
   ok(plain.includes('justify-content: center'), 'надпись кнопки по центру');
@@ -203,7 +205,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   const pad = /padding:\s*([\d.]+)rem\s+([\d.]+)rem\s+([\d.]+)rem\s+([\d.]+)rem/.exec(inner);
   ok(!!pad && Number(pad[4]) < 2, `левый отступ узкий (${pad?.[4]}rem)`);
   // Разметка и стили не должны разъезжаться: каждый класс из меню описан.
-  for (const cls of ['.logo-mark', '.mm-btn-idx', '.mm-btn-text', '.mm-btn-arrow', '.mm-btn.off',
+  for (const cls of ['.logo-mark', '.mm-btn-text', '.mm-btn-arrow', '.mm-btn.off',
                      '.mm-rank', '.mm-rank-title', '.mm-rank-next', '.mm-stats', '.mm-stat',
                      '.mm-row', '.mm-back.danger', '.mm-panel.wide']) {
     ok(css.includes(cls), `стиль описан: ${cls}`);

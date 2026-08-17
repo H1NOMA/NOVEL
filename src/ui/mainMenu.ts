@@ -117,12 +117,11 @@ export class MainMenu {
       ['quit', 'ВЫЙТИ', true],
     ];
 
-    // Кнопки без подписей: только надпись по центру, номер и стрелка по краям.
+    // Кнопки без подписей: одна надпись по центру, стрелка по наведению.
     // Высота фиксированная, поэтому строки стоят ровной колонкой.
     return `<div class="mm-menu">
-      ${items.map(([id, label, on], i) => `
+      ${items.map(([id, label, on]) => `
         <button class="mm-btn plain ${on ? '' : 'off'}" data-go="${id}" ${on ? '' : 'disabled'}>
-          <span class="mm-btn-idx">${String(i + 1).padStart(2, '0')}</span>
           <span class="mm-btn-label">${label}</span>
           <span class="mm-btn-arrow">▸</span>
         </button>`).join('')}
