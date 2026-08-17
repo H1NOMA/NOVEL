@@ -883,7 +883,6 @@ body.no-vignette #vignette { display: none; }
 /* На вложенных экранах знак ужимается: место нужнее панели, а не заголовку. */
 .mm-inner.sub { gap: 1.1rem; }
 .mm-inner.sub .logo-mark { width: min(15rem, 24vw); }
-.mm-inner.sub .mm-sub { font-size: 0.74rem; }
 
 /* --- логотип -------------------------------------------------------------- */
 .logo { display: block; }
@@ -895,13 +894,6 @@ body.no-vignette #vignette { display: none; }
           drop-shadow(0 0 2.2rem rgba(255,225,28,0.10));
   user-select: none; -webkit-user-drag: none;
 }
-/* Подпись под знаком: тонкая линейка и разрядка, как на корабельной табличке. */
-.mm-sub {
-  color: var(--muted); letter-spacing: 0.16em; font-size: 0.82rem;
-  text-transform: uppercase; padding-left: 0.7rem;
-  border-left: 2px solid var(--yel-dim);
-}
-
 /* --- список кнопок -------------------------------------------------------- */
 .mm-menu { display: flex; flex-direction: column; gap: 0.35rem; width: min(24rem, 36vw); }
 .mm-btn {
@@ -936,6 +928,20 @@ body.no-vignette #vignette { display: none; }
 }
 .mm-btn-arrow { flex: 0 0 auto; color: var(--yel-dim); font-size: 0.9rem; opacity: 0; }
 .mm-btn:hover:not(.off) .mm-btn-arrow { opacity: 1; color: var(--yel); }
+
+/* Кнопки корневого меню: надпись строго по центру, номер и стрелка вынесены
+   на края абсолютом — иначе разная ширина боковин утащила бы текст вбок.
+   Высота фиксированная, поэтому надписи стоят ровной колонкой. */
+.mm-btn.plain {
+  position: relative; justify-content: center; gap: 0;
+  height: 3.3rem; padding: 0 2.8rem;
+}
+.mm-btn.plain .mm-btn-idx { position: absolute; left: 1rem; }
+.mm-btn.plain .mm-btn-arrow { position: absolute; right: 1rem; }
+.mm-btn.plain .mm-btn-label {
+  text-align: center; line-height: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .mm-panel {
   background: rgba(8, 8, 7, 0.9); border: 1px solid var(--edge);
   clip-path: var(--cut-panel); padding: 1.4rem 1.6rem; max-width: 42rem;
@@ -975,31 +981,27 @@ body.no-vignette #vignette { display: none; }
 }
 .mm-back:hover { color: var(--yel); }
 .mm-note { color: var(--yel); font-size: 0.85rem; letter-spacing: 0.04em; }
+/* Выбор стороны: одинаковые карточки без описаний — эмблема, имя и подсветка
+   цветом фракции по наведению. Ничего не раскрывается, поэтому сетка стоит
+   намертво и «Назад» не уезжает за нижний край. */
 .mm-factions { display: flex; gap: 0.7rem; flex-wrap: wrap; }
 .mm-fac {
-  width: 11rem; padding: 0.9rem 0.7rem; cursor: pointer; text-align: center;
-  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+  width: 11rem; height: 9rem; padding: 0.9rem 0.7rem; cursor: pointer; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.6rem;
   background: rgba(12, 12, 11, 0.92); color: var(--text);
   border: 1px solid var(--edge); border-top: 3px solid var(--fac);
   font-family: var(--font-ui);
+  transition: background 0.14s, border-color 0.14s, box-shadow 0.14s;
 }
-.mm-fac:hover { border-color: var(--fac); background: rgba(255,255,255,0.05); }
-.mm-fac img { width: 3.4rem; height: 3.4rem; }
+.mm-fac:hover, .mm-fac:focus-visible {
+  outline: none; border-color: var(--fac);
+  background: color-mix(in srgb, var(--fac) 14%, rgba(12, 12, 11, 0.92));
+  box-shadow: 0 0 1.6rem -0.3rem var(--fac), inset 0 0 2.2rem -1rem var(--fac);
+}
+.mm-fac img { width: 3.6rem; height: 3.6rem; transition: filter 0.14s; }
+.mm-fac:hover img { filter: drop-shadow(0 0 0.5rem var(--fac)); }
 .mm-fac-name { font-weight: 700; letter-spacing: 0.06em; color: var(--fac); font-size: 0.95rem; }
-/* Описание фракции — только по наведению: карточки остаются читаемыми.
-   Высота раскрытия ограничена: иначе наведение на длинное описание распирает
-   экран и «Назад» уезжает под нижний край. */
-.mm-fac-blurb {
-  font-size: 0.75rem; color: var(--muted); line-height: 1.35; text-align: left;
-  max-height: 0; opacity: 0; overflow: hidden; transition: max-height 0.16s, opacity 0.16s;
-}
-/* Хвост описания гаснет к нижнему краю — обрыв читается как «есть ещё», а не
-   как ошибка вёрстки; докрутить можно колесом прямо в карточке. */
-.mm-fac:hover .mm-fac-blurb {
-  max-height: 8.5rem; opacity: 1; overflow-y: auto; scrollbar-width: none;
-  mask-image: linear-gradient(180deg, #000 74%, transparent 100%);
-}
-.mm-fac-blurb::-webkit-scrollbar { width: 0; }
 .mm-saves { display: flex; flex-direction: column; gap: 0.4rem; }
 .mm-save {
   display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;

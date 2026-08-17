@@ -150,8 +150,13 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(menu.includes("this.screen === 'career'"), 'экран карьеры включён в роутер');
   ok(menu.includes('mm-career-reset'), 'кнопка обнуления карьеры на экране');
   // Недоступные пункты гасятся, а не пропадают — порядок кнопок заучивается.
-  ok(menu.includes("mm-btn ${on ? '' : 'off'}"), 'недоступный пункт гасится классом off');
+  ok(menu.includes("mm-btn plain ${on ? '' : 'off'}"), 'недоступный пункт гасится классом off');
   ok(menu.includes('disabled'), 'недоступный пункт не кликается');
+  // Корневые кнопки — только надпись: подсказок под ними нет.
+  const rootBlock = menu.slice(menu.indexOf('rootScreen'), menu.indexOf('careerScreen'));
+  ok(!rootBlock.includes('mm-btn-hint'), 'подсказок под кнопками меню нет');
+  ok(!rootBlock.includes('mm-btn-text'), 'обёртка под две строки больше не нужна');
+  ok(!menu.includes('mm-sub'), 'подзаголовок над меню убран');
   // Сеть уехала из корня в настройки: корневых пунктов ровно шесть.
   const root = menu.slice(menu.indexOf('rootScreen'), menu.indexOf('careerScreen'));
   ok(!root.includes("'net'"), 'сетевая партия убрана из корневого меню');
@@ -180,6 +185,19 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   // Подпись внизу слева убрана: экран держат логотип и кнопки.
   ok(!menu.includes('mm-foot'), 'подписи под меню нет в разметке');
   ok(!css.includes('.mm-foot'), 'её стиль тоже убран');
+  ok(!css.includes('.mm-sub'), 'стиль подзаголовка тоже убран');
+  // Надписи по центру и одинаковой высоты.
+  const plain = css.slice(css.indexOf('.mm-btn.plain {'), css.indexOf('.mm-panel {'));
+  ok(plain.includes('justify-content: center'), 'надпись кнопки по центру');
+  ok(/height:\s*[\d.]+rem/.test(plain), 'высота кнопок фиксирована');
+  ok(plain.includes('position: absolute'), 'номер и стрелка вынесены на края');
+  // Выбор стороны: подсветка вместо раскрывающегося описания.
+  ok(!menu.includes('mm-fac-blurb'), 'описаний на карточках фракций нет');
+  ok(!css.includes('.mm-fac-blurb'), 'их стиль тоже убран');
+  const fac = css.slice(css.indexOf('.mm-fac {'), css.indexOf('.mm-fac-name'));
+  ok(fac.includes('box-shadow'), 'карточка подсвечивается по наведению');
+  ok(fac.includes('var(--fac)'), 'подсветка идёт цветом фракции');
+  ok(/height:\s*[\d.]+rem/.test(fac), 'карточки одной высоты');
   // Колонка прижата к левому краю — там же, где самая тёмная часть кадра.
   const inner = css.slice(css.indexOf('.mm-inner {'), css.indexOf('.mm-inner > *'));
   const pad = /padding:\s*([\d.]+)rem\s+([\d.]+)rem\s+([\d.]+)rem\s+([\d.]+)rem/.exec(inner);

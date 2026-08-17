@@ -97,7 +97,6 @@ export class MainMenu {
       <div class="mm-inner${this.screen === 'root' ? '' : ' sub'}">
         <div class="mm-head">
           ${logoBlock()}
-          <div class="mm-sub">Терминал Верховного командования Супер-Земли</div>
         </div>
         ${body}
       </div>`;
@@ -107,27 +106,24 @@ export class MainMenu {
   private rootScreen(): string {
     const auto = saveMeta(AUTOSAVE_SLOT);
     const hasSaves = !!auto || MANUAL_SLOTS.some((s) => !!saveMeta(s));
-    const career = loadCareer();
-    const rank = careerRank(career);
     // Порядок пунктов постоянный: недоступное гасится, но не исчезает —
     // иначе кнопки прыгают под курсором от запуска к запуску.
-    const items: [string, string, string, boolean][] = [
-      ['continue', 'ПРОДОЛЖИТЬ', auto ? `Автосейв · день ${auto.day}` : 'Автосейва пока нет', !!auto],
-      ['new', 'НАЧАТЬ НОВУЮ ИГРУ', 'Выбрать сторону и начать войну', true],
-      ['load', 'ЗАГРУЗИТЬ', hasSaves ? 'Сохранённые партии' : 'Сохранений нет', hasSaves],
-      ['career', 'КАРЬЕРА', `${rank.title} · побед: ${career.wins}`, true],
-      ['settings', 'НАСТРОЙКИ', 'Масштаб интерфейса, звук, сеть', true],
-      ['quit', 'ВЫЙТИ', 'Завершить работу терминала', true],
+    const items: [string, string, boolean][] = [
+      ['continue', 'ПРОДОЛЖИТЬ', !!auto],
+      ['new', 'НАЧАТЬ НОВУЮ ИГРУ', true],
+      ['load', 'ЗАГРУЗИТЬ', hasSaves],
+      ['career', 'КАРЬЕРА', true],
+      ['settings', 'НАСТРОЙКИ', true],
+      ['quit', 'ВЫЙТИ', true],
     ];
 
+    // Кнопки без подписей: только надпись по центру, номер и стрелка по краям.
+    // Высота фиксированная, поэтому строки стоят ровной колонкой.
     return `<div class="mm-menu">
-      ${items.map(([id, label, hint, on], i) => `
-        <button class="mm-btn ${on ? '' : 'off'}" data-go="${id}" ${on ? '' : 'disabled'}>
+      ${items.map(([id, label, on], i) => `
+        <button class="mm-btn plain ${on ? '' : 'off'}" data-go="${id}" ${on ? '' : 'disabled'}>
           <span class="mm-btn-idx">${String(i + 1).padStart(2, '0')}</span>
-          <span class="mm-btn-text">
-            <span class="mm-btn-label">${label}</span>
-            <span class="mm-btn-hint">${hint}</span>
-          </span>
+          <span class="mm-btn-label">${label}</span>
           <span class="mm-btn-arrow">▸</span>
         </button>`).join('')}
     </div>`;
@@ -163,7 +159,6 @@ export class MainMenu {
           <button class="mm-fac" data-fac="${f}" style="--fac:${FACTIONS[f].color}">
             <img src="${emblemDataURL(f)}" alt="">
             <span class="mm-fac-name">${FACTIONS[f].name}</span>
-            <span class="mm-fac-blurb">${FACTIONS[f].blurb}</span>
           </button>`).join('')}
       </div>
       <button class="mm-back" data-go="root">← Назад</button>
