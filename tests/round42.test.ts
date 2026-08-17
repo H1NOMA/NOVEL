@@ -78,7 +78,7 @@ function parseGlb(buf: Buffer): GltfJson {
   ok(/await[\s\S]{0,80}preloadShipModels\(\)/.test(main), 'модели грузятся до старта сцены');
 
   const css = readFileSync(join(ROOT, 'src', 'style.css'), 'utf8');
-  ok(css.includes('keyart.webp'), 'ключевой арт подключён к экрану выбора');
+  ok(css.includes('keyart.webp'), 'ключевой арт подключён к экрану загрузки');
 }
 
 console.log(`round42: OK (${checks} проверок)`);
