@@ -1,11 +1,12 @@
 import type { FactionId, Planet } from '../core/types';
 import { bus } from '../core/emitter';
-import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, factionColor } from '../data/factions';
+import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, factionColor, fleetTitle, homeworldFaction, FLEET_NOUN } from '../data/factions';
+import { RESOURCE_ICON, RESOURCE_LABEL, resourceReport, type ResourceId } from '../game/economy';
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
 import { focusIconURL } from '../render/focusIcons';
-import { orderFleetTo, garrisonReinforce, lockedInBattle, splitFleet, disbandFleet } from '../game/units';
+import { orderFleetTo, garrisonReinforce, lockedInBattle, mergeFleets, splitFleet, disbandFleet } from '../game/units';
 import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, takeStoredShips, yardsOf, SHIPYARD_COST } from '../game/shipyards';
 import { canEnter } from '../game/supply';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
@@ -18,7 +19,7 @@ import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics
 import { buyTruce, hostileNow, truceActive, truceCost } from '../game/diplomacy';
 import { atWar, canNegotiate, cedePlanet, declareWar, makePeace, relationLabel, relationOf, CEDE_COST, PEACE_THRESHOLD, WAR_THRESHOLD } from '../game/relations';
 import { GALAXY_MODIFIERS } from '../data/modifiers';
-import { OBJECTIVES } from '../game/objectives';
+import { objectiveKey, objectivesFor } from '../game/objectives';
 import { commanderOf, cycleCommander } from '../game/commanders';
 import { PHASE_LABEL } from '../game/combat';
 import { canSabotage, canUprising, opReadyIn, reconActive, runRecon, runSabotage, runUprising, SPEC_OPS } from '../game/specops';
@@ -27,7 +28,7 @@ import { nextRankIn, rankOf } from '../game/veterancy';
 import { SoundEngine } from './sound';
 import { Hotkeys } from './hotkeys';
 import { partyCodeBlock, rosterList } from './party';
-import { currentRole, getPartyCode, getPartyMembers, kickPeer } from '../net/session';
+import { currentRole, getPartyCode, getPartyMembers, isClient, kickPeer, sendCommand } from '../net/session';
 import { SettingsPanel } from './settingsPanel';
 import { applyDom, getSettings, onSettings } from './settings';
 import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
@@ -98,7 +99,8 @@ export class UI {
   private focusOverlay!: HTMLElement;
   private logEl!: HTMLElement;
   private toastEl!: HTMLElement;
-  private focusTab: FactionId = 'superEarth';
+  /** Вкладка древа фокусов. Открывается на СВОЕЙ фракции, а не на Супер-Земле. */
+  private focusTab: FactionId;
   private toastTimer = 0;
   private decisionsEl!: HTMLElement;
   private productionEl!: HTMLElement;
@@ -128,6 +130,12 @@ export class UI {
   private alertsEl!: HTMLElement;
   /** Оверлей журнала войны. */
   private chronicleEl!: HTMLElement;
+  /** Окно источников ресурса (клик по цифре в шапке). */
+  private resourceEl!: HTMLElement;
+  private resourceTab: ResourceId = 'production';
+  /** Окно чужой фракции (ПКМ по её родному миру) и подсветка карты. */
+  private factionEl!: HTMLElement;
+  private factionView: FactionId | null = null;
   /** Индекс для перебора битв кнопкой кинокамеры. */
   private cinemaIdx = 0;
   /** Последняя ненулевая скорость — пауза возвращает именно её. */
@@ -149,6 +157,7 @@ export class UI {
 
   constructor(private state: GameState, private scene: GalaxyScene, private clock: GameClock) {
     this.root = document.getElementById('ui')!;
+    this.focusTab = state.player;
     this.build();
     this.wire();
     this.renderAll();
@@ -232,6 +241,8 @@ export class UI {
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
     this.alertsEl = el('div'); this.alertsEl.id = 'combat-alerts';
     this.chronicleEl = el('div'); this.chronicleEl.id = 'chronicle-overlay'; this.chronicleEl.classList.add('hidden');
+    this.resourceEl = el('div'); this.resourceEl.id = 'resource-panel'; this.resourceEl.classList.add('hidden');
+    this.factionEl = el('div'); this.factionEl.id = 'faction-panel'; this.factionEl.classList.add('hidden');
 
     // Кнопки фокусов/решений/производства — под шапкой слева.
     // Без title-подсказок: что делает кнопка, показывает её экран, а клавиши
@@ -248,7 +259,7 @@ export class UI {
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
     this.sideBtns.querySelector('#chronicle-btn')!.addEventListener('click', () => this.toggleChronicle());
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.resourceEl, this.factionEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -328,7 +339,13 @@ export class UI {
 
   /** Закрыть самое верхнее открытое окно. Возвращает true, если было что закрывать. */
   private closeTopOverlay(): boolean {
-    for (const e of [this.chronicleEl, this.focusOverlay, this.dossierEl,
+    // Окно фракции первым: оно держит подсветку карты, и Esc должен снимать
+    // именно её, а не что-то из-под неё.
+    if (!this.factionEl.classList.contains('hidden')) {
+      this.closeFaction();
+      return true;
+    }
+    for (const e of [this.chronicleEl, this.resourceEl, this.focusOverlay, this.dossierEl,
       this.decisionsEl, this.productionEl, this.fleetDetailEl]) {
       if (!e.classList.contains('hidden')) {
         e.classList.add('hidden');
@@ -459,6 +476,8 @@ export class UI {
     if (this.detailFleet) this.renderFleetDetail();
     if (!this.decisionsEl.classList.contains('hidden')) this.renderDecisions();
     if (!this.productionEl.classList.contains('hidden')) this.renderProduction();
+    this.renderResource();
+    this.renderFaction();
     // owners may have shifted this day
     this.scene.refreshOwners();
     if (this.state.selectedPlanet) this.scene.setSelected(this.state.selectedPlanet);
@@ -504,18 +523,19 @@ export class UI {
 
     // Показатели подписаны прямо в строке, а не всплывашкой по наведению:
     // цифра без имени ничего не значит, а наводить мышь на каждую — не дело.
-    const ind = (icon: string, tag: string, value: string, color?: string): string =>
-      `<span class="hud-ind">${icon} <span class="hud-tag">${tag}</span> <b${color ? ` style="color:${color}"` : ''}>${value}</b></span>`;
+    // res !== undefined — по цифре можно щёлкнуть и увидеть, откуда она берётся.
+    const ind = (icon: string, tag: string, value: string, res?: ResourceId, color?: string): string =>
+      `<span class="hud-ind${res ? ' hud-res' : ''}"${res ? ` data-res="${res}"` : ''}>${icon} <span class="hud-tag">${tag}</span> <b${color ? ` style="color:${color}"` : ''}>${value}</b></span>`;
 
     const stabColor = fs.stability > 60 ? 'var(--ok)' : fs.stability > 35 ? 'var(--gold)' : 'var(--alr)';
     const inds = [
       focusInd,
-      ind('⚖', 'ПВ', fs.politicalPower.toFixed(0)),
-      s.player === 'superEarth' ? ind('☼', 'СТАБ', `${fs.stability.toFixed(0)}%`, stabColor) : '',
+      ind('⚖', 'ПВ', fs.politicalPower.toFixed(0), 'power'),
+      s.player === 'superEarth' ? ind('☼', 'СТАБ', `${fs.stability.toFixed(0)}%`, undefined, stabColor) : '',
       ind('⚔', 'ВОЙНА', `${fs.warSupport.toFixed(0)}%`),
-      ind('⚒', 'ПРОИЗВ', fs.production.toFixed(0), 'var(--gold)'),
-      fs.flags.e711Mining ? ind('⛽', 'Е-711', fs.resources.e711.toFixed(0), 'var(--gold)') : '',
-      fs.resources.minerals > 0 ? ind('⛏', 'РУДА', fs.resources.minerals.toFixed(0)) : '',
+      ind('⚒', 'ПРОИЗВ', fs.production.toFixed(0), 'production', 'var(--gold)'),
+      fs.flags.e711Mining ? ind('⛽', 'Е-711', fs.resources.e711.toFixed(0), 'e711', 'var(--gold)') : '',
+      fs.resources.minerals > 0 ? ind('⛏', 'РУДА', fs.resources.minerals.toFixed(0), 'minerals') : '',
     ].filter(Boolean).join('');
 
     this.hud.innerHTML = `
@@ -533,6 +553,8 @@ export class UI {
 
     this.hud.querySelector('#flag-btn')!.addEventListener('click', () => this.toggleDossier());
     this.hud.querySelector('#hud-focus')?.addEventListener('click', () => this.toggleFocus());
+    this.hud.querySelectorAll<HTMLElement>('[data-res]').forEach((e) =>
+      e.addEventListener('click', () => this.openResource(e.dataset.res as ResourceId)));
     this.hud.querySelectorAll<HTMLButtonElement>('.speed-btn').forEach((b) => {
       b.addEventListener('click', () => {
         const v = Number(b.dataset.s) as 0 | 1 | 2 | 3;
@@ -571,6 +593,178 @@ export class UI {
     // Показатели фракции живут в шапке; отдельной панели больше нет.
     this.renderHud();
     if (!this.dossierEl.classList.contains('hidden')) this.renderDossier();
+  }
+
+  // ---------------- Источники ресурсов ----------------
+
+  /** Какие ресурсы вообще есть у этой фракции — из них собираются вкладки. */
+  private resourceTabs(): ResourceId[] {
+    const tabs: ResourceId[] = ['production', 'minerals', 'power'];
+    if (this.state.player === 'superEarth') tabs.push('e711');
+    return tabs;
+  }
+
+  private openResource(res: ResourceId): void {
+    // Повторный щелчок по той же цифре закрывает окно.
+    if (this.resourceTab === res && !this.resourceEl.classList.contains('hidden')) {
+      this.resourceEl.classList.add('hidden');
+      return;
+    }
+    this.resourceTab = this.resourceTabs().includes(res) ? res : 'production';
+    this.resourceEl.classList.remove('hidden');
+    this.renderResource();
+  }
+
+  private renderResource(): void {
+    if (this.resourceEl.classList.contains('hidden')) return;
+    const s = this.state;
+    const res = this.resourceTab;
+    const rep = resourceReport(s, s.player, res);
+    const num = (n: number): string => (Math.abs(n) >= 10 ? n.toFixed(1) : n.toFixed(2));
+
+    const tabs = this.resourceTabs().map((r) =>
+      `<button class="res-tab ${r === res ? 'active' : ''}" data-restab="${r}">${RESOURCE_ICON[r]} ${RESOURCE_LABEL[r]}</button>`).join('');
+
+    const rows = (lines: typeof rep.income, sign: string, color: string): string =>
+      lines.map((l) => `<div class="res-row">
+        <span class="res-name">${l.name}${l.detail ? `<i>${l.detail}</i>` : ''}</span>
+        <b style="color:${color}">${sign}${num(l.amount)}</b></div>`).join('');
+
+    const netColor = rep.net > 0 ? 'var(--ok)' : rep.net < 0 ? 'var(--alr)' : 'var(--muted)';
+    this.resourceEl.innerHTML = `
+      <div class="pc-head"><span class="pc-title">${RESOURCE_ICON[res]} ${RESOURCE_LABEL[res]}</span>
+        <button class="pc-close" id="res-close">✕</button></div>
+      <div class="res-tabs">${tabs}</div>
+      <div class="pc-body">
+        <div class="res-sum">
+          <div><span>Запас</span><b>${rep.stock.toFixed(1)}</b></div>
+          <div><span>Приход</span><b style="color:var(--ok)">+${num(rep.gross)}</b></div>
+          <div><span>Расход</span><b style="color:var(--alr)">−${num(rep.gross - rep.net)}</b></div>
+          <div><span>Итого в сутки</span><b style="color:${netColor}">${rep.net >= 0 ? '+' : '−'}${num(Math.abs(rep.net))}</b></div>
+        </div>
+        ${rep.income.length ? `<div class="pp-section">Источники</div>${rows(rep.income, '+', 'var(--ok)')}` : ''}
+        ${rep.drain.length ? `<div class="pp-section">Расход</div>${rows(rep.drain, '−', 'var(--alr)')}` : ''}
+        ${rep.blocked.length ? `<div class="pp-section">Не поступает</div>${rows(rep.blocked, '', 'var(--muted)')}` : ''}
+        ${!rep.income.length && !rep.drain.length ? '<div class="res-row"><span class="res-name">Источников нет</span></div>' : ''}
+      </div>`;
+
+    this.resourceEl.querySelector('#res-close')?.addEventListener('click', () => this.resourceEl.classList.add('hidden'));
+    this.resourceEl.querySelectorAll<HTMLButtonElement>('[data-restab]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.resourceTab = b.dataset.restab as ResourceId;
+        this.renderResource();
+      }));
+  }
+
+  // ---------------- Окно чужой фракции (ПКМ по родному миру) ----------------
+
+  private openFaction(f: FactionId): void {
+    if (f === this.state.player) return;
+    this.factionView = f;
+    this.factionEl.classList.remove('hidden');
+    // Карта переходит в режим подсветки: сектора этой фракции горят её цветом,
+    // остальная галактика уходит в тень.
+    this.scene.setFactionSpotlight(f);
+    this.renderFaction();
+  }
+
+  private closeFaction(): void {
+    if (this.factionEl.classList.contains('hidden')) return;
+    this.factionEl.classList.add('hidden');
+    this.factionView = null;
+    this.scene.setFactionSpotlight(null);
+  }
+
+  private renderFaction(): void {
+    const f = this.factionView;
+    if (!f || this.factionEl.classList.contains('hidden')) return;
+    const s = this.state;
+    const me = s.player;
+    const fs = s.factions[f];
+    const my = s.factions[me];
+    const def = FACTIONS[f];
+    const color = factionColor(f);
+    const worlds = planetsOf(s, f);
+    const fleets = fleetsOf(s, f);
+    const capital = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!).find((p) => p.name === def.capital);
+    const rel = relationOf(s, me, f);
+    const war = atWar(s, me, f);
+    const truce = truceActive(s, me, f);
+    const canTalk = canNegotiate(me, f);
+    const vassal = s.puppets?.[f] === me;
+    const master = s.puppets?.[me] === f;
+    const canTruce = my.politicalPower >= truceCost(s) && !truce && war && canTalk;
+    const canPeace = war && canTalk && rel > PEACE_THRESHOLD;
+    const canWar = !war && canTalk && my.politicalPower >= 40;
+    const pct = Math.round((rel + 100) / 2);
+    const relColor = rel <= WAR_THRESHOLD ? 'var(--alr)' : rel < -20 ? 'var(--fed)' : rel < 20 ? 'var(--muted)' : 'var(--ok)';
+    const status = !fs.alive ? 'повержена'
+      : vassal ? 'ваша марионетка'
+      : master ? 'вы под её протекторатом'
+      : war ? 'ВОЙНА' : truce ? 'перемирие' : canTalk ? relationLabel(rel) : 'переговоры невозможны';
+    const ruler = RULERS[f];
+
+    this.factionEl.innerHTML = `
+      <div class="pc-head"><span class="pc-title" style="color:${color}">${def.name.toUpperCase()}</span>
+        <button class="pc-close" id="fac-close">✕</button></div>
+      <div class="pc-body">
+        <div class="dossier-top">
+          <img class="dossier-portrait" src="${portraitDataURL(f)}" alt="">
+          <div>
+            <div class="pp-name" style="color:${color}">${ruler?.name ?? def.name}</div>
+            <div class="pp-sub">${ruler?.title ?? def.short}</div>
+            <div class="pp-sub" style="color:${relColor};margin-top:0.25rem">${status}</div>
+            <div class="rel-bar"><i style="width:${pct}%;background:${relColor}"></i></div>
+          </div>
+        </div>
+        <div class="pp-stat"><span>Родной мир</span><b style="color:${color}">${def.capital}</b></div>
+        ${capital ? `<div class="pp-stat"><span>Под флагом</span><b style="color:${factionColor(capital.owner)}">${FACTIONS[capital.owner].name}</b></div>` : ''}
+        <div class="pp-stat"><span>Миры</span><b style="color:${color}">${worlds.length}</b></div>
+        <div class="pp-stat"><span>Соединения</span><b>${fleets.length}</b></div>
+        <div class="pp-stat"><span>Симпатия к вам</span><b style="color:${relColor}">${rel.toFixed(0)}</b></div>
+        <div class="pp-section">Досье</div>
+        <div class="hint">${def.blurb}</div>
+        <div class="pp-section">Дипломатия</div>
+        ${war && canTalk
+          ? `<button class="mini-btn wide ${canPeace ? '' : 'off'}" id="fac-peace" ${canPeace ? '' : 'disabled'}>Подписать мир</button>
+             <button class="mini-btn wide ${canTruce ? '' : 'off'}" id="fac-truce" ${canTruce ? '' : 'disabled'}>Перемирие · ${truceCost(s)} ПВ</button>`
+          : ''}
+        ${!war && canTalk && !vassal && !master
+          ? `<button class="mini-btn wide ${canWar ? '' : 'off'}" id="fac-war" ${canWar ? '' : 'disabled'}>Объявить войну · 40 ПВ</button>`
+          : ''}
+        ${truce ? '<div class="pp-stat"><span>Перемирие</span><b style="color:var(--ok)">в силе</b></div>' : ''}
+        ${!canTalk ? `<div class="pp-stat"><span>Переговоры</span><b style="color:var(--muted)">невозможны</b></div>` : ''}
+      </div>`;
+
+    this.factionEl.querySelector('#fac-close')?.addEventListener('click', () => this.closeFaction());
+    this.factionEl.querySelector('#fac-peace')?.addEventListener('click', () => {
+      if (makePeace(this.state, this.state.player, f)) {
+        this.sound.chime();
+        this.toast('МИР ПОДПИСАН');
+        this.renderFaction();
+        this.renderHud();
+      }
+    });
+    this.factionEl.querySelector('#fac-truce')?.addEventListener('click', () => {
+      if (buyTruce(this.state, f)) {
+        this.sound.chime();
+        this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
+        this.renderFaction();
+        this.renderHud();
+      }
+    });
+    this.factionEl.querySelector('#fac-war')?.addEventListener('click', () => {
+      const s2 = this.state;
+      const fs2 = s2.factions[s2.player];
+      if (fs2.politicalPower < 40) return;
+      if (declareWar(s2, s2.player, f, 'решение верховного командования')) {
+        fs2.politicalPower -= 40;
+        this.sound.siren();
+        this.toast('ВОЙНА ОБЪЯВЛЕНА');
+        this.renderFaction();
+        this.renderHud();
+      }
+    });
   }
 
   // ---------------- Досье фракции ----------------
@@ -698,8 +892,8 @@ export class UI {
             <div class="hint">Взяв столицу, вы получили доступ к чужим школам: ${beaten.map((v) => FACTIONS[v].name).join(', ')}. Трофейные фокусы открыты в древе.</div>`;
         })()}
         <div class="pp-section">Цели кампании</div>
-        ${OBJECTIVES.map((o) => {
-          const done = s.doneObjectives.includes(o.id);
+        ${objectivesFor(f).map((o) => {
+          const done = s.doneObjectives.includes(objectiveKey(f, o.id));
           return `<div class="pp-stat"><span title="${o.desc}">${done ? '✓' : '◇'} ${o.title}</span><b style="color:${done ? '#6fe39a' : 'var(--muted)'}">${done ? 'выполнено' : '+' + o.reward + ' ПВ'}</b></div>`;
         }).join('')}
       </div>`;
@@ -1230,13 +1424,14 @@ export class UI {
   }
 
   /** Человекочитаемое имя соединения. */
+  /** Имя соединения. Слово берётся у фракции: «Иерарх», «Улей», «Сенатор». */
   private fleetName(fid: string): string {
     const f = this.state.fleets.get(fid);
     if (!f) return fid;
     if (f.special === 'ark') return 'КОВЧЕГ АВТОМАТОНОВ';
     if (f.special) return SPECIALS[f.faction].name;
     const n = Number(fid.replace('f_', ''));
-    return `Соединение №${Number.isFinite(n) ? n + 1 : '?'}`;
+    return fleetTitle(f.faction, Number.isFinite(n) ? n + 1 : 0);
   }
 
   private renderForces(): void {
@@ -1260,7 +1455,9 @@ export class UI {
           const hulls = f.ships + f.dreadnoughts + f.battleships;
           // Крупный значок тяжелейшего класса: ✦ линкор, ◈ дредноут, силуэт эсминца.
           const clsIcon = f.special ? '◆' : f.battleships >= 1 ? '✦' : f.dreadnoughts >= 1 ? '◈' : ICON_DESTROYER;
-          const num = this.fleetName(f.id).replace('Соединение ', '');
+          // На карточке остаётся только номер: слово фракции и так видно
+          // по вкладке, а места в карточке мало.
+          const num = this.fleetName(f.id).replace(`${FLEET_NOUN[f.faction]} `, '');
           // Номер группы прямо на карточке — так видно, что цифры на клавиатуре
           // вообще что-то делают, и не нужно ничего объяснять словами.
           const slot = this.groupOf(f.id);
@@ -1356,6 +1553,56 @@ export class UI {
         this.renderForces();
         this.renderFleetDetail();
       }));
+
+    // ПКМ по карточке — слить в неё выделенные соединения.
+    this.forcesEl.querySelectorAll<HTMLElement>('[data-card-fleet]').forEach((card) =>
+      card.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        this.mergeInto(card.dataset.cardFleet!);
+      }));
+  }
+
+  /**
+   * Слить выделенные соединения в указанное.
+   *
+   * Приёмник — тот, по которому щёлкнули правой кнопкой; источники — всё, что
+   * набрано мультивыбором. Сливаются только те, что стоят на ТОЙ ЖЕ орбите и
+   * не связаны боем: остальные молча остаются на месте, и в сообщении видно,
+   * сколько групп реально принято.
+   */
+  private mergeInto(targetId: string): void {
+    const s = this.state;
+    const target = s.fleets.get(targetId);
+    if (!target || target.faction !== s.player) return;
+    const picked = [...this.selectedFleets].filter((id) => id !== targetId);
+    if (!picked.length) {
+      this.toast('ВЫДЕЛИТЕ СОЕДИНЕНИЯ ДЛЯ СЛИЯНИЯ');
+      return;
+    }
+    const sources = picked
+      .map((id) => s.fleets.get(id))
+      .filter((f): f is NonNullable<typeof f> => !!f);
+
+    // В сетевой партии решение принимает хост: шлём команду и ждём снапшот.
+    if (isClient()) {
+      sendCommand({ k: 'mergeFleets', target: targetId, sources: picked });
+      this.selectedFleets.clear();
+      this.renderForces();
+      return;
+    }
+
+    const merged = mergeFleets(s, target, sources);
+    if (!merged) {
+      this.toast('СЛИЯНИЕ НЕВОЗМОЖНО: РАЗНЫЕ ОРБИТЫ ИЛИ БОЙ');
+      return;
+    }
+    this.selectedFleets.clear();
+    this.state.selectedFleet = targetId;
+    this.detailFleet = targetId;
+    this.toast(`СОЕДИНЕНИЙ ПРИНЯТО: ${merged}`);
+    this.renderForces();
+    this.renderFleetDetail();
+    this.renderPanel();
   }
 
   /** Левая панель: состав открытого соединения и операции над ним. */
@@ -1403,7 +1650,7 @@ export class UI {
         <button class="mini-btn wide ${hulls >= 2 && !f.transit ? '' : 'off'}" id="fd-split" ${hulls >= 2 && !f.transit ? '' : 'disabled'}>⑂ Разделить пополам</button>
         ${yard && storedHulls(yard) > 0 ? `<button class="mini-btn wide" id="fd-take">⚓ Принять корабли с верфи (${storedHulls(yard)} корп.)</button>` : ''}
         <button class="mini-btn wide ${!f.transit && !f.special && at?.owner === s.player ? '' : 'off'}" id="fd-disband" ${!f.transit && !f.special && at?.owner === s.player ? '' : 'disabled'}>✕ Расформировать</button>
-        <div class="hint">ПКМ по планете — приказ на перелёт/вторжение. Shift+ПКМ — добавить цель в очередь. Shift+клик по карточкам внизу — выбор нескольких соединений.</div>
+        <div class="hint">ПКМ по планете — приказ на перелёт/вторжение. Shift+ПКМ — добавить цель в очередь. Shift+клик по карточкам внизу — выбор нескольких соединений, ПКМ по карточке — слить выбранные в неё.</div>
       </div>`;
 
     this.fleetDetailEl.querySelector('#fd-close')?.addEventListener('click', () => {
@@ -1524,7 +1771,15 @@ export class UI {
     const picks = this.selectedFleets.size
       ? [...this.selectedFleets]
       : s.selectedFleet ? [s.selectedFleet] : [];
-    if (!picks.length) return;
+    // Без выделенных соединений правый щелчок по чужому РОДНОМУ миру — это не
+    // приказ, а обращение к его хозяевам: открывается окно фракции.
+    if (!picks.length) {
+      const home = homeworldFaction(dest.name);
+      if (home && home !== s.player && (home !== 'superFederation' || s.superFederationRisen)) {
+        this.openFaction(home);
+      }
+      return;
+    }
     const invade = hostileNow(s, s.player, dest.owner) && dest.owner !== s.player;
     let sent = 0;
     let queued = 0;

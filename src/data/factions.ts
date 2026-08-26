@@ -172,6 +172,42 @@ export function setFactionPalette(p: Partial<Record<FactionId, string>>): void {
   palette = p;
 }
 
+/**
+ * Как фракция зовёт свои корабельные соединения.
+ *
+ * «Соединение №3» одинаково для всех звучало по-земному: у машин это Сенат,
+ * у роя — ульи, у иллюминатов — иерархи Воинства. Слово подставляется везде,
+ * где показывается имя флота, поэтому чужой флот на карте сразу читается как
+ * чужой.
+ */
+export const FLEET_NOUN: Record<FactionId, string> = {
+  superEarth: 'Соединение',
+  automatons: 'Сенатор',
+  illuminate: 'Иерарх',
+  terminids: 'Улей',
+  superFederation: 'Эскадра',
+};
+
+/** Имя соединения фракции с номером: «Иерарх №4», «Улей №2». */
+export function fleetTitle(faction: FactionId, index: number): string {
+  return `${FLEET_NOUN[faction] ?? 'Соединение'} №${index}`;
+}
+
+/**
+ * Чей это родной мир — по имени планеты.
+ *
+ * Столицы уникальны и заданы в описании фракции, поэтому отдельного флага на
+ * планете не нужно: Киберстан остаётся Киберстаном и под чужим флагом. Именно
+ * это и требуется окну фракции — правым щелчком по захваченной столице
+ * автоматонов открывается досье автоматонов, а не нынешнего владельца.
+ */
+export function homeworldFaction(planetName: string): FactionId | null {
+  for (const id of Object.keys(FACTIONS) as FactionId[]) {
+    if (FACTIONS[id].capital === planetName) return id;
+  }
+  return null;
+}
+
 /** Цвет фракции с учётом выбранной палитры. Читать поле .color напрямую нельзя. */
 export function factionColor(id: FactionId): string {
   return palette[id] ?? FACTIONS[id].color;

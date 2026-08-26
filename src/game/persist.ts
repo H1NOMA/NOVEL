@@ -189,7 +189,9 @@ export function deserializeState(json: string): GameState {
     firedEvents: b.firedEvents ?? [],
     attackPlans: b.attackPlans ?? [],
     truces: b.truces ?? [],
-    doneObjectives: b.doneObjectives ?? [],
+    // Старые сохранения хранили цели простыми id — они принадлежали одному
+    // игроку партии. Дописываем ему фракцию, иначе награда выдастся заново.
+    doneObjectives: (b.doneObjectives ?? []).map((id) => (id.includes(':') ? id : `${b.player}:${id}`)),
     pendingChoice: b.pendingChoice ?? null,
     recons: b.recons ?? [],
     chronicle: b.chronicle ?? [],

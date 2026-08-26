@@ -1,6 +1,6 @@
 import type { FactionId } from '../core/types';
 import type { GameState } from '../game/state';
-import { disbandFleet, garrisonReinforce, orderFleetTo, splitFleet } from '../game/units';
+import { disbandFleet, garrisonReinforce, mergeFleets, orderFleetTo, splitFleet } from '../game/units';
 import {
   buildShipyard, cancelQueue, formFleetFromYard, queueShip, takeStoredShips,
 } from '../game/shipyards';
@@ -57,6 +57,16 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
     case 'splitFleet': {
       const f = ownFleet(state, actor, c.fleet);
       return !!f && !!splitFleet(state, f);
+    }
+    case 'mergeFleets': {
+      // Каждое соединение проверяется на принадлежность отдельно: клиент не
+      // должен уметь слить чужие корабли в свои, прислав их идентификаторы.
+      const target = ownFleet(state, actor, c.target);
+      if (!target) return false;
+      const sources = c.sources
+        .map((id) => ownFleet(state, actor, id))
+        .filter((f): f is NonNullable<typeof f> => !!f);
+      return mergeFleets(state, target, sources) > 0;
     }
     case 'disbandFleet': {
       const f = ownFleet(state, actor, c.fleet);

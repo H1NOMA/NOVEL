@@ -38,6 +38,8 @@ export class GalaxyScene {
   private fleets: FleetLayer;
   private supplyColors!: THREE.BufferAttribute;
   private sectorVisuals = new Map<string, SectorVisual>();
+  /** Фракция, подсвеченная на карте (окно фракции открыто). */
+  private spotlight: FactionId | null = null;
 
   // camera controller
   private target = new THREE.Vector3(0, 0, 0);
@@ -277,12 +279,44 @@ export class GalaxyScene {
     this.supplyColors.needsUpdate = true;
   }
 
+  /**
+   * Подсветка одной фракции, как в HoI4: пока открыто её окно, сектора с её
+   * мирами горят её цветом, вся остальная галактика уходит в тень. Ноль —
+   * обычная карта.
+   */
+  setFactionSpotlight(faction: FactionId | null): void {
+    if (this.spotlight === faction) return;
+    this.spotlight = faction;
+    this.refreshOwners();
+  }
+
   /** A fully-conquered sector lights up in its owner's colour. */
   private refreshSectors(): void {
     for (const sector of this.state.galaxy.sectors.values()) {
       const vis = this.sectorVisuals.get(sector.id);
       if (!vis) continue;
       const alive = sector.planets.map((pid) => this.state.galaxy.planets.get(pid)!).filter((p) => !p.shattered);
+
+      // Режим подсветки перебивает обычную раскраску: важно не «кто владеет
+      // сектором целиком», а «где вообще стоит эта фракция».
+      if (this.spotlight) {
+        const held = alive.filter((p) => p.owner === this.spotlight).length;
+        if (held > 0) {
+          const color = factionColor(this.spotlight);
+          const share = held / Math.max(1, alive.length);
+          vis.fillMat.color.set(color);
+          vis.fillMat.opacity = 0.09 + 0.15 * share;
+          vis.borderMat.color.set(color);
+          vis.borderMat.opacity = 0.30 + 0.35 * share;
+        } else {
+          vis.fillMat.color.copy(NEUTRAL_SECTOR);
+          vis.fillMat.opacity = 0.004;
+          vis.borderMat.color.copy(NEUTRAL_SECTOR);
+          vis.borderMat.opacity = 0.04;
+        }
+        continue;
+      }
+
       const owners = new Set(alive.map((p) => p.owner));
       // Плиты секторов приглушены и затемнены. Их семьдесят с лишним, они
       // лежат сплошным ковром под всей картой, и на прежней яркости заливка
@@ -324,7 +358,9 @@ export class GalaxyScene {
       vis.setShattered(p.shattered);
       // Погода войны: пожары на сражающихся мирах, осаждённые меркнут.
       vis.setBattle(!!p.battle && !p.gloom && !p.abyss && !p.shattered);
-      vis.setDim(p.supplied ? 1 : 0.72);
+      // Подсветка фракции гасит чужие миры, оставляя её собственные в цвете.
+      const spotDim = this.spotlight ? (p.owner === this.spotlight ? 1 : 0.30) : 1;
+      vis.setDim((p.supplied ? 1 : 0.72) * spotDim);
       vis.setScar(!!p.scarred);
       vis.setWreckage(p.wreckage ?? 0);
       vis.setShield(p.buildings.includes('shieldGen'), !!p.battle);

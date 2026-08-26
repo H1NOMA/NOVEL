@@ -15,6 +15,7 @@ export type Cmd =
   | { k: 'enqueueOrder'; fleet: string; target: string }
   | { k: 'clearOrders'; fleet: string }
   | { k: 'splitFleet'; fleet: string }
+  | { k: 'mergeFleets'; target: string; sources: string[] }
   | { k: 'disbandFleet'; fleet: string }
   | { k: 'garrison'; fleet: string }
   | { k: 'takeStored'; fleet: string }

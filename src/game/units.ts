@@ -1,7 +1,8 @@
 import type { FactionId, Fleet, Planet, Vec2 } from '../core/types';
 import { findPath, type Galaxy } from './galaxy';
-import { pushLog, type GameState } from './state';
+import { pushLog, removeFleet, type GameState } from './state';
 import { canEnter, nearestFriendly } from './supply';
+import { FLEET_NOUN } from '../data/factions';
 
 /** World units a fleet travels per game-day. */
 export const MOVE_SPEED = 72;
@@ -124,6 +125,60 @@ export function fleetWorldPos(galaxy: Galaxy, fleet: Fleet): Vec2 {
 }
 
 /**
+ * Слить соединения в одно.
+ *
+ * Обратная операция к разделению: несколько групп на ОДНОЙ орбите сводятся в
+ * приёмник, остальные распускаются. Требования жёсткие и намеренно простые —
+ * все на месте (не в перелёте), у одной планеты, одной фракции и не связаны
+ * боем: иначе слияние стало бы способом телепортировать корабли и выводить их
+ * из-под удара.
+ *
+ * Опыт наследуется по-честному: у сводного соединения он взвешен по числу
+ * корпусов, поэтому слияние не отмывает новобранцев в ветеранов и не топит
+ * заслуженную группу в толпе новичков.
+ */
+export function mergeFleets(state: GameState, target: Fleet, sources: Fleet[]): number {
+  if (target.transit || lockedInBattle(state, target)) return 0;
+  const at = target.at;
+  const usable = sources.filter((f) =>
+    f.id !== target.id && f.faction === target.faction && !f.transit && f.at === at
+    && !lockedInBattle(state, f));
+  if (!usable.length) return 0;
+
+  let hulls = target.ships + target.dreadnoughts + target.battleships;
+  let xpWeighted = (target.xp ?? 0) * hulls;
+  let merged = 0;
+
+  for (const f of usable) {
+    const h = f.ships + f.dreadnoughts + f.battleships;
+    target.ships += f.ships;
+    target.dreadnoughts += f.dreadnoughts;
+    target.battleships += f.battleships;
+    target.infantry += f.infantry;
+    // Спецстанция не дублируется: если её нет у приёмника — переезжает к нему.
+    if (f.special && !target.special) target.special = f.special;
+    // Командир остаётся у приёмника; чужой уходит вместе с распущенной группой.
+    xpWeighted += (f.xp ?? 0) * h;
+    hulls += h;
+    merged++;
+    removeFleet(state, f.id);
+  }
+
+  target.xp = hulls > 0 ? xpWeighted / hulls : (target.xp ?? 0);
+  // Очередь приказов приёмника сохраняется, но текущий приказ сбрасывается:
+  // состав изменился, и лететь дальше «как было» — не то, чего ждёт игрок.
+  target.order = { kind: 'idle' };
+
+  const p = state.galaxy.planets.get(at);
+  pushLog(state, {
+    faction: target.faction,
+    text: `${FLEET_NOUN[target.faction]} у ${p?.name ?? '?'} принимает ${merged} ${merged === 1 ? 'группу' : 'групп'}: теперь ${hulls.toFixed(0)} корп., ${target.infantry.toFixed(0)} пех.`,
+    tone: 'good',
+  });
+  return merged;
+}
+
+/**
  * Разделить соединение пополам: половина корпусов и пехоты уходит в новое
  * соединение на той же орбите. Спецстанция остаётся в исходном.
  */
@@ -156,7 +211,7 @@ export function splitFleet(state: GameState, fleet: Fleet): Fleet | null {
   state.fleetOrder.push(nf.id);
   pushLog(state, {
     faction: fleet.faction,
-    text: `Соединение разделено: сформирована новая боевая группа (${(ships + dreads + bbs).toFixed(0)} корп.).`,
+    text: `${FLEET_NOUN[fleet.faction]} разделён: сформирована новая боевая группа (${(ships + dreads + bbs).toFixed(0)} корп.).`,
     tone: 'info',
   });
   return nf;
@@ -182,7 +237,7 @@ export function disbandFleet(state: GameState, fleet: Fleet): boolean {
   }
   pushLog(state, {
     faction: fleet.faction,
-    text: `Соединение у ${p.name} расформировано: пехота — в гарнизон, корпуса — ${p.shipyard ? 'на верфь' : 'на слом'}.`,
+    text: `${FLEET_NOUN[fleet.faction]} у ${p.name} расформирован: пехота — в гарнизон, корпуса — ${p.shipyard ? 'на верфь' : 'на слом'}.`,
     tone: 'info',
   });
   const idx = state.fleetOrder.indexOf(fleet.id);

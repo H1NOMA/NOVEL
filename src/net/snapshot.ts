@@ -51,17 +51,34 @@ export function applySnapshot(target: GameState, json: string): void {
   target.spires = fresh.spires;
   target.gloomSeeds = fresh.gloomSeeds;
   target.lastConqueror = fresh.lastConqueror;
-  target.playerDefeated = fresh.playerDefeated;
   target.terminidsCapitulated = fresh.terminidsCapitulated;
   target.firedEvents = fresh.firedEvents;
   target.attackPlans = fresh.attackPlans;
   target.truces = fresh.truces;
-  target.doneObjectives = fresh.doneObjectives;
-  target.pendingChoice = fresh.pendingChoice;
   target.recons = fresh.recons;
   target.chronicle = fresh.chronicle;
   target.history = fresh.history;
   target.modifiers = fresh.modifiers;
+
+  // --- Своё у каждого экрана -------------------------------------------------
+  //
+  // Часть состояния описывает не мир, а ТОЧКУ ЗРЕНИЯ. Раньше она приезжала с
+  // хоста вместе со всем остальным, и клиент, играющий за иллюминатов, получал
+  // хозяйские цели кампании, хозяйское окно выбора события и хозяйский флаг
+  // поражения — интерфейс превращался в чужой.
+  //
+  // player не трогаем по той же причине: это сторона ЭТОГО экрана.
+
+  // Поражение считается по своей фракции, а не по фракции хоста.
+  target.playerDefeated = !target.factions[target.player]?.alive;
+
+  // Цели кампании хранятся ключами «фракция:цель» и считаются хостом для КАЖДОГО
+  // человека за столом, поэтому список общий — каждый экран выберет из него своё.
+  target.doneObjectives = fresh.doneObjectives ?? [];
+
+  // pendingChoice НЕ копируется: развилка события — это вопрос конкретному
+  // игроку, и чужое окно выбора на своём экране бесполезно вдвойне (кнопка
+  // ничего не решает, а следующий снапшот затирает результат).
 
   // Поток случайности хоста: клиент не симулирует, но состояние обязано
   // совпадать целиком — иначе после передачи хода числа разойдутся.

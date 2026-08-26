@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGame, planetsOf } from '../src/game/state';
-import { OBJECTIVES } from '../src/game/objectives';
+import { OBJECTIVES, objectivesFor } from '../src/game/objectives';
 import { FACTIONS, FACTION_IDS } from '../src/data/factions';
 
 let checks = 0;
@@ -136,7 +136,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   for (const seed of [1, 2024, 77777]) {
     for (const f of FACTION_IDS.filter((x) => FACTIONS[x].playable)) {
       const s = createGame(seed, f);
-      const done = OBJECTIVES.filter((o) => o.check(s)).map((o) => o.title);
+      const done = objectivesFor(f).filter((o) => o.check(s, f)).map((o) => o.title);
       ok(done.length === 0, `сид ${seed}, ${f}: на первый день целей не выполнено (${done.join(', ')})`);
     }
   }
@@ -146,7 +146,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(!OBJECTIVES.some((o) => o.id === 'obj_fifty'), 'мёртвая цель по числу планет убрана');
   const src = read('src', 'game', 'objectives.ts');
   ok(src.includes('function capturedCapital('), 'взятие столицы проверяется отдельно');
-  ok(src.includes('p.origin !== s.player'), 'своя изначальная столица целью не считается');
+  ok(src.includes('p.origin !== by'), 'своя изначальная столица целью не считается');
   console.log('цели кампании: OK');
 }
 
