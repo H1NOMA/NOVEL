@@ -70,9 +70,6 @@ export function treeFor(state: GameState, faction: FactionId): FocusNode[] {
 }
 
 /** Узел по идентификатору с учётом трофеев. */
-export function nodeById(state: GameState, faction: FactionId, id: string): FocusNode | undefined {
-  return treeFor(state, faction).find((n) => n.id === id);
-}
 
 // --- Вариативность -----------------------------------------------------------
 

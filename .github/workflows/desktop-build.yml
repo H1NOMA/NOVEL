@@ -37,9 +37,13 @@ jobs:
 
       - name: Package Windows x64
         run: npm run app:win
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
 
       - name: Package Linux x64
         run: npm run app:linux
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
 
       - name: Zip builds
         run: |

@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('netBridge', {
   sendTo: (peer, msg) => ipcRenderer.invoke('net:send-to', { peer, msg }),
   /** Хост → всем. */
   broadcast: (msg) => ipcRenderer.invoke('net:broadcast', msg),
+  /** Хост → всем, но кадр не жалко потерять: срезы мира. */
+  broadcastVolatile: (msg) => ipcRenderer.invoke('net:broadcast-volatile', msg),
+  /** Сколько байт ждёт отправки каждому клиенту. */
+  backlog: () => ipcRenderer.invoke('net:backlog'),
   // Хост исключает игрока: причина уходит клиенту, затем канал закрывается.
   drop: (peer, reason) => ipcRenderer.invoke('net:drop', { peer, reason }),
   /** Разорвать всё. */

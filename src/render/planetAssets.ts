@@ -107,6 +107,3 @@ export function moonGeometry(): THREE.BufferGeometry | null {
   return geoms.get('moon') ?? null;
 }
 
-export function asteroidGeometry(): THREE.BufferGeometry | null {
-  return geoms.get('asteroid') ?? null;
-}

@@ -38,6 +38,10 @@ interface NetBridge {
   send(msg: NetMessage): Promise<boolean>;
   sendTo(peer: string, msg: NetMessage): Promise<boolean>;
   broadcast(msg: NetMessage): Promise<number>;
+  /** Срезы мира: клиенту с забитым каналом кадр не ставится в очередь. */
+  broadcastVolatile?(msg: NetMessage): Promise<{ sent: number; skipped: number; bytes: number }>;
+  /** Сколько байт ждёт отправки каждому клиенту — диагностика затора. */
+  backlog?(): Promise<Record<string, number>>;
   /** Хост исключает клиента: причина уходит ему, затем канал закрывается. */
   drop(peer: string, reason: string): Promise<boolean>;
   close(): Promise<boolean>;

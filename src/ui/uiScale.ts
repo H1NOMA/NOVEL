@@ -21,11 +21,6 @@ export function getUiScale(): number {
   return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, raw));
 }
 
-export function setUiScale(v: number): void {
-  const clamped = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, v));
-  storage()?.setItem(KEY, String(clamped));
-  applyUiScale(clamped);
-}
 
 /** Прописать масштаб в корень документа (вызывается на старте и при правке). */
 export function applyUiScale(v = getUiScale()): void {

@@ -117,18 +117,24 @@ float band(float freq, float fw){
 const VERT = /* glsl */ `
 uniform vec3 uRingN;
 varying vec3 vObj;
-varying vec3 vNormal;
-varying vec3 vView;
-// Нормаль плоскости колец в пространстве вида: normalMatrix доступен только
-// здесь, а тень колец считается во фрагментном шейдере.
+// Свет считается в МИРОВЫХ координатах.
+//
+// Раньше и нормаль, и направление на солнце жили в пространстве вида, а само
+// солнце было прибитой константой. Из этого следовало, что освещённая сторона
+// планеты ВСЕГДА повёрнута к камере: терминатор не появлялся ни при каком
+// ракурсе, и все миры выглядели плоскими кружками с текстурой. Теперь нормаль
+// переводится в мир, солнце приходит извне одним общим для всех уникформом, и
+// тень честно ползёт по глобусу, когда камера облетает карту.
+varying vec3 vWorldN;
+varying vec3 vWorldP;
 varying vec3 vRingN;
 void main(){
   vObj = position;
-  vNormal = normalize(normalMatrix * normal);
-  vRingN = normalize(normalMatrix * uRingN);
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vView = -mv.xyz;
-  gl_Position = projectionMatrix * mv;
+  vWorldN = normalize(mat3(modelMatrix) * normal);
+  vRingN = normalize(mat3(modelMatrix) * uRingN);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorldP = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
 }
 `;
 
@@ -145,7 +151,9 @@ uniform float uOct; uniform float uLava; uniform float uIce; uniform float uToxi
 uniform sampler2D uMask; uniform float uUseMask;
 // Тень кольца: нормаль плоскости кольца в системе планеты и его радиусы.
 uniform vec3 uRingN; uniform float uRingIn; uniform float uRingOut; uniform float uHasRing;
-varying vec3 vObj; varying vec3 vNormal; varying vec3 vView; varying vec3 vRingN;
+/** Направление НА солнце в мировых координатах — одно на всю карту. */
+uniform vec3 uSun;
+varying vec3 vObj; varying vec3 vWorldN; varying vec3 vWorldP; varying vec3 vRingN;
 ${NOISE_GLSL}
 void main(){
   vec3 n = normalize(vObj);
@@ -280,8 +288,8 @@ void main(){
   // полусферный ambient приглушён: раньше вместе они держали теневую сторону
   // подсвеченной почти как дневную, и планета читалась плоским ярким кругом
   // без объёма.
-  vec3 nrm = normalize(vNormal);
-  vec3 sun = normalize(vec3(0.55, 0.35, 0.75));
+  vec3 nrm = normalize(vWorldN);
+  vec3 sun = normalize(uSun);
   float ndl = dot(nrm, sun);
   const float WRAP = 0.12;
   float diff = clamp((ndl + WRAP) / (1.0 + WRAP), 0.0, 1.0);
@@ -297,8 +305,8 @@ void main(){
   // прямой свет. Полоса тени ползёт по глобусу вместе с наклоном кольца.
   float ringShadow = 1.0;
   if (uHasRing > 0.5) {
-    // Нормаль кольца уже переведена в пространство вида вершинным шейдером —
-    // там же живут nrm и sun, иначе полоса легла бы мимо освещённой стороны.
+    // Нормаль кольца переведена в мир тем же преобразованием, что и nrm:
+    // иначе полоса тени легла бы мимо освещённой стороны.
     vec3 rn = normalize(vRingN);
     float denom = dot(rn, sun);
     if (abs(denom) > 1e-4) {
@@ -322,7 +330,7 @@ void main(){
   col += vec3(0.44, 0.22, 0.09) * term * 0.34 * (1.0 - clouds * 0.5);
 
   // Солнечный блик на воде: шире и слабее, чтобы не резал глаз.
-  vec3 vd = normalize(vView);
+  vec3 vd = normalize(cameraPosition - vWorldP);
   float spec = pow(clamp(dot(reflect(-sun, nrm), vd), 0.0, 1.0), 42.0);
   col += vec3(1.0, 0.97, 0.88) * spec * (1.0 - land) * (1.0 - clouds) * 0.26;
 
@@ -386,33 +394,48 @@ void main(){
 `;
 
 const ATMO_VERT = /* glsl */ `
-varying vec3 vNormal; varying vec3 vView;
+varying vec3 vWorldN; varying vec3 vWorldP;
 void main(){
-  vNormal = normalize(normalMatrix * normal);
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vView = -mv.xyz;
-  gl_Position = projectionMatrix * mv;
+  vWorldN = normalize(mat3(modelMatrix) * normal);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorldP = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
 }
 `;
 const ATMO_FRAG = /* glsl */ `
 uniform vec3 uColor;
-varying vec3 vNormal; varying vec3 vView;
+uniform vec3 uSun;
+varying vec3 vWorldN; varying vec3 vWorldP;
 void main(){
-  vec3 nrm = normalize(vNormal);
-  vec3 vd = normalize(vView);
+  vec3 nrm = normalize(vWorldN);
+  vec3 vd = normalize(cameraPosition - vWorldP);
   // Атмосферная оболочка: тонкий нимб у самого лимба, без раздутого гало.
   float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 7.0);
   // Нимб СВЕТИТСЯ ТОЛЬКО СО СТОРОНЫ СОЛНЦА. Раньше он шёл ровным кольцом по
   // всему лимбу, включая ночную сторону, и это сильнее всего съедало объём:
   // как ни затемняй поверхность, планета оставалась ярким кругом в ободке.
-  // Солнце то же, что в шейдере поверхности, — оба в пространстве вида.
-  vec3 sun = normalize(vec3(0.55, 0.35, 0.75));
+  // Солнце то же, что в шейдере поверхности, — общий мировой уникформ.
+  vec3 sun = normalize(uSun);
   float lit = smoothstep(-0.35, 0.30, dot(nrm, sun));
   // На ночной стороне остаётся едва заметный контур: мир не должен пропадать
   // с карты целиком.
   gl_FragColor = vec4(uColor, fres * (0.07 + 0.55 * lit));
 }
 `;
+
+/**
+ * Направление НА солнце в мировых координатах — ОДНО на всю карту.
+ *
+ * Уникформ намеренно общий объект: он попадает в материал каждой планеты и
+ * каждой атмосферной оболочки по ссылке, поэтому одно присваивание в
+ * setSunDirection мгновенно перекрашивает все двести миров.
+ */
+export const SUN_UNIFORM = { value: new THREE.Vector3(0.48, 0.62, 0.62).normalize() };
+
+/** Повернуть общее солнце карты. */
+export function setSunDirection(x: number, y: number, z: number): void {
+  SUN_UNIFORM.value.set(x, y, z).normalize();
+}
 
 const SPHERE_GEO = new THREE.SphereGeometry(1, 72, 54);
 const SHELL_GEO = new THREE.SphereGeometry(1, 28, 20);
@@ -628,6 +651,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uRingIn: { value: 1.32 },
       uRingOut: { value: 2.18 },
       uHasRing: { value: 0 },
+      uSun: SUN_UNIFORM,
     },
   });
 
@@ -689,7 +713,10 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const atmoMat = new THREE.ShaderMaterial({
     vertexShader: ATMO_VERT,
     fragmentShader: ATMO_FRAG,
-    uniforms: { uColor: { value: new THREE.Color(factionColor(planet.owner)) } },
+    uniforms: {
+      uColor: { value: new THREE.Color(factionColor(planet.owner)) },
+      uSun: SUN_UNIFORM,
+    },
     transparent: true,
     side: THREE.BackSide,
     depthWrite: false,

@@ -119,7 +119,8 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(exp > 0 && exp <= 1.0, `экспозиция не задрана (${exp})`);
   // Плиты секторов лежат ковром под всей картой — на прежней яркости они
   // превращали космос в цветной пол.
-  ok(scene.includes('multiplyScalar(0.5)'), 'заливка сектора затемнена');
+  ok(/vis\.fillMat\.color\.set\(color\)\.multiplyScalar\(0\.[0-6]\d?\)/.test(scene),
+    'заливка сектора затемнена относительно цвета фракции');
   const fill = /vis\.fillMat\.opacity = ([\d.]+);/.exec(scene);
   ok(!!fill && Number(fill[1]) <= 0.035, `заливка сектора слабая (${fill?.[1]})`);
 

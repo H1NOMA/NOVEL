@@ -66,10 +66,16 @@ export const QUALITY_PRESETS: Record<Quality, {
    * мягче — зато держит кадры.
    */
   planetOct: number;
+  /**
+   * Сглаживание кадра (MSAA) внутри цепочки постобработки. Флаг antialias
+   * рендерера здесь не работает: сцена рисуется в свою цель, и сэмплы нужны
+   * именно ей. На слабой машине выключается — это первое, чем стоит платить.
+   */
+  samples: number;
 }> = {
-  low: { label: 'Низкое', pixelRatio: 1.0, stars: 1200, comets: false, bloomStrength: 0.0, planetOct: 4 },
-  medium: { label: 'Среднее', pixelRatio: 1.5, stars: 2200, comets: true, bloomStrength: 0.14, planetOct: 6 },
-  high: { label: 'Высокое', pixelRatio: 2.0, stars: 3200, comets: true, bloomStrength: 0.2, planetOct: 7 },
+  low: { label: 'Низкое', pixelRatio: 1.0, stars: 1200, comets: false, bloomStrength: 0.0, planetOct: 4, samples: 0 },
+  medium: { label: 'Среднее', pixelRatio: 1.5, stars: 2200, comets: true, bloomStrength: 0.14, planetOct: 6, samples: 2 },
+  high: { label: 'Высокое', pixelRatio: 2.0, stars: 3200, comets: true, bloomStrength: 0.2, planetOct: 7, samples: 4 },
 };
 
 function storage(): Storage | null {

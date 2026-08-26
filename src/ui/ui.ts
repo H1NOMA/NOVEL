@@ -128,6 +128,8 @@ export class UI {
   /** Панель туториала (null — пройден или пропущен). */
   private tutorialEl: HTMLElement | null = null;
   private tutorialStep = 0;
+  /** Снять подписку туториала с шины, когда он закончился. */
+  private tutorialOff: (() => void) | null = null;
   /** Стек кликабельных боевых оповещений. */
   private alertsEl!: HTMLElement;
   /** Оверлей журнала войны. */
@@ -154,6 +156,8 @@ export class UI {
   private lastSpeed: 1 | 2 | 3 = 1;
   /** Скорость до открытия меню (восстанавливается при закрытии). */
   private menuPrevSpeed: 0 | 1 | 2 | 3 = 0;
+  /** Таймер живого обновления пингов, пока открыто меню паузы. */
+  private menuTimer = 0;
   // --- нижняя панель сил и групповое управление ---
   private forcesEl!: HTMLElement;
   private fleetDetailEl!: HTMLElement;
@@ -195,7 +199,9 @@ export class UI {
     this.tutorialEl.id = 'tutorial';
     this.root.append(this.tutorialEl);
     this.renderTutorial();
-    bus.on('tick', () => this.tickTutorial());
+    // Отписку сохраняем: раньше обработчик оставался на шине навсегда и
+    // впустую дёргался каждый кадр всю партию после прохождения обучения.
+    this.tutorialOff = bus.on('tick', () => this.tickTutorial());
   }
 
   private renderTutorial(): void {
@@ -226,6 +232,8 @@ export class UI {
 
   private finishTutorial(skipped: boolean): void {
     markTutorialDone();
+    this.tutorialOff?.();
+    this.tutorialOff = null;
     this.tutorialEl?.remove();
     this.tutorialEl = null;
     if (!skipped) {
@@ -556,6 +564,29 @@ export class UI {
     }
   }
 
+  /**
+   * Заменить содержимое окна, СОХРАНИВ прокрутку.
+   *
+   * Окна перерисовываются целиком на каждой смене дня, и при скорости ×3 это
+   * полтора раза в секунду. Прокрутка при этом улетала наверх — досье фракции,
+   * решения и производство пролистать было физически невозможно: список
+   * дёргался обратно быстрее, чем успеваешь прочитать строку.
+   *
+   * Положение снимается со всех прокручиваемых блоков окна и возвращается
+   * после подстановки разметки. Отдельно защищён случай, когда содержимое
+   * укоротилось: браузер сам обрежет значение до нового максимума.
+   */
+  private paint(host: HTMLElement, html: string): void {
+    const sel = '.pc-body, .chron-list, .party-list, .res-body';
+    const keep = [...host.querySelectorAll<HTMLElement>(sel)].map((e) => e.scrollTop);
+    host.innerHTML = html;
+    if (!keep.some((v) => v > 0)) return;
+    host.querySelectorAll<HTMLElement>(sel).forEach((e, i) => {
+      const v = keep[i];
+      if (v) e.scrollTop = v;
+    });
+  }
+
   // ---------------- Единственная дверь к состоянию мира ----------------
 
   /**
@@ -713,7 +744,7 @@ export class UI {
         <b style="color:${color}">${sign}${num(l.amount)}</b></div>`).join('');
 
     const netColor = rep.net > 0 ? 'var(--ok)' : rep.net < 0 ? 'var(--alr)' : 'var(--muted)';
-    this.resourceEl.innerHTML = `
+    this.paint(this.resourceEl, `
       <div class="pc-head"><span class="pc-title">${RESOURCE_ICON[res]} ${RESOURCE_LABEL[res]}</span>
         <button class="pc-close" id="res-close">✕</button></div>
       <div class="res-tabs">${tabs}</div>
@@ -728,8 +759,9 @@ export class UI {
         ${rep.drain.length ? `<div class="pp-section">Расход</div>${rows(rep.drain, '−', 'var(--alr)')}` : ''}
         ${rep.blocked.length ? `<div class="pp-section">Не поступает</div>${rows(rep.blocked, '', 'var(--muted)')}` : ''}
         ${!rep.income.length && !rep.drain.length ? '<div class="res-row"><span class="res-name">Источников нет</span></div>' : ''}
-      </div>`;
+      </div>`);
 
+    this.wireDrag(this.resourceEl);
     this.resourceEl.querySelector('#res-close')?.addEventListener('click', () => this.resourceEl.classList.add('hidden'));
     this.resourceEl.querySelectorAll<HTMLButtonElement>('[data-restab]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -786,7 +818,7 @@ export class UI {
       : war ? 'ВОЙНА' : truce ? 'перемирие' : canTalk ? relationLabel(rel) : 'переговоры невозможны';
     const ruler = RULERS[f];
 
-    this.factionEl.innerHTML = `
+    this.paint(this.factionEl, `
       <div class="pc-head"><span class="pc-title" style="color:${color}">${def.name.toUpperCase()}</span>
         <button class="pc-close" id="fac-close">✕</button></div>
       <div class="pc-body">
@@ -816,8 +848,9 @@ export class UI {
           : ''}
         ${truce ? '<div class="pp-stat"><span>Перемирие</span><b style="color:var(--ok)">в силе</b></div>' : ''}
         ${!canTalk ? `<div class="pp-stat"><span>Переговоры</span><b style="color:var(--muted)">невозможны</b></div>` : ''}
-      </div>`;
+      </div>`);
 
+    this.wireDrag(this.factionEl);
     this.factionEl.querySelector('#fac-close')?.addEventListener('click', () => this.closeFaction());
     this.factionEl.querySelector('#fac-peace')?.addEventListener('click', () => {
       if (this.act({ k: 'makePeace', with: f })) {
@@ -880,7 +913,7 @@ export class UI {
       </div>`;
     }).join('');
 
-    this.dossierEl.innerHTML = `
+    this.paint(this.dossierEl, `
       <div class="pc-head"><span class="pc-title" style="color:${def.color}">ДОСЬЕ · ${def.name.toUpperCase()}</span>
         <button class="pc-close" id="dos-close">✕</button></div>
       <div class="pc-body">
@@ -974,7 +1007,7 @@ export class UI {
           const done = s.doneObjectives.includes(objectiveKey(f, o.id));
           return `<div class="pp-stat"><span title="${o.desc}">${done ? '✓' : '◇'} ${o.title}</span><b style="color:${done ? '#6fe39a' : 'var(--muted)'}">${done ? 'выполнено' : '+' + o.reward + ' ПВ'}</b></div>`;
         }).join('')}
-      </div>`;
+      </div>`);
 
     this.dossierEl.querySelector('#dos-close')?.addEventListener('click', () => this.dossierEl.classList.add('hidden'));
     this.dossierEl.querySelector('#dos-focus')?.addEventListener('click', () => {
@@ -1266,9 +1299,59 @@ export class UI {
       : 'ВЫБРАТЬ — один флот, Shift+ВЫБРАТЬ — несколько. Приказ — ПКМ по цели. ЛКМ только открывает информацию.'}</div>
       </div>`;
 
-    this.panel.innerHTML = html;
+    this.paint(this.panel, html);
     this.applyCardPos();
     this.wireCard(p);
+  }
+
+  // ---------------- Перетаскиваемые окна ----------------
+  //
+  // Карточка планеты умела таскаться с самого начала, а состав соединения,
+  // источники ресурсов и досье чужой фракции — нет, и они намертво занимали
+  // свой угол поверх карты. Теперь механика общая: любое окно с шапкой
+  // .pc-head тащится за неё и помнит, куда его поставили.
+
+  /** Куда игрок перетащил окно: id элемента → координаты. */
+  private panelPos = new Map<string, { x: number; y: number }>();
+
+  /** Поставить окно туда, куда его утащили (нетронутое остаётся по вёрстке). */
+  private placePanel(panel: HTMLElement): void {
+    const p = this.panelPos.get(panel.id);
+    if (!p) return;
+    panel.style.left = `${p.x}px`;
+    panel.style.top = `${p.y}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.transform = 'none';
+  }
+
+  /** Повесить перетаскивание за шапку. Вызывается после каждой перерисовки. */
+  private wireDrag(panel: HTMLElement): void {
+    const head = panel.querySelector<HTMLElement>('.pc-head');
+    if (!head) return;
+    head.addEventListener('pointerdown', (e) => {
+      // Клик по кнопке закрытия — не перетаскивание.
+      if ((e.target as HTMLElement).closest('button')) return;
+      e.preventDefault();
+      const rect = panel.getBoundingClientRect();
+      const offX = e.clientX - rect.left;
+      const offY = e.clientY - rect.top;
+      const move = (ev: PointerEvent): void => {
+        this.panelPos.set(panel.id, {
+          // Шапку нельзя увести за край: иначе окно не вернуть.
+          x: Math.max(0, Math.min(window.innerWidth - rect.width, ev.clientX - offX)),
+          y: Math.max(0, Math.min(window.innerHeight - 60, ev.clientY - offY)),
+        });
+        this.placePanel(panel);
+      };
+      const up = (): void => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    this.placePanel(panel);
   }
 
   /** Позиционирование и перетаскивание карточки. */
@@ -1681,7 +1764,7 @@ export class UI {
     const at = s.galaxy.planets.get(f.transit ? f.transit.to : f.at);
     const yard = !f.transit && at && at.owner === s.player ? at.shipyard : undefined;
     const hulls = f.ships + f.dreadnoughts + f.battleships;
-    this.fleetDetailEl.innerHTML = `
+    this.paint(this.fleetDetailEl, `
       <div class="pc-head"><span class="pc-title">${f.special ? '◆ ' : ''}${this.fleetName(f.id)}</span>
         <button class="pc-close" id="fd-close">✕</button></div>
       <div class="pc-body">
@@ -1714,8 +1797,9 @@ export class UI {
         ${yard && storedHulls(yard) > 0 ? `<button class="mini-btn wide" id="fd-take">⚓ Принять корабли с верфи (${storedHulls(yard)} корп.)</button>` : ''}
         <button class="mini-btn wide ${!f.transit && !f.special && at?.owner === s.player ? '' : 'off'}" id="fd-disband" ${!f.transit && !f.special && at?.owner === s.player ? '' : 'disabled'}>✕ Расформировать</button>
         <div class="hint">ПКМ по планете — приказ на перелёт/вторжение. Shift+ПКМ — добавить цель в очередь. Shift+клик по карточкам внизу — выбор нескольких соединений, ПКМ по карточке — слить выбранные в неё.</div>
-      </div>`;
+      </div>`);
 
+    this.wireDrag(this.fleetDetailEl);
     this.fleetDetailEl.querySelector('#fd-close')?.addEventListener('click', () => {
       this.detailFleet = null;
       this.renderFleetDetail();
@@ -1950,7 +2034,7 @@ export class UI {
     }
 
     html += `</div>`;
-    this.decisionsEl.innerHTML = html;
+    this.paint(this.decisionsEl, html);
     this.decisionsEl.querySelector('#dec-close')?.addEventListener('click', () => this.decisionsEl.classList.add('hidden'));
     this.decisionsEl.querySelector('#dec-gloom')?.addEventListener('click', () => {
       this.gloomMode = !this.gloomMode;
@@ -2221,7 +2305,7 @@ export class UI {
       html += `</div></div>`;
     }
     html += `</div></div>`;
-    this.productionEl.innerHTML = html;
+    this.paint(this.productionEl, html);
 
     this.productionEl.querySelector('#prod-close')?.addEventListener('click', () => this.productionEl.classList.add('hidden'));
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-div]').forEach((b) =>
@@ -2271,15 +2355,47 @@ export class UI {
     const opening = this.menuEl.classList.contains('hidden');
     this.menuEl.classList.toggle('hidden');
     if (opening) {
-      this.menuPrevSpeed = this.state.speed;
-      this.clock.setSpeed(0);
-      this.renderClock();
+      // В сетевой партии время ОБЩЕЕ, и меню одного игрока не имеет права
+      // останавливать войну у остальных: пауза здесь только для одиночной игры.
+      if (currentRole() === 'single') {
+        this.menuPrevSpeed = this.state.speed;
+        this.clock.setSpeed(0);
+        this.renderClock();
+      }
       this.renderMenu();
-    } else if (this.menuPrevSpeed > 0) {
-      // Закрытие меню возвращает скорость, шедшую до его открытия.
-      this.clock.setSpeed(this.menuPrevSpeed);
-      this.renderClock();
+      // Пинг живой: пока меню открыто, строки игроков переписываются раз в
+      // секунду — иначе цифра застывает на той, что была в момент открытия.
+      this.menuTimer = window.setInterval(() => {
+        if (this.menuEl.classList.contains('hidden')) return;
+        this.refreshRoster();
+      }, 1000);
+    } else {
+      if (this.menuTimer) {
+        clearInterval(this.menuTimer);
+        this.menuTimer = 0;
+      }
+      if (currentRole() === 'single' && this.menuPrevSpeed > 0) {
+        // Закрытие меню возвращает скорость, шедшую до его открытия.
+        this.clock.setSpeed(this.menuPrevSpeed);
+        this.renderClock();
+      }
     }
+  }
+
+  /** Обновить только список игроков — не трогая остальное содержимое меню. */
+  private refreshRoster(): void {
+    const box = this.menuEl.querySelector<HTMLElement>('#menu-roster');
+    if (!box) return;
+    const members = getPartyMembers();
+    if (!members.length) return;
+    box.innerHTML = rosterList(members, currentRole() === 'host');
+    box.querySelectorAll<HTMLButtonElement>('[data-kick]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (kickPeer(b.dataset.kick!)) {
+          this.toast('ИГРОК ИСКЛЮЧЁН');
+          this.refreshRoster();
+        }
+      }));
   }
 
   private renderMenu(): void {
@@ -2306,7 +2422,8 @@ export class UI {
       <div class="menu-inner">
         <div class="menu-left">
           ${code ? partyCodeBlock(code) : ''}
-          ${members.length ? `<div class="menu-title">Игроки</div>${rosterList(members, isHost)}` : ''}
+          ${members.length ? `<div class="menu-title">Игроки</div>
+            <div id="menu-roster">${rosterList(members, isHost)}</div>` : ''}
           <div class="menu-title">Партия</div>
           <button class="menu-btn" id="menu-continue">Продолжить</button>
           <button class="menu-btn" id="menu-new">Новая игра</button>
@@ -2405,7 +2522,7 @@ export class UI {
     const rows = [...s.chronicle].reverse().map((c) =>
       `<div class="chron-row"><span class="chron-day">Д${c.day} · год ${Math.floor(c.day / 365) + 1}</span><span>${c.text}</span></div>`).join('')
       || '<div class="hint">Пока ни одной вехи: война только разгорается.</div>';
-    this.chronicleEl.innerHTML = `
+    this.paint(this.chronicleEl, `
       <div class="chron-inner">
         <div class="pc-head"><span class="pc-title">📜 ЖУРНАЛ ВОЙНЫ · ДЕНЬ ${s.day}</span>
           <button class="pc-close" id="chron-close">✕</button></div>
@@ -2415,7 +2532,7 @@ export class UI {
           <div class="pp-section">Вехи войны · ${s.chronicle.length}</div>
           <div class="chron-list">${rows}</div>
         </div>
-      </div>`;
+      </div>`);
     this.chronicleEl.querySelector('#chron-close')?.addEventListener('click', () => this.chronicleEl.classList.add('hidden'));
     this.chronicleEl.addEventListener('click', (e) => {
       if (e.target === this.chronicleEl) this.chronicleEl.classList.add('hidden');

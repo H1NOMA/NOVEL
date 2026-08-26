@@ -5,13 +5,21 @@
 // (sandbox: true, contextIsolation: true) и серверный сокет открыть не может
 // в принципе, поэтому preload пробрасывает наружу лишь IPC-канал.
 //
-// Кадрирование — построчный JSON: одно сообщение на строку. Партия идёт по
-// локальной сети, поэтому хватает TCP без дополнительных протоколов и без
-// единой сторонней зависимости.
+// Кадрирование БИНАРНОЕ: четыре байта длины, байт признака сжатия, тело.
+//
+// Раньше кадр был строкой JSON с переводом строки на конце, и срез мира в
+// 140 КиБ уходил как есть. При трёх с лишним срезах в секунду это под сотню
+// килобайт в секунду на клиента — узкий канал (Wi-Fi, VPN) такого не держит,
+// а TCP честно копит неотправленное в буфере. Клиент получал всё более
+// СТАРЫЕ срезы и отставал тем сильнее, чем дольше шла партия.
+//
+// Лечится двумя вещами, обе здесь: deflate (срез ужимается примерно впятеро)
+// и сброс устаревших срезов при заторе — см. broadcastVolatile.
 // ---------------------------------------------------------------------------
 const net = require('node:net');
 const os = require('node:os');
 const dgram = require('node:dgram');
+const zlib = require('node:zlib');
 
 const PORT = 47624;
 /** Порт объявлений: по нему хосты откликаются на поиск в локальной сети. */
@@ -21,6 +29,16 @@ const DISCOVERY_MAGIC = 'SGW2';
 const CONNECT_TIMEOUT_MS = 6000;
 /** Кадр больше этого — обрыв связи: защита от мусора из открытого порта. */
 const MAX_FRAME = 8 * 1024 * 1024;
+/** Мельче этого сжимать незачем: заголовок deflate съест всю выгоду. */
+const COMPRESS_OVER = 1024;
+/**
+ * Сколько байт уже ждёт отправки, чтобы считать канал забитым.
+ *
+ * Порог намеренно невелик: срез мира самодостаточен, и пропустить один при
+ * заторе не стоит ничего — следующий придёт целым и более свежим. А вот
+ * копить их в очереди означает показывать клиенту прошлое.
+ */
+const BACKLOG_LIMIT = 192 * 1024;
 
 let server = null;
 /** peerId -> socket */
@@ -34,25 +52,40 @@ function setDeliver(fn) {
   deliver = typeof fn === 'function' ? fn : () => {};
 }
 
-/** Разбор построчного потока с ограничением длины кадра. */
+/** Собрать кадр: длина, признак сжатия, тело. */
+function frame(msg) {
+  const json = Buffer.from(JSON.stringify(msg), 'utf8');
+  const packed = json.length >= COMPRESS_OVER;
+  const body = packed ? zlib.deflateSync(json) : json;
+  const head = Buffer.allocUnsafe(5);
+  head.writeUInt32BE(body.length, 0);
+  head.writeUInt8(packed ? 1 : 0, 4);
+  return Buffer.concat([head, body]);
+}
+
+/** Разбор потока кадров с ограничением длины. */
 function attachReader(socket, onMessage, onFail) {
-  let buf = '';
-  socket.setEncoding('utf8');
+  let buf = Buffer.alloc(0);
   socket.on('data', (chunk) => {
-    buf += chunk;
-    if (buf.length > MAX_FRAME) {
-      onFail(new Error('кадр превысил лимит'));
-      socket.destroy();
-      buf = '';
-      return;
-    }
-    let nl;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl);
-      buf = buf.slice(nl + 1);
-      if (!line.trim()) continue;
+    buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+    for (;;) {
+      if (buf.length < 5) return;
+      const len = buf.readUInt32BE(0);
+      if (len > MAX_FRAME) {
+        onFail(new Error('кадр превысил лимит'));
+        socket.destroy();
+        buf = Buffer.alloc(0);
+        return;
+      }
+      if (buf.length < 5 + len) return;
+      const packed = buf.readUInt8(4) === 1;
+      const body = buf.subarray(5, 5 + len);
+      // Копия, а не срез: subarray держит ссылку на весь накопленный буфер,
+      // и без копии он не освободится, пока живёт последний кадр.
+      buf = Buffer.from(buf.subarray(5 + len));
       try {
-        onMessage(JSON.parse(line));
+        const json = packed ? zlib.inflateSync(body) : body;
+        onMessage(JSON.parse(json.toString('utf8')));
       } catch (e) {
         onFail(e);
       }
@@ -63,7 +96,7 @@ function attachReader(socket, onMessage, onFail) {
 function writeTo(socket, msg) {
   if (!socket || socket.destroyed) return false;
   try {
-    socket.write(JSON.stringify(msg) + '\n');
+    socket.write(frame(msg));
     return true;
   } catch {
     return false;
@@ -109,7 +142,7 @@ function dropPeer(id, reason) {
   const socket = peers.get(id);
   if (!socket) return false;
   try {
-    if (!socket.destroyed) socket.end(JSON.stringify({ k: 'bye', reason }) + '\n');
+    if (!socket.destroyed) socket.end(frame({ k: 'bye', reason }));
   } catch { /* канал уже мёртв — достаточно снять его с учёта */ }
   peers.delete(id);
   setTimeout(() => socket.destroy(), 200);
@@ -117,16 +150,49 @@ function dropPeer(id, reason) {
 }
 
 function broadcast(msg) {
-  const line = JSON.stringify(msg) + '\n';
+  const f = frame(msg);
   let sent = 0;
   for (const s of peers.values()) {
     if (s.destroyed) continue;
     try {
-      s.write(line);
+      s.write(f);
       sent++;
     } catch { /* соединение уже мертво — уберётся по close */ }
   }
   return sent;
+}
+
+/**
+ * Рассылка того, что не жалко потерять, — срезов мира.
+ *
+ * Клиенту с забитым каналом кадр НЕ отправляется вовсе. Это не потеря данных:
+ * каждый срез самодостаточен и описывает мир целиком, поэтому пропуск просто
+ * означает, что этот клиент увидит следующее состояние вместо промежуточного.
+ * Альтернатива — та самая очередь, из-за которой отставание росло без предела.
+ */
+function broadcastVolatile(msg) {
+  const f = frame(msg);
+  let sent = 0;
+  let skipped = 0;
+  for (const s of peers.values()) {
+    if (s.destroyed) continue;
+    if (s.writableLength > BACKLOG_LIMIT) {
+      skipped++;
+      continue;
+    }
+    try {
+      s.write(f);
+      sent++;
+    } catch { /* соединение уже мертво — уберётся по close */ }
+  }
+  return { sent, skipped, bytes: f.length };
+}
+
+/** Сколько байт ждёт отправки каждому — диагностика затора. */
+function peerBacklog() {
+  const out = {};
+  for (const [id, s] of peers) out[id] = s.destroyed ? -1 : s.writableLength;
+  return out;
 }
 
 // --- Клиент -----------------------------------------------------------------
@@ -389,7 +455,7 @@ function discoverHosts(waitMs = 1400) {
 }
 
 module.exports = {
-  PORT, startHost, joinHost, sendToPeer, sendToHost, broadcast, stopAll,
-  localAddresses, addressList, setDeliver, dropPeer,
+  PORT, startHost, joinHost, sendToPeer, sendToHost, broadcast, broadcastVolatile,
+  peerBacklog, stopAll, localAddresses, addressList, setDeliver, dropPeer,
   startBeacon, stopBeacon, discoverHosts,
 };

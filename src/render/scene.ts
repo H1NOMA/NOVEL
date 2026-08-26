@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import type { GameState } from '../game/state';
 import { factionColor } from '../data/factions';
 import { bus } from '../core/emitter';
-import { createPlanetVisual, type PlanetVisual } from './planetMesh';
-import { createComets, createNebulaDisc, createNebulaField, createStarfield, type CometLayer } from './starfield';
+import { createPlanetVisual, SUN_UNIFORM, type PlanetVisual } from './planetMesh';
+import { createComets, createNebulaDisc, createNebulaField, createStarfield, type CometLayer, type Starfield } from './starfield';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FleetLayer } from './fleets';
 import { emblemSprite } from './emblems';
 import { reconActive } from '../game/specops';
@@ -57,7 +58,7 @@ export class GalaxyScene {
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
   private comets!: CometLayer;
-  private stars!: THREE.Points;
+  private stars!: Starfield;
   private nebulae!: THREE.Group;
   /** Текущий пресет качества — bloom-тумблер не должен его затирать. */
   private quality: Quality = 'high';
@@ -70,7 +71,7 @@ export class GalaxyScene {
   constructor(private canvas: HTMLCanvasElement, private state: GameState) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    this.renderer.setClearColor(0x05070f, 1);
+    this.renderer.setClearColor(0x000000, 1);
     // Кинематографичный тон-маппинг — сочнее свет и глубже тени.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     // Экспозиция ниже единицы: с ней светлые миры перестают выбивать в белое,
@@ -93,12 +94,41 @@ export class GalaxyScene {
       this.prevOwners.set(id, state.galaxy.planets.get(id)!.owner);
     }
 
-    // Композер: обычный проход + едва заметный bloom только для по-настоящему
-    // ярких точек (лава, выстрелы). Порог поднят — карта не «плывёт» в неоне.
-    this.composer = new EffectComposer(this.renderer);
+    // --- Постобработка -------------------------------------------------------
+    //
+    // Порядок обязателен: сцена → свечение → вывод. OutputPass делает
+    // тон-маппинг и перевод в sRGB ровно один раз, в самом конце цепочки, —
+    // без него каждый проход трактовал бы цвет по-своему.
+    //
+    // ВАЖНО про чёрную точку. Через композер тон-маппинг применяется и к ЦВЕТУ
+    // ОЧИСТКИ, а при прямом рендере — нет. Замер по пустому кадру: заливка
+    // 0x05070f выходила на экран как (19, 28, 53), вчетверо светлее заданной.
+    // Поднималась не только она: вместе с чёрной точкой выцветал весь кадр,
+    // тени переставали быть тенями, и карта выглядела затянутой молочной
+    // плёнкой — именно это и читалось как «мыло». Поэтому фон теперь ровно
+    // чёрный, а цвет космосу дают галактический диск и туманности, то есть
+    // настоящие объекты сцены, проходящие свет по общим правилам.
+    // Цель композера задаётся явно, и это важно вдвойне:
+    //  • colorSpace ЛИНЕЙНЫЙ — цепочка не имеет права кодировать кадр в sRGB
+    //    до OutputPass, иначе получается то самое двойное кодирование;
+    //  • samples: 4 — сглаживание. Флаг antialias у рендерера не действует,
+    //    когда кадр идёт через композер: сцена рисуется в свою цель, а у неё
+    //    своих сэмплов нет. Отсюда были рваные края у планет и линий.
+    const db = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const target = new THREE.WebGLRenderTarget(Math.max(1, db.x), Math.max(1, db.y), {
+      type: THREE.HalfFloatType,
+      colorSpace: THREE.LinearSRGBColorSpace,
+      samples: 4,
+    });
+    this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.2, 0.5, 0.9);
+    // Порог поднят и радиус срезан: раньше свечение цеплялось за облака и
+    // ледяные шапки двух сотен планет разом, и весь кадр затягивало ровной
+    // светлой дымкой — именно она и читалась как «мыло». Теперь светятся
+    // только по-настоящему яркие вещи: лава, залпы, взрывы.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.28, 1.05);
     this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
 
     this.resize();
     this.attachInput();
@@ -111,7 +141,7 @@ export class GalaxyScene {
     // Звёзды строятся сразу по максимуму: пресеты качества не пересобирают
     // геометрию, а просто рисуют меньше точек через setDrawRange.
     this.stars = createStarfield(STAR_MAX, this.radiusWorld * 16);
-    this.scene.add(this.stars);
+    this.scene.add(this.stars.points);
     this.scene.add(createNebulaDisc(this.radiusWorld));
     // Туманности — дальний фон: висят в девяти радиусах карты и рисуются
     // раньше всего, поэтому не лезут к планетам даже на подлёте к краю.
@@ -124,16 +154,15 @@ export class GalaxyScene {
     // источник (холодное небо сверху, тёплый отсвет галактического диска
     // снизу), ключ приглушён и слегка тёплый, плюс холодная подсветка сзади,
     // чтобы корпуса кораблей не тонули в чёрном силуэте.
-    const hemi = new THREE.HemisphereLight(0x8ea6c8, 0x2e2620, 0.46);
-    const key = new THREE.DirectionalLight(0xfff3e2, 0.9);
-    key.position.set(6, 10, 8);
-    const fill = new THREE.DirectionalLight(0x8ba6ff, 0.26);
+    const hemi = new THREE.HemisphereLight(0x7f97b8, 0x241f1a, 0.34);
+    // Ключ стоит ровно там, где светит солнце шейдера планет: корабль и мир
+    // под ним обязаны быть освещены с одной стороны, иначе карта разваливается
+    // на два несогласованных источника.
+    const key = new THREE.DirectionalLight(0xfff3e2, 1.05);
+    key.position.copy(SUN_UNIFORM.value).multiplyScalar(30);
+    const fill = new THREE.DirectionalLight(0x7f98d8, 0.20);
     fill.position.set(-7, 4, -6);
     this.scene.add(hemi, key, fill);
-    // Central Super Earth glow.
-    const glow = new THREE.PointLight(0x8fc9ff, 0.6, 22);
-    glow.position.set(0, 1, 0);
-    this.scene.add(glow);
   }
 
   /** Flat annulus-sector plates + borders under the planets, one per sector. */
@@ -323,16 +352,19 @@ export class GalaxyScene {
       // одного владельца превращала космос в ровный цветной пол — планеты на
       // нём теряли и тень, и глубину.
       if (owners.size === 1 && alive.length > 0) {
+        // Космос стал чёрным, и прежние значения заливки пропали вовсе.
+        // Полностью занятый сектор обязан читаться как ЧЬЯ-ТО территория —
+        // цветом, а не догадкой по цвету планет внутри.
         const color = factionColor([...owners][0]!);
-        vis.fillMat.color.set(color).multiplyScalar(0.5);
-        vis.fillMat.opacity = 0.030;
-        vis.borderMat.color.set(color).multiplyScalar(0.8);
-        vis.borderMat.opacity = 0.24;
+        vis.fillMat.color.set(color).multiplyScalar(0.55);
+        vis.fillMat.opacity = 0.055;
+        vis.borderMat.color.set(color);
+        vis.borderMat.opacity = 0.60;
       } else {
         vis.fillMat.color.copy(NEUTRAL_SECTOR);
-        vis.fillMat.opacity = 0.012;
+        vis.fillMat.opacity = 0.020;
         vis.borderMat.color.copy(NEUTRAL_SECTOR);
-        vis.borderMat.opacity = 0.10;
+        vis.borderMat.opacity = 0.22;
       }
     }
   }
@@ -506,13 +538,16 @@ export class GalaxyScene {
     this.quality = q;
     const p = QUALITY_PRESETS[q];
     this.renderer.setPixelRatio(Math.min(p.pixelRatio, window.devicePixelRatio));
-    this.stars.geometry.setDrawRange(0, Math.min(STAR_MAX, p.stars));
+    this.stars.points.geometry.setDrawRange(0, Math.min(STAR_MAX, p.stars));
     this.comets.group.visible = p.comets;
     this.nebulae.visible = p.comets;
     this.bloom.strength = p.bloomStrength;
     this.setBloomEnabled(this.bloomOn);
-    // Смена пресета сразу меняет и потолок детализации поверхностей.
+    // Смена пресета сразу меняет и потолок детализации поверхностей, и
+    // сглаживание внутри цепочки.
     this.lodOct = -1;
+    this.composer.renderTarget1.samples = p.samples;
+    this.composer.renderTarget2.samples = p.samples;
     this.resize();
   }
 
@@ -849,6 +884,7 @@ export class GalaxyScene {
   render(): void {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
+    this.stars.update(t, this.renderer.getPixelRatio());
     // LOD шейдера планет. Порог поднят: на общем плане галактики раньше
     // работали три октавы, и все миры выглядели размытыми пятнами именно
     // оттуда, откуда на них смотрят почти всё время. Теперь на общем плане

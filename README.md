@@ -1,144 +1,92 @@
-# The Second Galactic War
+# Вторая Галактическая война
 
-A real-time galactic strategy game set in the **Helldivers 2** universe. Command
-one of four factions across a living galaxy of volumetric planets, drive fleets
-along supply lines, land troops, wage planetary war, and steer your nation's
-focus tree — including Super Earth's descent into civil war and the rise of the
-**Super Federation**.
+Стратегия реального времени в галактике **Helldivers 2**. Вы ведёте одну из
+четырёх сторон — Супер-Землю, Автоматонов, Иллюминатов или Терминидов — через
+войну за две сотни процедурно сгенерированных миров: двигаете флоты по линиям
+снабжения, высаживаете десант, ведёте планетарные бои, строите верфи, торгуетесь
+и объявляете войны, тянете древо национальных фокусов и доводите Супер-Землю до
+гражданской войны и восстания **Супер-Федерации**.
 
-Built with **Vite + TypeScript + Three.js**. No backend, no assets to download —
-every planet is generated procedurally in a GLSL shader.
+Всё это без единого игрового движка: **Vite + TypeScript + Three.js**, оболочка
+на Electron. Ни сервера, ни докачки контента — поверхность каждой планеты
+считается шейдером на лету, звук синтезируется WebAudio, модели кораблей и
+рельефа собраны в Blender и лежат в репозитории готовыми glTF.
 
-## Desktop app (primary target)
+## Готовые сборки
 
-The game ships as a native desktop application (Electron shell around the
-Three.js game). Build a distributable for your OS:
+Windows и Linux — на вкладке [Releases](../../releases). Архив распаковывается
+куда угодно и запускается без установки; **F11** переключает полный экран.
+Версия сборки видна в левом нижнем углу главного меню.
+
+## Что есть в игре
+
+**Галактика.** Восемь колец, семьдесят с лишним секторов, около двухсот миров
+одиннадцати биомов. Перед стартом выбирается форма галактики — диск, спираль,
+кольцо, скопления или перемычка, — и она меняет не картинку, а стратегию: в
+спирали наступление идёт длинным уязвимым рукавом, в кольце пустое ядро отрезает
+центр от периферии, в скоплениях война идёт за узкие перешейки.
+
+**Война.** Линии снабжения, сцепка боем (участники сражения не покидают орбиту),
+фазы наземной операции — высадка, плацдарм, штурм. Гарнизоны, укрепления, щиты,
+орбитальные станции, обломки на орбитах и выжженные шрамы на планетах.
+
+**Флот.** Три класса корпусов, верфи с очередью заказов, слияние и разделение
+соединений, очередь приказов, группы по горячим клавишам, командиры и выслуга.
+У каждой фракции своё слово для соединения: Соединение, Сенатор, Иерарх, Улей.
+
+**Политика.** Древо фокусов с вариативными узлами, политическая власть и
+постоянные усиления за неё, спецоперации, дипломатия от мира к войне, вассалы,
+трофейные технологии за взятые столицы, сюжетные развилки с выбором.
+
+**Сетевая игра.** Партия «через хоста»: симуляцию крутит один, остальные шлют
+приказы и получают срезы мира. Подключение по короткому коду партии или поиском
+партий в локальной сети — без сервера и без ввода адресов. Время у стола общее:
+паузу и скорость меняет любой участник. В меню ESC — список игроков с пингом.
+
+## Сборка из исходников
 
 ```bash
 npm install
-npm run app        # build & launch the desktop app locally
-npm run app:win    # portable Windows x64 build → release/SecondGalacticWar-win32-x64/
-npm run app:linux  # Linux x64 build          → release/SecondGalacticWar-linux-x64/
-npm run app:mac    # macOS arm64 build        → release/SecondGalacticWar-darwin-arm64/
+npm run dev        # дев-сервер Vite
+npm run build      # статическая сборка в dist/
+npm run typecheck  # tsc --noEmit
+npm test           # прогон tests/*.test.ts
+npm run app        # собрать и запустить десктопную версию
+npm run app:win    # переносимая сборка Windows x64 → release/
+npm run app:linux  # сборка Linux x64            → release/
 ```
 
-The Windows build is fully portable — zip the folder, unzip anywhere, run
-`SecondGalacticWar.exe`. No installer, no dependencies. **F11** toggles
-fullscreen. The app allows a software-rendering fallback on machines with
-broken GPU drivers.
+## Как устроен проект
 
-**Ready-made builds** are published on the repository's
-[**Releases**](../../releases) page — download the zip for your OS, unzip, play.
-Pushing a `v*` tag builds and publishes a new release automatically; every
-ordinary push also uploads the zips as workflow artifacts.
+| Каталог | Что внутри |
+| --- | --- |
+| `src/game` | Симуляция: состояние мира, экономика, бои, ИИ, фокусы, дипломатия. Ничего не знает о рендере. |
+| `src/data` | Таблицы: фракции, биомы, войска, ивенты, древа фокусов. |
+| `src/render` | Three.js: сцена, шейдер планет, флот, фон, эффекты. |
+| `src/ui` | Интерфейс на DOM и CSS, звук, горячие клавиши, главное меню. |
+| `src/net` | Протокол сетевой партии, приказы, срезы состояния, код партии. |
+| `electron` | Десктопная оболочка. Сокеты живут только в главном процессе. |
+| `tools` | Генераторы ассетов: Blender (`bpy`) для моделей, скрипты для превью. |
+| `tests` | Проверки поведения; каждый файл бандлится esbuild и запускается в node. |
 
-## Run in a browser (dev)
+Два правила, на которых всё держится:
 
-```bash
-npm install
-npm run dev        # dev server: http://localhost:5173
-npm run build      # production build → dist/ (static, runs anywhere)
-npm run preview    # preview the production build
-```
+1. **Симуляция отделена от показа.** `src/game` не импортирует ни Three.js, ни
+   DOM. Поэтому мир целиком сериализуется, а тесты гоняют войну без браузера.
+2. **Интерфейс не трогает состояние напрямую.** Любое действие игрока — приказ
+   из `src/net/protocol.ts`, который исполняет `applyCommand`. В одиночной
+   партии он применяется на месте, в сетевой уезжает хосту. Один код исполнения
+   на оба случая — единственный способ не разъехаться.
 
-## Controls
+## Ассеты
 
-| Input | Action |
-|---|---|
-| **Drag** | Pan the galaxy |
-| **Wheel** | Zoom in / out |
-| **Right-drag** | Orbit / tilt the camera |
-| **Click a planet** | Inspect it |
-| **Select a fleet → click a planet** | Move (own space) or invade (enemy world) |
-| **F** | Open the national focus tree |
-| **Space** | Pause / resume |
-| **1 / 2 / 3** | Game speed ×1 / ×2 / ×3 (days pass faster) |
+Модели кораблей, рельефа планет и иконки войск генерируются headless-Blender'ом
+через pip-колесо `bpy` и коммитятся готовыми (`npm run assets:*`). Превью форм
+галактики — настоящие снимки соответствующих галактик, снятые скриптом
+`tools/shapeshots.mjs` при погашенном интерфейсе.
 
-## Features
+## Лицензия и правовой статус
 
-### The galaxy map
-- A radial, **tilted disc** of concentric rings so the map reads with depth
-  without flattening — planets are true 3D spheres, not sprites.
-- Every planet has a **procedural, volumetric surface** (simplex-noise terrain,
-  seas, ice caps, clouds, atmosphere rim) drawn from one of ten **biomes**
-  (Terran, Ocean, Desert, Ice, Volcanic, Jungle, The Gloom, Barren, Toxic, Gas).
-- **Supply lines** connect neighbouring worlds and are colour-coded by owner.
-  Fleets can only travel along these lines, and only through friendly territory.
-- Free zoom and pan, with a faction-coloured ownership halo on every world.
-
-### Factions & capitals
-Four playable powers from the Second Galactic War, plus a hidden fifth:
-
-| Faction | Colour | Capital | Special unit |
-|---|---|---|---|
-| **Super Earth** | Blue | Super Earth *(galactic centre)* | Democracy Space Station |
-| **The Automatons** | Red | Cyberstan *(far outer sectors)* | Automaton Star Destroyer |
-| **The Illuminate** | Purple | Squ'bai Shrine *(far outer sectors)* | Great Host Monolith |
-| **The Terminids** | Gold | **none** — Kepler Prime is just the strongest hive | Terminid Super Colony |
-| **The Super Federation** | Orange | New Concord *(strongest seceded world)* | Federation Dreadnought |
-
-**Capitals matter.** Capture a faction's capital (★) and it **capitulates** —
-every remaining world submits to the victor and its fleets scatter. The
-Terminids have no capital: the swarm has no head to cut off and must be
-**exterminated planet by planet**.
-
-### Troops & manpower
-Every faction fields **ships** (fleets on supply lines), **infantry** (ground
-forces drawn from named troop pools) and a **special super-unit** unlocked via
-the focus tree. Infantry is not abstract — each faction has its own troop
-types with distinct replenishment rules:
-
-| Faction | Troops | Replenishment |
-|---|---|---|
-| Super Earth | Helldivers (elite) + SEAF (mass) | grows with controlled planets; E-711 fuel mined from liberated Terminid worlds boosts the fleet |
-| Automatons | AAF (mass), Incinerator & Jet squads (need dedicated factories), Cyborg Legions (elite) | built from minerals mined on magma/volcanic worlds; Cyborg Legions assemble **only on Cyberstan** |
-| Terminids | Swarm (mass) + Breach/Predator/Spore strains | effectively endless — grows with every planet held |
-| Illuminate | Great Fleet (elite, **irreplaceable**), Voteless (mass), Confiscators | Voteless replenished by harvesting the population of captured Super Earth worlds |
-
-Elite share boosts combat power; mass share speeds up planetary capture.
-Garrisons and fleet complements draw from these real pools.
-
-### Combat
-- **Orbital layer:** hostile fleets sharing a world trade ship losses.
-- **Ground layer:** an attacker lands infantry and grinds the garrison; a
-  liberation meter fills over days, factoring fortification and faction bonuses.
-  At 100% (or when the garrison breaks) the planet flips owner.
-
-### Focus trees
-- A large, branching **national focus tree** for each faction — 100+ focuses in
-  total, loosely faithful to Helldivers lore. Every faction has several distinct
-  branches:
-  - **Military** (ground forces: Helldivers / Devastators / Harvesters / Bile Titans…)
-  - **Navy / mobility** (Super Destroyers, Dropship Armadas, Warp Fleets, Shrieker Flights)
-  - **Politics / ideology** (Ministry of Truth, The Directive, The Great
-    Awakening, Emergent Hivemind)
-  - **Economy / industry** (War Economy, Self-Replication, Essence Harvest, E-710 Bloom)
-  - **Expansion campaigns** (Reclaim the Creek, Drive on the Core, Raid Super
-    Earth, Consume the Core)
-- Focuses complete over in-game days and grant war support, recruitment,
-  industry, ship cap, combat, fortification, stability and manpower bonuses,
-  spawn reinforcement fleets, or unlock the faction's special unit.
-
-### Super Earth stability & the Super Federation
-- Super Earth has a **stability** modifier. Some focuses (conscription, dissent)
-  erode it; propaganda restores it.
-- When stability falls **below 40%**, a hidden branch — **the Path to
-  Federation** — unlocks.
-- Walk the majority of that branch and **several random Super-Earth sectors
-  secede**, turning orange and joining the newly risen **Super Federation**,
-  which then wars against Super Earth *and* everyone else.
-
-### Time
-Real-time simulation counted in **days**, at ×1, ×2 and ×3 speed, plus pause.
-
-## Project layout
-
-```
-src/
-  core/     types, seeded RNG, event bus
-  data/     factions, biomes, focus trees
-  game/     galaxy generation, state, clock, units, combat, focus, AI, sim
-  render/   Three.js scene, procedural planet shader, starfield, fleets
-  ui/       HUD, planet panel, focus-tree overlay, log
-  main.ts   bootstrap
-```
+Фанатский некоммерческий проект по вселенной Helldivers 2. Не продаётся и не
+распространяется за деньги. Права на вселенную принадлежат Arrowhead Game
+Studios и Sony Interactive Entertainment.

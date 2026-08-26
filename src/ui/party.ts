@@ -22,8 +22,21 @@ export function partyCodeBlock(code: string): string {
 }
 
 /**
+ * Задержка до хоста строкой и цветом: до 60 мс — зелёный, до 150 — жёлтый,
+ * дальше красный. У хоста прочерк: до себя ходить некуда.
+ */
+function pingCell(m: PartyMember): string {
+  if (m.isHost) return '<span class="party-ping host">хост</span>';
+  const p = m.ping;
+  if (p === null || p === undefined) return '<span class="party-ping wait">— мс</span>';
+  const cls = p <= 60 ? 'good' : p <= 150 ? 'warn' : 'bad';
+  return `<span class="party-ping ${cls}">${Math.round(p)} мс</span>`;
+}
+
+/**
  * Список людей в партии. Хосту рядом с каждым — кнопка исключения; себя
- * исключить нельзя, поэтому у строки хоста её нет.
+ * исключить нельзя, поэтому у строки хоста её нет. Под ником — задержка:
+ * когда у кого-то отстаёт мир, первое, что надо увидеть, — чей это канал.
  */
 export function rosterList(members: PartyMember[], canKick: boolean): string {
   if (!members.length) return '';
@@ -33,7 +46,10 @@ export function rosterList(members: PartyMember[], canKick: boolean): string {
       const side = m.faction ? FACTIONS[m.faction].name : 'Не выбрал сторону';
       return `<div class="party-row" style="--fac:${color}">
         <span class="party-dot"></span>
-        <span class="party-name">${m.name}${m.isHost ? ' ★' : ''}</span>
+        <span class="party-who">
+          <span class="party-name">${m.name}${m.isHost ? ' ★' : ''}</span>
+          ${pingCell(m)}
+        </span>
         <span class="party-side">${side}</span>
         ${canKick && !m.isHost
           ? `<button class="party-kick" data-kick="${m.peer}">Выгнать</button>`

@@ -6,7 +6,7 @@ import type { FactionId, GameSpeed } from '../core/types';
 // правды о формате сообщений — этот файл.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const DEFAULT_PORT = 47624;
 
 /**
@@ -78,6 +78,11 @@ export interface PartyMember {
   name: string;
   faction: FactionId | null;
   isHost: boolean;
+  /**
+   * Задержка до хоста в миллисекундах; null — ещё не измерена.
+   * У самого хоста всегда 0: до себя ходить некуда.
+   */
+  ping?: number | null;
 }
 
 export type NetMessage =
@@ -100,5 +105,9 @@ export type NetMessage =
   | { k: 'nak'; reason: string }
   /** Клиент → хост: потерял нить, пришли состояние целиком. */
   | { k: 'resync' }
+  /** Хост → клиенту: замер задержки. Клиент обязан вернуть тот же штамп. */
+  | { k: 'ping'; t: number }
+  /** Клиент → хосту: эхо замера. */
+  | { k: 'pong'; t: number }
   /** Любой → любому: разрыв. */
   | { k: 'bye'; reason: string };

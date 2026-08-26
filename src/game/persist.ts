@@ -239,9 +239,6 @@ let autosaveDays = 365;
 export function setAutosaveDays(days: number): void {
   autosaveDays = Math.max(30, days);
 }
-export function getAutosaveDays(): number {
-  return autosaveDays;
-}
 
 export function autosaveTick(state: GameState): void {
   if (state.day > 1 && state.day % autosaveDays === 0) {

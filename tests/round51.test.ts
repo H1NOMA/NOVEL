@@ -78,13 +78,14 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   const proto = read('src', 'net', 'protocol.ts');
   const cmds = read('src', 'net', 'commands.ts');
   const kinds = [...proto.matchAll(/\{ k: '([a-zA-Z0-9]+)'/g)].map((m) => m[1]!);
+  // Служебные сообщения канала — не приказы игрока и в applyCommand не идут.
   const cmdKinds = kinds.filter((k) => !['hello', 'welcome', 'lobby', 'claim', 'start',
-    'snapshot', 'cmd', 'nak', 'resync', 'bye'].includes(k));
+    'snapshot', 'cmd', 'nak', 'resync', 'bye', 'ping', 'pong'].includes(k));
   ok(cmdKinds.length >= 35, `приказов в протоколе много (${cmdKinds.length})`);
   for (const k of cmdKinds) {
     ok(cmds.includes(`case '${k}'`), `хост умеет исполнять приказ ${k}`);
   }
-  ok(proto.includes('PROTOCOL_VERSION = 2'), 'версия протокола поднята — состав приказов изменился');
+  ok(/PROTOCOL_VERSION = [3-9]/.test(proto), 'версия протокола поднята — состав приказов изменился');
 }
 
 // --- Приказы работают от лица любой фракции ---------------------------------------

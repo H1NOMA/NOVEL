@@ -55,6 +55,9 @@ function wireNet(win) {
   ipcMain.handle('net:send', (_e, msg) => gameNet.sendToHost(msg));
   ipcMain.handle('net:send-to', (_e, { peer, msg }) => gameNet.sendToPeer(peer, msg));
   ipcMain.handle('net:broadcast', (_e, msg) => gameNet.broadcast(msg));
+  // Срезы мира: при заторе у клиента кадр не ставится в очередь, а пропускается.
+  ipcMain.handle('net:broadcast-volatile', (_e, msg) => gameNet.broadcastVolatile(msg));
+  ipcMain.handle('net:backlog', () => gameNet.peerBacklog());
   ipcMain.handle('net:drop', (_e, { peer, reason }) => gameNet.dropPeer(peer, reason));
   ipcMain.handle('net:close', () => {
     gameNet.stopAll();

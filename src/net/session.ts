@@ -40,10 +40,20 @@ let state: GameState | null = null;
 let unsubscribe: (() => void) | null = null;
 let snapshotTimer: number | null = null;
 
+/** Как часто хост замеряет задержку до каждого клиента. */
+const PING_INTERVAL_MS = 2000;
+
 /** Хост: peerId → занятая фракция. Источник правды о том, кто чем командует. */
 const peerFaction = new Map<string, FactionId>();
 const peerName = new Map<string, string>();
+/** Замеренная задержка до каждого клиента (мс). */
+const peerPing = new Map<string, number>();
+let pingTimer: number | null = null;
 let hostFaction: FactionId = 'superEarth';
+/** Своя задержка до хоста — её клиент узнаёт из списка игроков. */
+let myPing: number | null = null;
+/** Как хост назвал этого клиента: по этому идентификатору он ищет себя в списке. */
+let myPeer: string | null = null;
 
 /** Клиент: что показывать в лобби и есть ли связь. */
 let lobbySlots: LobbySlot[] = [];
@@ -89,10 +99,14 @@ function buildSlots(): LobbySlot[] {
 /** Кто сейчас в партии: хост плюс все подключённые, с их сторонами. */
 function buildMembers(): PartyMember[] {
   const out: PartyMember[] = [
-    { peer: 'host', name: 'Хост', faction: hostFaction, isHost: true },
+    // До себя ходить некуда: у хоста задержки нет по определению.
+    { peer: 'host', name: 'Хост', faction: hostFaction, isHost: true, ping: 0 },
   ];
   for (const [peer, name] of peerName) {
-    out.push({ peer, name, faction: peerFaction.get(peer) ?? null, isHost: false });
+    out.push({
+      peer, name, faction: peerFaction.get(peer) ?? null, isHost: false,
+      ping: peerPing.get(peer) ?? null,
+    });
   }
   return out;
 }
@@ -118,6 +132,35 @@ export function getLobbySlots(): LobbySlot[] {
 /** Список игроков партии. Пуст в одиночной игре. */
 export function getPartyMembers(): PartyMember[] {
   return partyMembers;
+}
+
+/**
+ * Хост замеряет задержку до каждого клиента.
+ *
+ * Штамп времени уходит клиенту и возвращается обратно неизменным — разница и
+ * есть round-trip. Обновление задержек НЕ рассылает лобби целиком: список
+ * игроков и так уезжает при каждом изменении состава, а цифры подхватываются
+ * следующим таким сообщением. Иначе на каждый замер шёл бы лишний пакет.
+ */
+function startPingLoop(): void {
+  if (pingTimer !== null) return;
+  pingTimer = window.setInterval(() => {
+    if (role !== 'host') return;
+    const net = netBridge();
+    if (!net) return;
+    const t = Date.now();
+    for (const peer of peerName.keys()) net.sendTo(peer, { k: 'ping', t });
+    // Список игроков обновляется вместе с задержками, но редко — раз в замер.
+    partyMembers = buildMembers();
+    net.broadcast({ k: 'lobby', slots: lobbySlots, members: partyMembers, code: partyCodeValue });
+    onLobby?.(lobbySlots);
+  }, PING_INTERVAL_MS);
+}
+
+function stopPingLoop(): void {
+  if (pingTimer === null) return;
+  clearInterval(pingTimer);
+  pingTimer = null;
 }
 
 /** Код партии для показа. null — партия не сетевая или адрес не IPv4. */
@@ -168,6 +211,7 @@ export function kickPeer(peer: string): boolean {
   const faction = peerFaction.get(peer);
   peerFaction.delete(peer);
   peerName.delete(peer);
+  peerPing.delete(peer);
   if (faction && state) state.humans = state.humans.filter((f) => f !== faction);
   void net.drop(peer, 'Вас исключил хост');
   pushLobby();
@@ -206,6 +250,7 @@ export async function startHosting(faction: FactionId): Promise<{ ok: boolean; a
   hostAddress = hostAdapters[0]?.address ?? null;
   partyCodeValue = hostAddress ? partyCodeFor([hostAddress], hostPort || undefined) : null;
   listen();
+  startPingLoop();
   // Маяк: игроки в той же сети найдут партию, не вводя вообще ничего.
   void net.beacon({ host: 'Партия', faction, players: 1 });
   pushLobby();
@@ -254,7 +299,17 @@ function handleHostMessage(from: string, msg: NetMessage): void {
       }
       // На паузе очередной срез ждать до секунды: отдав приказ, игрок должен
       // увидеть результат сразу, а не после того, как кто-то снимет паузу.
-      if (state.speed === 0) net.broadcast({ k: 'snapshot', snapshot: encodeSnapshot(state) });
+      if (state.speed === 0) {
+        const snap = { k: 'snapshot', snapshot: encodeSnapshot(state) } as const;
+        if (net.broadcastVolatile) void net.broadcastVolatile(snap);
+        else net.broadcast(snap);
+      }
+      return;
+    }
+    case 'pong': {
+      // Разница между отправкой и возвратом штампа — round-trip до клиента.
+      const rtt = Date.now() - msg.t;
+      if (rtt >= 0 && rtt < 60000) peerPing.set(from, rtt);
       return;
     }
     case 'resync': {
@@ -287,7 +342,12 @@ function startSnapshotLoop(): void {
     if (role !== 'host' || !state || peerFaction.size === 0) return;
     tick++;
     if (state.speed === 0 && tick % PAUSED_SNAPSHOT_EVERY !== 0) return;
-    netBridge()?.broadcast({ k: 'snapshot', snapshot: encodeSnapshot(state) });
+    const net = netBridge();
+    const msg = { k: 'snapshot', snapshot: encodeSnapshot(state) } as const;
+    // Срез мира самодостаточен: при заторе его лучше пропустить, чем поставить
+    // в очередь и показать клиенту прошлое.
+    if (net?.broadcastVolatile) void net.broadcastVolatile(msg);
+    else net?.broadcast(msg);
   }, SNAPSHOT_INTERVAL_MS);
 }
 
@@ -316,15 +376,23 @@ export function claimFaction(faction: FactionId): void {
 
 function handleClientMessage(msg: NetMessage): void {
   switch (msg.k) {
+    case 'ping':
+      // Эхо без задержки: любая обработка исказила бы замер.
+      netBridge()?.send({ k: 'pong', t: msg.t });
+      return;
     case 'welcome':
+      myPeer = msg.peer;
       lobbySlots = msg.slots;
       partyMembers = msg.members ?? [];
+      myPing = partyMembers.find((m) => m.peer === msg.peer)?.ping ?? myPing;
       partyCodeValue = msg.code ?? null;
       onLobby?.(msg.slots);
       return;
     case 'lobby':
       lobbySlots = msg.slots;
       partyMembers = msg.members ?? partyMembers;
+      // Своя строка в списке — оттуда клиент и узнаёт собственный пинг.
+      myPing = partyMembers.find((m) => m.peer === myPeer)?.ping ?? myPing;
       if (msg.code !== undefined) partyCodeValue = msg.code;
       onLobby?.(msg.slots);
       return;
@@ -366,6 +434,7 @@ function listen(): void {
       const faction = peerFaction.get(e.id);
       peerFaction.delete(e.id);
       peerName.delete(e.id);
+      peerPing.delete(e.id);
       if (faction && state) state.humans = state.humans.filter((f) => f !== faction);
       pushLobby();
       return;
@@ -382,11 +451,15 @@ export function leave(): void {
     clearInterval(snapshotTimer);
     snapshotTimer = null;
   }
+  stopPingLoop();
   unsubscribe?.();
   unsubscribe = null;
   if (role === 'host') void netBridge()?.beacon(null);
   peerFaction.clear();
   peerName.clear();
+  peerPing.clear();
+  myPing = null;
+  myPeer = null;
   lobbySlots = [];
   partyMembers = [];
   partyCodeValue = null;

@@ -71,7 +71,8 @@ export class MainMenu {
       <div class="mm-inner">
         <div class="mm-head">${logoBlock()}</div>
         <div class="mm-body"></div>
-      </div>`;
+      </div>
+      <div class="mm-version">версия ${__APP_VERSION__}</div>`;
     this.body = this.root.querySelector<HTMLElement>('.mm-body')!;
     document.body.appendChild(this.root);
     setLobbyHandlers({

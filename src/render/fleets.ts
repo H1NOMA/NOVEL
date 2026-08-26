@@ -7,6 +7,24 @@ import { shipModel, stationModel, type ShipClass } from './ships';
 
 const EXHAUST_GEO = new THREE.ConeGeometry(0.03, 0.16, 6);
 
+/** Мягкое круглое пятно под кораблём — общая текстура на все соединения. */
+let beaconTex: THREE.Texture | null = null;
+function beaconTexture(): THREE.Texture {
+  if (beaconTex) return beaconTex;
+  const size = 64;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d')!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  beaconTex = new THREE.CanvasTexture(cv);
+  return beaconTex;
+}
+
 interface FleetMesh {
   group: THREE.Group;
   model: THREE.Group;
@@ -152,7 +170,30 @@ export class FleetLayer {
     const trail = new THREE.Line(trailGeo, trailMat);
     model.add(trail);
 
+    // --- Опознавательный огонь ------------------------------------------
+    //
+    // На чёрном космосе тёмный корпус в полтора десятка пикселей не читается
+    // никак: соединения превращались в едва заметные серые крапины. Под
+    // каждым кораблём теперь горит маленькая метка цвета фракции — по ней
+    // флот виден с общего плана, и сразу понятно, чей он. Метка аддитивная,
+    // без записи в глубину, поэтому не спорит с моделью.
+    const beaconMat = new THREE.SpriteMaterial({
+      map: beaconTexture(),
+      color,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const beacon = new THREE.Sprite(beaconMat);
+    beacon.scale.setScalar(special ? 0.72 : 0.42);
+    beacon.position.y = -0.02;
+
     const g = new THREE.Group();
+    // Модель крупнее: силуэт класса должен быть различим с обычного зума,
+    // а не только при подлёте вплотную.
+    model.scale.multiplyScalar(1.45);
+    g.add(beacon);
     g.add(model);
     const fm: FleetMesh = {
       group: g,

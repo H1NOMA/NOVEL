@@ -587,7 +587,17 @@ kbd {
 .party-dot {
   width: 0.5rem; height: 0.5rem; flex: 0 0 auto; border-radius: 50%; background: var(--fac);
 }
+/* Ник и под ним задержка: столбиком, чтобы строка не растягивалась. */
+.party-who { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
 .party-name { font-weight: 700; color: var(--text-hi); }
+.party-ping {
+  font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.party-ping.good { color: var(--ok); }
+.party-ping.warn { color: var(--gold); }
+.party-ping.bad { color: var(--alr); }
+.party-ping.wait, .party-ping.host { color: var(--muted); }
 .party-side { flex: 1; color: var(--muted); font-size: 0.75rem; text-align: right; }
 .party-kick {
   flex: 0 0 auto; padding: 0.2rem 0.55rem; cursor: pointer;
@@ -1216,6 +1226,14 @@ body.no-grain #vignette::after { display: none; }
 .mm-fac img { width: 3.6rem; height: 3.6rem; transition: filter 0.14s; }
 .mm-fac:hover img { filter: drop-shadow(0 0 0.5rem var(--fac)); }
 .mm-fac-name { font-weight: 700; letter-spacing: 0.06em; color: var(--fac); font-size: 0.95rem; }
+/* Версия сборки в углу: в сетевой партии половина вопросов снимается тем,
+   что игроки просто сверяют номер. */
+.mm-version {
+  position: absolute; left: 1.6rem; bottom: 1rem; z-index: 4;
+  font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em;
+  color: rgba(236, 236, 231, 0.34); pointer-events: none; user-select: text;
+}
+
 /* --- выбор формы галактики (раунд 51) ------------------------------------- */
 /* Экран форм шире прочих: пять карточек с превью должны помещаться сразу,
    без прокрутки — иначе половина вариантов остаётся за краем экрана. */

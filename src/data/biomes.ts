@@ -29,5 +29,3 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
   gas: { id: 'gas', label: 'Газовый гигант', land: '#8a6bb0', sea: '#5a3f8a', atmo: '#c39bff', water: 0.0, rough: 0.25, clouds: 0.9 },
   magma: { id: 'magma', label: 'Магмовый', land: '#241512', sea: '#ff5a1a', atmo: '#ff9c3c', water: 0.52, rough: 0.8, clouds: 0.15 },
 };
-
-export const BIOME_LIST = Object.values(BIOMES);
