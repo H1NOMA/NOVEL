@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('netBridge', {
   close: () => ipcRenderer.invoke('net:close'),
   /** Адреса этой машины для приглашения. */
   addresses: () => ipcRenderer.invoke('net:addresses'),
+  // Маяк хоста и поиск партий рядом — соединение без диктовки адреса.
+  beacon: (info) => ipcRenderer.invoke('net:beacon', info),
+  discover: (ms) => ipcRenderer.invoke('net:discover', ms),
   /** Подписка на события: { kind, from?, msg?, id? }. Возвращает отписку. */
   onEvent: (fn) => {
     listeners.add(fn);

@@ -7,11 +7,13 @@ import { careerLines, careerRank, loadCareer, resetCareer } from '../game/career
 import { logoBlock } from './logo';
 import { SettingsPanel } from './settingsPanel';
 import {
-  claimFaction, getLobbySlots, getPartyCode, getPartyMembers, joinGame, kickPeer,
-  setLobbyHandlers, startHosting, leave as leaveNet,
+  claimFaction, findParties, getHostAdapters, getHostAddress, getLobbySlots, getPartyCode,
+  getPartyMembers, joinGame, kickPeer, setHostAddress, setLobbyHandlers, startHosting,
+  leave as leaveNet,
 } from '../net/session';
-import { partyCodeBlock, rosterList } from './party';
+import { adapterPicker, partyCodeBlock, rosterList } from './party';
 import type { LobbySlot } from '../net/protocol';
+import type { FoundParty } from '../net/bridge';
 
 // ---------------------------------------------------------------------------
 // Главное меню: единая точка входа в игру. Экраны переключаются внутри одного
@@ -47,6 +49,9 @@ export class MainMenu {
   private factionPurpose: 'single' | 'host' = 'single';
   private netInfo = '';
   private isHost = false;
+  /** Найденные в сети партии и признак идущего поиска. */
+  private foundParties: FoundParty[] = [];
+  private scanning = false;
 
   constructor(private actions: MenuActions) {
     // Идентификатор свой: #main-menu занят внутриигровым меню паузы (ui.ts),
@@ -217,7 +222,16 @@ export class MainMenu {
         <button class="mm-back" data-go="root">← Назад</button>
       </div>`;
     }
-    return `<div class="mm-panel">
+    // Партии в своей сети находятся сами — код нужен только тем, кто играет
+    // через VPN или не попал в широковещание.
+    const found = this.foundParties.map((f) => `
+      <button class="mm-found" data-join-addr="${f.address}" data-join-port="${f.port}">
+        <span class="mm-found-name">${f.host}</span>
+        <span class="mm-found-at">${f.address}</span>
+        <span class="mm-found-n">${f.players}</span>
+      </button>`).join('');
+
+    return `<div class="mm-panel wide">
       <div class="mm-panel-title">Сетевая партия</div>
       ${this.netInfo ? `<div class="mm-note">${this.netInfo}</div>` : ''}
       <div class="mm-net">
@@ -225,8 +239,15 @@ export class MainMenu {
           <span class="mm-btn-label">СОЗДАТЬ ПАРТИЮ</span>
           <span class="mm-btn-arrow">▸</span>
         </button>
+        <div class="mm-row">
+          <div class="mm-panel-title">Партии рядом</div>
+          <button class="mm-back" id="mm-rescan">${this.scanning ? 'Поиск…' : '⟳ Обновить'}</button>
+        </div>
+        <div class="mm-found-list">
+          ${found || `<div class="mm-found empty">${this.scanning ? 'Поиск…' : 'Ничего не найдено'}</div>`}
+        </div>
         <div class="mm-join">
-          <input id="mm-addr" type="text" placeholder="КОД ПАРТИИ" autocomplete="off"
+          <input id="mm-addr" type="text" placeholder="КОД ПАРТИИ ИЛИ АДРЕС" autocomplete="off"
                  spellcheck="false" maxlength="24">
           <button class="mm-btn narrow" id="mm-join">ПОДКЛЮЧИТЬСЯ</button>
         </div>
@@ -242,6 +263,7 @@ export class MainMenu {
       <div class="mm-panel-title">Лобби</div>
       ${this.netInfo ? `<div class="mm-note">${this.netInfo}</div>` : ''}
       ${code ? partyCodeBlock(code) : ''}
+      ${this.isHost ? adapterPicker(getHostAdapters(), getHostAddress()) : ''}
       ${rosterList(getPartyMembers(), this.isHost)}
       <div class="mm-slots">
         ${slots.map((s) => `
@@ -276,6 +298,10 @@ export class MainMenu {
           this.go('faction');
         } else if (to === 'continue') {
           this.actions.loadGame(AUTOSAVE_SLOT);
+        } else if (to === 'net') {
+          this.netInfo = '';
+          this.go('net');
+          void this.scanParties();
         } else if (to === 'quit') {
           // В десктопной сборке окно закрывается, в браузере — просто нечего делать.
           window.close();
@@ -306,7 +332,7 @@ export class MainMenu {
         }
         this.isHost = true;
         // Адрес больше не диктуют вслух: он упакован в код партии.
-        this.netInfo = res.code ? '' : `Адрес: ${(res.addresses ?? []).join(' · ') || 'localhost'}`;
+        this.netInfo = res.code ? '' : 'Не удалось определить адрес этой машины.';
         this.hostFaction = faction;
         this.go('lobby');
       }));
@@ -321,25 +347,36 @@ export class MainMenu {
       }));
 
     const join = this.root.querySelector<HTMLButtonElement>('#mm-join');
-    join?.addEventListener('click', async () => {
-      const addr = this.root.querySelector<HTMLInputElement>('#mm-addr')?.value.trim();
+    const input = this.root.querySelector<HTMLInputElement>('#mm-addr');
+    const tryJoin = (): void => {
+      const addr = input?.value.trim();
       if (!addr) {
-        this.netInfo = 'Введите адрес хоста.';
+        this.netInfo = 'Введите код партии.';
         this.render();
         return;
       }
-      const res = await joinGame(addr, 'Игрок');
-      if (!res.ok) {
-        this.netInfo = res.error ?? 'не удалось подключиться';
-        this.render();
-        return;
-      }
-      this.isHost = false;
-      this.netInfo = 'Подключено. Займите свободную фракцию.';
-      this.go('lobby');
+      void this.connectTo(addr);
+    };
+    join?.addEventListener('click', tryJoin);
+    // Enter в поле — то же, что нажать кнопку: код вводят с клавиатуры.
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') tryJoin();
     });
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-kick]').forEach((b) =>
+    this.root.querySelector('#mm-rescan')?.addEventListener('click', () => void this.scanParties());
+
+    this.root.querySelectorAll<HTMLElement>('[data-join-addr]').forEach((b) =>
+      b.addEventListener('click', () => void this.connectTo(
+        `${b.dataset.joinAddr}:${b.dataset.joinPort}`)));
+
+    // Хост переключает сеть партии: код пересчитывается под выбранный адаптер.
+    this.root.querySelectorAll<HTMLElement>('[data-adapter]').forEach((b) =>
+      b.addEventListener('click', () => {
+        setHostAddress(b.dataset.adapter!);
+        this.render();
+      }));
+
+    this.root.querySelectorAll<HTMLElement>('[data-kick]').forEach((b) =>
       b.addEventListener('click', () => {
         kickPeer(b.dataset.kick!);
         this.render();
@@ -362,6 +399,31 @@ export class MainMenu {
     // Настройки монтируются в свой контейнер — вёрстка и модель общие с паузой.
     const host = this.root.querySelector<HTMLElement>('#mm-settings');
     if (host) new SettingsPanel(host).render();
+  }
+
+  /** Опрос сети: показываем «Поиск…», затем список найденного. */
+  private async scanParties(): Promise<void> {
+    if (this.scanning) return;
+    this.scanning = true;
+    if (this.screen === 'net') this.render();
+    this.foundParties = await findParties();
+    this.scanning = false;
+    if (this.screen === 'net') this.render();
+  }
+
+  /** Подключение по коду, адресу или найденной партии. */
+  private async connectTo(target: string): Promise<void> {
+    this.netInfo = 'Подключение…';
+    this.render();
+    const res = await joinGame(target, 'Игрок');
+    if (!res.ok) {
+      this.netInfo = res.error ?? 'не удалось подключиться';
+      this.render();
+      return;
+    }
+    this.isHost = false;
+    this.netInfo = '';
+    this.go('lobby');
   }
 
   private hostFaction: FactionId = 'superEarth';

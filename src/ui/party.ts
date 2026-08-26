@@ -1,4 +1,5 @@
 import { FACTIONS, factionColor } from '../data/factions';
+import type { NetAdapter } from '../net/bridge';
 import type { PartyMember } from '../net/protocol';
 
 // ---------------------------------------------------------------------------
@@ -39,5 +40,25 @@ export function rosterList(members: PartyMember[], canKick: boolean): string {
           : '<span class="party-kick-gap"></span>'}
       </div>`;
     }).join('')}
+  </div>`;
+}
+
+/**
+ * Выбор сети партии.
+ *
+ * На машине с Radmin VPN, Hamachi, Docker или VirtualBox адресов несколько, и
+ * программа не может знать, по какой сети игроки собрались играть: код,
+ * выданный не по тому адаптеру, ведёт в пустоту и подключение висит до
+ * таймаута. Список показывается целиком — обычная сеть впереди, виртуальные
+ * помечены, — а выбор остаётся за хостом.
+ */
+export function adapterPicker(adapters: NetAdapter[], current: string | null): string {
+  if (adapters.length < 2) return '';
+  return `<div class="mm-adapters">
+    ${adapters.map((a) => `
+      <button class="mm-adapter ${a.address === current ? 'sel' : ''}" data-adapter="${a.address}">
+        <span class="ad-addr">${a.address}</span>
+        <span class="ad-name">${a.kind ?? a.name}</span>
+      </button>`).join('')}
   </div>`;
 }

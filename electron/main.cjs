@@ -61,6 +61,9 @@ function wireNet(win) {
     return true;
   });
   ipcMain.handle('net:addresses', () => gameNet.localAddresses());
+  // Поиск партий в локальной сети: маяк на стороне хоста, опрос на стороне клиента.
+  ipcMain.handle('net:beacon', (_e, info) => (info ? gameNet.startBeacon(info) : gameNet.stopBeacon()));
+  ipcMain.handle('net:discover', (_e, ms) => gameNet.discoverHosts(ms));
 }
 
 app.whenReady().then(() => {

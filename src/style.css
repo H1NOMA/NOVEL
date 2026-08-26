@@ -591,6 +591,34 @@ kbd {
 /* Пустышка вместо кнопки у хоста — строки не съезжают по ширине. */
 .party-kick-gap { flex: 0 0 auto; width: 3.9rem; }
 
+/* Найденные в сети партии: клик по строке — подключение без ввода кода. */
+.mm-found-list { display: flex; flex-direction: column; gap: 0.25rem; max-height: 11rem; overflow-y: auto; }
+.mm-found {
+  display: flex; align-items: center; gap: 0.7rem; width: 100%; padding: 0.5rem 0.7rem;
+  cursor: pointer; text-align: left; font-family: var(--font-ui); font-size: 0.82rem;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--edge); border-left: 3px solid var(--yel-dim);
+}
+.mm-found:hover { border-left-color: var(--yel); background: var(--yel-tint); }
+.mm-found.empty { cursor: default; color: var(--muted); border-left-color: var(--edge); justify-content: center; }
+.mm-found.empty:hover { background: var(--panel); border-left-color: var(--edge); }
+.mm-found-name { font-weight: 700; color: var(--text-hi); }
+.mm-found-at { flex: 1; font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); }
+.mm-found-n { font-family: var(--font-mono); color: var(--yel); }
+
+/* Выбор сети партии: у хоста с VPN или Docker адресов несколько. */
+.mm-adapters { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.mm-adapter {
+  display: flex; flex-direction: column; gap: 0.05rem; padding: 0.35rem 0.6rem;
+  cursor: pointer; text-align: left; font-family: var(--font-ui);
+  background: rgba(255, 255, 255, 0.04); color: var(--muted);
+  border: 1px solid var(--edge);
+}
+.mm-adapter:hover { color: var(--text-hi); border-color: var(--yel-dim); }
+.mm-adapter.sel { border-color: var(--yel); background: var(--yel-tint); color: var(--text-hi); }
+.ad-addr { font-family: var(--font-mono); font-size: 0.78rem; }
+.ad-name { font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; }
+
 /* ---------- Экран настроек (общий для меню и паузы) ---------- */
 .st-host { display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
 .st-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; border-bottom: 1px solid var(--edge); }

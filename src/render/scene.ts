@@ -71,7 +71,9 @@ export class GalaxyScene {
     this.renderer.setClearColor(0x05070f, 1);
     // Кинематографичный тон-маппинг — сочнее свет и глубже тени.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    // Экспозиция ниже единицы: с ней светлые миры перестают выбивать в белое,
+    // а тени на кораблях и станциях получают глубину.
+    this.renderer.toneMappingExposure = 0.98;
 
     this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 2000);
     this.radiusWorld = state.galaxy.radiusMax * GALAXY_SCALE;
@@ -127,7 +129,7 @@ export class GalaxyScene {
     fill.position.set(-7, 4, -6);
     this.scene.add(hemi, key, fill);
     // Central Super Earth glow.
-    const glow = new THREE.PointLight(0x8fc9ff, 1.0, 24);
+    const glow = new THREE.PointLight(0x8fc9ff, 0.6, 22);
     glow.position.set(0, 1, 0);
     this.scene.add(glow);
   }
@@ -282,17 +284,21 @@ export class GalaxyScene {
       if (!vis) continue;
       const alive = sector.planets.map((pid) => this.state.galaxy.planets.get(pid)!).filter((p) => !p.shattered);
       const owners = new Set(alive.map((p) => p.owner));
+      // Плиты секторов приглушены и затемнены. Их семьдесят с лишним, они
+      // лежат сплошным ковром под всей картой, и на прежней яркости заливка
+      // одного владельца превращала космос в ровный цветной пол — планеты на
+      // нём теряли и тень, и глубину.
       if (owners.size === 1 && alive.length > 0) {
         const color = factionColor([...owners][0]!);
-        vis.fillMat.color.set(color);
-        vis.fillMat.opacity = 0.05;
-        vis.borderMat.color.set(color);
-        vis.borderMat.opacity = 0.38;
+        vis.fillMat.color.set(color).multiplyScalar(0.5);
+        vis.fillMat.opacity = 0.030;
+        vis.borderMat.color.set(color).multiplyScalar(0.8);
+        vis.borderMat.opacity = 0.24;
       } else {
         vis.fillMat.color.copy(NEUTRAL_SECTOR);
-        vis.fillMat.opacity = 0.02;
+        vis.fillMat.opacity = 0.012;
         vis.borderMat.color.copy(NEUTRAL_SECTOR);
-        vis.borderMat.opacity = 0.15;
+        vis.borderMat.opacity = 0.10;
       }
     }
   }

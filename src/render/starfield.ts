@@ -158,10 +158,14 @@ export function createNebulaDisc(worldRadius: number): THREE.Mesh {
   const cv = document.createElement('canvas');
   cv.width = cv.height = size;
   const ctx = cv.getContext('2d')!;
+  // Диск рисуется АДДИТИВНО и занимает почти весь кадр, поэтому даже слабая
+  // заливка складывается сама с собой и высветляет всю карту. После того как
+  // галактика выросла до восьми колец, прежние значения давали ровный синий
+  // налёт поверх всего — планеты теряли тени, а космос переставал быть чёрным.
   const g = ctx.createRadialGradient(size / 2, size / 2, 10, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(120,180,255,0.2)');
-  g.addColorStop(0.25, 'rgba(60,110,190,0.12)');
-  g.addColorStop(0.6, 'rgba(30,50,110,0.06)');
+  g.addColorStop(0, 'rgba(120,180,255,0.085)');
+  g.addColorStop(0.25, 'rgba(60,110,190,0.05)');
+  g.addColorStop(0.6, 'rgba(30,50,110,0.024)');
   g.addColorStop(1, 'rgba(8,10,30,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
@@ -171,7 +175,7 @@ export function createNebulaDisc(worldRadius: number): THREE.Mesh {
     const rr = Math.pow(Math.random(), 0.5) * (size / 2);
     const x = size / 2 + Math.cos(a + rr * 0.02) * rr;
     const y = size / 2 + Math.sin(a + rr * 0.02) * rr;
-    ctx.fillStyle = `rgba(200,220,255,${Math.random() * 0.06})`;
+    ctx.fillStyle = `rgba(200,220,255,${Math.random() * 0.028})`;
     ctx.fillRect(x, y, 1.6, 1.6);
   }
   const tex = new THREE.CanvasTexture(cv);

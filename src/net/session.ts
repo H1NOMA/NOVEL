@@ -2,7 +2,7 @@ import type { FactionId } from '../core/types';
 import { FACTIONS, FACTION_IDS } from '../data/factions';
 import type { GameState } from '../game/state';
 import { applyCommand } from './commands';
-import { netBridge, type NetEvent } from './bridge';
+import { netBridge, type FoundParty, type NetAdapter, type NetEvent } from './bridge';
 import { PROTOCOL_VERSION, type Cmd, type LobbySlot, type NetMessage, type PartyMember } from './protocol';
 import { partyCodeFor, resolveJoinTarget } from './partyCode';
 import { applySnapshot, encodeSnapshot } from './snapshot';
@@ -37,6 +37,10 @@ let lobbySlots: LobbySlot[] = [];
 let partyMembers: PartyMember[] = [];
 /** Код партии: у хоста считается из адреса, клиенту приходит с welcome. */
 let partyCodeValue: string | null = null;
+/** Адаптеры хоста и выбранный из них: код партии считается по выбранному. */
+let hostAdapters: NetAdapter[] = [];
+let hostAddress: string | null = null;
+let hostPort = 0;
 let onLobby: ((slots: LobbySlot[]) => void) | null = null;
 let onStart: ((faction: FactionId, snapshot: string) => void) | null = null;
 let onDropped: (() => void) | null = null;
@@ -83,7 +87,13 @@ function pushLobby(): void {
   const slots = buildSlots();
   lobbySlots = slots;
   partyMembers = buildMembers();
-  netBridge()?.broadcast({ k: 'lobby', slots, members: partyMembers, code: partyCodeValue });
+  const net = netBridge();
+  net?.broadcast({ k: 'lobby', slots, members: partyMembers, code: partyCodeValue });
+  // Маяк объявляет актуальное число игроков — в списке поиска видно, куда
+  // ещё есть смысл стучаться.
+  if (role === 'host') {
+    void net?.beacon({ host: 'Партия', faction: hostFaction, players: partyMembers.length });
+  }
   onLobby?.(slots);
 }
 
@@ -99,6 +109,38 @@ export function getPartyMembers(): PartyMember[] {
 /** Код партии для показа. null — партия не сетевая или адрес не IPv4. */
 export function getPartyCode(): string | null {
   return partyCodeValue;
+}
+
+/** Сетевые адаптеры хоста — из них он выбирает, по какой сети играть. */
+export function getHostAdapters(): NetAdapter[] {
+  return hostAdapters;
+}
+
+export function getHostAddress(): string | null {
+  return hostAddress;
+}
+
+/**
+ * Переключить сеть партии. Код пересчитывается под выбранный адаптер:
+ * на машине с Radmin VPN или Docker «правильный» адрес знает только хост.
+ */
+export function setHostAddress(address: string): void {
+  if (role !== 'host') return;
+  if (!hostAdapters.some((a) => a.address === address)) return;
+  hostAddress = address;
+  partyCodeValue = partyCodeFor([address], hostPort || undefined);
+  pushLobby();
+}
+
+/** Найти партии в локальной сети (без ввода кода). */
+export async function findParties(ms = 1400): Promise<FoundParty[]> {
+  const net = netBridge();
+  if (!net) return [];
+  try {
+    return await net.discover(ms);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -132,7 +174,7 @@ export function setLobbyHandlers(h: {
 
 // --- Хост -------------------------------------------------------------------
 
-export async function startHosting(faction: FactionId): Promise<{ ok: boolean; addresses?: string[]; port?: number; code?: string | null; error?: string }> {
+export async function startHosting(faction: FactionId): Promise<{ ok: boolean; adapters?: NetAdapter[]; port?: number; code?: string | null; error?: string }> {
   const net = netBridge();
   if (!net) return { ok: false, error: 'Сетевая игра доступна только в десктопной сборке' };
   const res = await net.host();
@@ -143,10 +185,17 @@ export async function startHosting(faction: FactionId): Promise<{ ok: boolean; a
   peerName.clear();
   // Код партии — это упакованный адрес хоста, поэтому считается один раз
   // здесь и дальше только раздаётся.
-  partyCodeValue = partyCodeFor(res.addresses ?? [], res.port ?? undefined);
+  hostAdapters = res.addresses ?? [];
+  hostPort = res.port ?? 0;
+  // Адаптеры уже отсортированы по пригодности: обычная сеть впереди,
+  // виртуальные позади. Первый и берём — но хост может переключить.
+  hostAddress = hostAdapters[0]?.address ?? null;
+  partyCodeValue = hostAddress ? partyCodeFor([hostAddress], hostPort || undefined) : null;
   listen();
+  // Маяк: игроки в той же сети найдут партию, не вводя вообще ничего.
+  void net.beacon({ host: 'Партия', faction, players: 1 });
   pushLobby();
-  return { ok: true, addresses: res.addresses, port: res.port, code: partyCodeValue };
+  return { ok: true, adapters: hostAdapters, port: res.port, code: partyCodeValue };
 }
 
 function handleHostMessage(from: string, msg: NetMessage): void {
@@ -314,11 +363,14 @@ export function leave(): void {
   }
   unsubscribe?.();
   unsubscribe = null;
+  if (role === 'host') void netBridge()?.beacon(null);
   peerFaction.clear();
   peerName.clear();
   lobbySlots = [];
   partyMembers = [];
   partyCodeValue = null;
+  hostAdapters = [];
+  hostAddress = null;
   role = 'single';
   state = null;
   netBridge()?.close();
