@@ -2,7 +2,7 @@ import type { FactionId, Fleet, Planet, Shipyard } from '../core/types';
 import { SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { drawUnits, totalUnits } from './troops';
 import { fleetCap } from './ai';
-import { fleetsAt, fleetsOf, pushLog, spawnFleet, type GameState } from './state';
+import { fleetsOf, pushLog, spawnFleet, type GameState } from './state';
 
 // ---------------------------------------------------------------------------
 // Верфи. Корабли игрока строятся ТОЛЬКО на верфях и только по его приказу:

@@ -1,5 +1,5 @@
 import type { FactionId, FocusEffect, FocusNode } from '../core/types';
-import { FOCUS_TREES, FEDERATION_BRANCH } from '../data/focus';
+import { FEDERATION_BRANCH } from '../data/focus';
 import { treeFor } from './trophies';
 import { adjustRelation, riseFederation } from './relations';
 import { FACTIONS, SPECIALS } from '../data/factions';

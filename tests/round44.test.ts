@@ -34,7 +34,11 @@ const css = readFileSync(join(ROOT, 'src', 'style.css'), 'utf8');
   ok(scaleSrc.includes('localStorage') || scaleSrc.includes('storage()'),
     'масштаб переживает перезапуск');
   const main = readFileSync(join(ROOT, 'src', 'main.ts'), 'utf8');
-  ok(main.includes('applyUiScale()'), 'масштаб применяется на старте');
+  // Масштаб раскладывается вместе с остальными настройками: applyDom зовёт
+  // applyUiScale (раунд 47 свёл три хранилища настроек в одно).
+  ok(main.includes('applyDom()'), 'настройки применяются на старте');
+  const settingsSrc = readFileSync(join(ROOT, 'src', 'ui', 'settings.ts'), 'utf8');
+  ok(settingsSrc.includes('applyUiScale('), 'масштаб входит в применение настроек');
 
   const ui = readFileSync(join(ROOT, 'src', 'ui', 'ui.ts'), 'utf8');
   ok(!/font-size:\s*\d+px/.test(ui), 'инлайновые кегли в ui.ts тоже в rem');

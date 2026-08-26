@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Planet } from '../core/types';
 import { BIOMES } from '../data/biomes';
-import { FACTIONS } from '../data/factions';
+import { factionColor } from '../data/factions';
 import { moonGeometry, reliefGeometry, ringGeometry } from './planetAssets';
 
 // Ashima simplex noise (3D) + fbm, used to give every planet a unique,
@@ -480,7 +480,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uLand: { value: land },
       uSea: { value: sea },
       uAtmo: { value: new THREE.Color(biome.atmo) },
-      uTint: { value: new THREE.Color(FACTIONS[planet.owner].color) },
+      uTint: { value: new THREE.Color(factionColor(planet.owner)) },
       uWater: { value: water },
       uRough: { value: biome.rough },
       uClouds: { value: clouds },
@@ -569,7 +569,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const atmoMat = new THREE.ShaderMaterial({
     vertexShader: ATMO_VERT,
     fragmentShader: ATMO_FRAG,
-    uniforms: { uColor: { value: new THREE.Color(FACTIONS[planet.owner].color) } },
+    uniforms: { uColor: { value: new THREE.Color(factionColor(planet.owner)) } },
     transparent: true,
     side: THREE.BackSide,
     depthWrite: false,

@@ -6,7 +6,7 @@ import { GalaxyScene } from './render/scene';
 import { UI } from './ui/ui';
 import { preloadShipModels } from './render/shipAssets';
 import { preloadPlanetModels } from './render/planetAssets';
-import { applyUiScale } from './ui/uiScale';
+import { applyDom, getSettings } from './ui/settings';
 import { MainMenu } from './ui/mainMenu';
 import { careerStart } from './game/career';
 import { attachState, hostStartGame } from './net/session';
@@ -24,6 +24,9 @@ function startGame(state: GameState, opts: { host?: boolean } = {}): void {
 
   const scene = new GalaxyScene(canvas, state);
   const clock = new GameClock(state);
+  // Скорость на старте берётся из настроек: кто-то хочет осмотреться в паузе,
+  // кто-то — сразу в бой.
+  clock.setSpeed(getSettings().startSpeed);
   const ui = new UI(state, scene, clock);
 
   // Сетевая партия: состояние привязывается к сессии — хост начинает рассылку,
@@ -48,12 +51,12 @@ function startGame(state: GameState, opts: { host?: boolean } = {}): void {
   const loading = document.getElementById('loading');
   setTimeout(() => {
     loading?.classList.add('hidden');
-    ui.toast('НЕСИ УПРАВЛЯЕМУЮ ДЕМОКРАТИЮ · Нажмите 1× / 2× / 3×, чтобы начать', 3200);
+    ui.toast('НЕСИ УПРАВЛЯЕМУЮ ДЕМОКРАТИЮ', 2600);
   }, 700);
 }
 
 async function boot(): Promise<void> {
-  applyUiScale();
+  applyDom();
   // 3D-модели флота и миров (Blender → GLB) грузятся до старта сцены, за
   // экраном загрузки; при сбое рендер откатится на процедурные силуэты.
   await Promise.all([preloadShipModels(), preloadPlanetModels()]);

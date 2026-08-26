@@ -1,6 +1,6 @@
 import type { FactionId, Planet } from '../core/types';
 import { bus } from '../core/emitter';
-import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS } from '../data/factions';
+import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, factionColor } from '../data/factions';
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
 import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
@@ -13,7 +13,7 @@ import { buildDepot, DEPOT_COST } from '../game/supply';
 import { buildE711Station, buildSpecialDock, E711_STATION_COST, enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
 import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
 import { troopsOf } from '../data/troops';
-import { AUTOSAVE_SLOT, MANUAL_SLOTS, getAutosaveDays, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
+import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
 import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
 import { buyTruce, hostileNow, truceActive, truceCost } from '../game/diplomacy';
 import { atWar, canNegotiate, cedePlanet, declareWar, makePeace, relationLabel, relationOf, CEDE_COST, PEACE_THRESHOLD, WAR_THRESHOLD } from '../game/relations';
@@ -25,6 +25,9 @@ import { canSabotage, canUprising, opReadyIn, reconActive, runRecon, runSabotage
 import { buildShield, buildStation, SHIELD_COST, STATION_COST } from '../game/defense';
 import { nextRankIn, rankOf } from '../game/veterancy';
 import { SoundEngine } from './sound';
+import { Hotkeys } from './hotkeys';
+import { SettingsPanel } from './settingsPanel';
+import { applyDom, getSettings, onSettings } from './settings';
 import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
 import { resolveChoice } from '../game/events';
 import { TIMELINE_EVENTS } from '../data/events';
@@ -53,17 +56,6 @@ function esc(s: string): string {
 import { portraitDataURL, RULERS } from '../render/portraits';
 import type { GameClock } from '../game/clock';
 import type { GalaxyScene } from '../render/scene';
-
-// Настройки эффектов и автосейва (переживают перезапуск).
-interface FxSettings { bloom: boolean; scan: boolean; vignette: boolean; autosaveDays: number }
-const FX_KEY = 'sgw2_fx';
-function loadFx(): FxSettings {
-  try {
-    const raw = localStorage.getItem(FX_KEY);
-    if (raw) return { bloom: true, scan: true, vignette: true, autosaveDays: 365, ...JSON.parse(raw) as Partial<FxSettings> };
-  } catch { /* умолчания */ }
-  return { bloom: true, scan: true, vignette: true, autosaveDays: 365 };
-}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -123,15 +115,15 @@ export class UI {
   /** Голос Верховного командования (англ. диктор). */
   /** Синтезированный звук: эмбиент, блипы, сирены. */
   private sound = new SoundEngine();
-  /** Настройки эффектов и автосейва. */
-  private fx = loadFx();
+  /** Горячие клавиши: привязки к физическим клавишам, независимо от раскладки. */
+  private hotkeys = new Hotkeys();
+  /** Группы флотов (Ctrl+цифра назначает, цифра выбирает). */
+  private groups = new Map<number, string[]>();
   /** Панель туториала (null — пройден или пропущен). */
   private tutorialEl: HTMLElement | null = null;
   private tutorialStep = 0;
   /** Стек кликабельных боевых оповещений. */
   private alertsEl!: HTMLElement;
-  /** Оверлей управления и горячих клавиш. */
-  private helpEl!: HTMLElement;
   /** Оверлей журнала войны. */
   private chronicleEl!: HTMLElement;
   /** Индекс для перебора битв кнопкой кинокамеры. */
@@ -158,8 +150,12 @@ export class UI {
     this.build();
     this.wire();
     this.renderAll();
-    // Применяем сохранённые настройки эффектов.
-    this.applyFx();
+    // Разложить сохранённые настройки: документ, сцена, звук.
+    const st = getSettings();
+    applyDom(st);
+    this.scene.setQuality(st.quality);
+    this.scene.setBloomEnabled(st.bloom);
+    setAutosaveDays(st.autosaveDays);
     // Звук стартует по первому жесту (политика браузеров); блип на кнопках.
     this.sound.armOnFirstGesture();
     this.root.addEventListener('click', (e) => {
@@ -233,25 +229,24 @@ export class UI {
     this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
     this.alertsEl = el('div'); this.alertsEl.id = 'combat-alerts';
-    this.helpEl = el('div'); this.helpEl.id = 'help-overlay'; this.helpEl.classList.add('hidden');
     this.chronicleEl = el('div'); this.chronicleEl.id = 'chronicle-overlay'; this.chronicleEl.classList.add('hidden');
 
     // Кнопки фокусов/решений/производства — под шапкой слева.
+    // Без title-подсказок: что делает кнопка, показывает её экран, а клавиши
+    // перечислены в настройках. Всплывашки только загромождали карту.
     this.sideBtns.innerHTML = `
-      <button class="hud-btn-sq" id="focus-btn" title="Древо фокусов (F)">◈</button>
-      <button class="hud-btn-sq" id="decisions-btn" title="Решения">⚙</button>
-      <button class="hud-btn-sq" id="production-btn" title="Производство">⚒</button>
-      <button class="hud-btn-sq" id="chronicle-btn" title="Журнал войны: летопись и график контроля">📜</button>
-      <button class="hud-btn-sq" id="cinema-btn" title="Следить за боем: камера летит к сражению">🎥</button>
-      <button class="hud-btn-sq" id="help-btn" title="Управление и горячие клавиши">⌨</button>`;
+      <button class="hud-btn-sq" id="focus-btn">◈</button>
+      <button class="hud-btn-sq" id="decisions-btn">⚙</button>
+      <button class="hud-btn-sq" id="production-btn">⚒</button>
+      <button class="hud-btn-sq" id="chronicle-btn">📜</button>
+      <button class="hud-btn-sq" id="cinema-btn">🎥</button>`;
     this.sideBtns.querySelector('#focus-btn')!.addEventListener('click', () => this.toggleFocus());
     this.sideBtns.querySelector('#decisions-btn')!.addEventListener('click', () => this.toggleDecisions());
     this.sideBtns.querySelector('#production-btn')!.addEventListener('click', () => this.toggleProduction());
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
-    this.sideBtns.querySelector('#help-btn')!.addEventListener('click', () => this.toggleHelp());
     this.sideBtns.querySelector('#chronicle-btn')!.addEventListener('click', () => this.toggleChronicle());
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.helpEl, this.chronicleEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -271,26 +266,172 @@ export class UI {
     bus.on('combatAlert', (a) => this.pushAlert(a));
     bus.on('gameEvent', () => this.sound.chime());
 
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
-      else if (e.key === '1') { this.setSpeedRemember(1); }
-      else if (e.key === '2') { this.setSpeedRemember(2); }
-      else if (e.key === '3') { this.setSpeedRemember(3); }
-      else if (e.key.toLowerCase() === 'f') this.toggleFocus();
-      else if (e.key === 'Escape') {
-        if (!this.helpEl.classList.contains('hidden')) {
-          this.helpEl.classList.add('hidden');
-        } else if (!this.chronicleEl.classList.contains('hidden')) {
-          this.chronicleEl.classList.add('hidden');
-        } else if (!this.focusOverlay.classList.contains('hidden')) {
-          this.focusOverlay.classList.add('hidden');
-        } else if (!this.dossierEl.classList.contains('hidden')) {
-          this.dossierEl.classList.add('hidden');
-        } else {
-          this.toggleMenu();
-        }
-      }
+    this.bindKeys();
+
+    // Настройки правятся из двух мест (главное меню и пауза) — сцена и звук
+    // подписаны на модель и перестраиваются, кто бы их ни изменил.
+    onSettings((s) => {
+      this.scene.setQuality(s.quality);
+      this.scene.setBloomEnabled(s.bloom);
+      this.sound.applyVolumes();
+      setAutosaveDays(s.autosaveDays);
+      // Смена палитры перекрашивает уже построенную карту и панели.
+      this.scene.refreshOwners();
+      this.renderAll();
     });
+  }
+
+  // ---------------- Горячие клавиши ----------------
+
+  private bindKeys(): void {
+    const hk = this.hotkeys;
+    hk.on('pause', () => this.togglePause());
+    hk.on('speedUp', () => this.stepSpeed(+1));
+    hk.on('speedDown', () => this.stepSpeed(-1));
+
+    hk.on('focusTree', () => this.toggleFocus());
+    hk.on('decisions', () => this.toggleDecisions());
+    hk.on('production', () => this.toggleProduction());
+    hk.on('chronicle', () => this.toggleChronicle());
+    hk.on('dossier', () => this.toggleDossier());
+    hk.on('menu', () => {
+      // Esc снимает верхний слой: сначала окна, потом выделение, и только
+      // на пустом экране открывает меню.
+      if (this.closeTopOverlay()) return;
+      if (this.hasSelection()) {
+        this.clearSelection();
+        return;
+      }
+      this.toggleMenu();
+    });
+
+    hk.on('home', () => this.cameraHome());
+    hk.on('cinema', () => this.cinemaNext());
+    hk.on('nextFleet', () => this.cycleFleet(+1));
+    hk.on('prevFleet', () => this.cycleFleet(-1));
+    hk.on('clearSelection', () => this.clearSelection());
+
+    hk.on('quickSave', () => {
+      if (saveGame(this.state, MANUAL_SLOTS[0]!, 'Быстрое')) this.toast('СОХРАНЕНО');
+    });
+    hk.on('quickLoad', () => {
+      if (!saveMeta(MANUAL_SLOTS[0]!)) return;
+      requestLoad(MANUAL_SLOTS[0]!);
+      location.reload();
+    });
+
+    hk.onGroup((slot, assign, double) => this.fleetGroup(slot, assign, double));
+    this.scene.attachHotkeys(hk);
+  }
+
+  /** Закрыть самое верхнее открытое окно. Возвращает true, если было что закрывать. */
+  private closeTopOverlay(): boolean {
+    for (const e of [this.chronicleEl, this.focusOverlay, this.dossierEl,
+      this.decisionsEl, this.productionEl, this.fleetDetailEl]) {
+      if (!e.classList.contains('hidden')) {
+        e.classList.add('hidden');
+        if (e === this.fleetDetailEl) this.detailFleet = null;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Снять всё выделение разом: флоты, рамку и открытую карточку мира. */
+  private clearSelection(): void {
+    this.selectedFleets.clear();
+    this.state.selectedFleet = null;
+    this.detailFleet = null;
+    this.fleetDetailEl.classList.add('hidden');
+    this.boxPlanets = [];
+    this.boxActionsEl.classList.add('hidden');
+    this.scene.setBoxSelected([]);
+    this.state.selectedPlanet = null;
+    this.scene.setSelected(null);
+    this.renderPanel();
+    this.renderForces();
+  }
+
+  /** Есть ли вообще что снимать — от этого зависит, откроет ли Esc меню. */
+  private hasSelection(): boolean {
+    return this.selectedFleets.size > 0 || !!this.state.selectedFleet
+      || !!this.state.selectedPlanet || this.boxPlanets.length > 0;
+  }
+
+  /** Шаг скорости: пауза ↔ ×1 ↔ ×2 ↔ ×3, как принято в жанре. */
+  private stepSpeed(delta: number): void {
+    const next = Math.max(0, Math.min(3, this.state.speed + delta)) as 0 | 1 | 2 | 3;
+    if (next === this.state.speed) return;
+    if (next > 0) this.lastSpeed = next as 1 | 2 | 3;
+    this.clock.setSpeed(next);
+    this.renderClock();
+  }
+
+  /** Камера к своей столице — быстрый способ вернуться домой с края карты. */
+  private cameraHome(): void {
+    const own = planetsOf(this.state, this.state.player);
+    const home = own.find((p) => p.isCapital) ?? own[0];
+    if (!home) return;
+    this.scene.stopCinema();
+    this.scene.focusOn(home.id);
+    this.state.selectedPlanet = home.id;
+    this.scene.setSelected(home.id);
+    this.renderPanel();
+  }
+
+  /** Перебор своих соединений: выбирает следующее и ведёт к нему камеру. */
+  private cycleFleet(dir: number): void {
+    const own = fleetsOf(this.state, this.state.player);
+    if (!own.length) return;
+    const cur = this.state.selectedFleet;
+    const i = own.findIndex((f) => f.id === cur);
+    const next = own[((i + dir) % own.length + own.length) % own.length]!;
+    this.selectedFleets.clear();
+    this.state.selectedFleet = next.id;
+    this.detailFleet = next.id;
+    this.scene.stopCinema();
+    if (next.at) this.scene.focusOn(next.at);
+    this.renderForces();
+    this.renderFleetDetail();
+  }
+
+  /**
+   * Группы флотов, как в любой RTS: Ctrl+цифра запоминает выделение, цифра
+   * возвращает его, двойное нажатие ведёт к группе камеру. Мёртвые id
+   * отсеиваются при каждом обращении — расформированный флот не воскресает.
+   */
+  private fleetGroup(slot: number, assign: boolean, double: boolean): void {
+    if (assign) {
+      const sel = this.selectedFleets.size
+        ? [...this.selectedFleets]
+        : this.state.selectedFleet ? [this.state.selectedFleet] : [];
+      if (!sel.length) return;
+      this.groups.set(slot, sel);
+      this.toast(`ГРУППА ${slot} · ${sel.length}`);
+      this.renderForces();
+      return;
+    }
+    const alive = (this.groups.get(slot) ?? []).filter((id) => {
+      const f = this.state.fleets.get(id);
+      return !!f && f.faction === this.state.player;
+    });
+    if (!alive.length) {
+      this.groups.delete(slot);
+      return;
+    }
+    this.groups.set(slot, alive);
+    this.selectedFleets = new Set(alive);
+    this.state.selectedFleet = alive[0]!;
+    this.detailFleet = alive[0]!;
+    if (double) {
+      const at = this.state.fleets.get(alive[0]!)?.at;
+      if (at) {
+        this.scene.stopCinema();
+        this.scene.focusOn(at);
+      }
+    }
+    this.renderForces();
+    this.renderFleetDetail();
   }
 
   renderAll(): void {
@@ -349,30 +490,34 @@ export class UI {
     // Мини-индикатор текущего фокуса: имя, прогресс-бар, клик открывает древо.
     const focusInd = (() => {
       if (!fs.activeFocus) {
-        return `<span class="hud-ind hud-focus" id="hud-focus" title="Фокус не выбран — откройте древо (F)">◈ <span style="color:var(--fed)">нет фокуса</span></span>`;
+        return '<span class="hud-ind hud-focus" id="hud-focus">◈ <span style="color:var(--fed)">нет фокуса</span></span>';
       }
       const node = FOCUS_TREES[s.player].find((n) => n.id === fs.activeFocus!.id);
       const total = node?.cost ?? 1;
       const pct = Math.max(0, Math.min(100, (1 - fs.activeFocus.remaining / total) * 100));
-      return `<span class="hud-ind hud-focus" id="hud-focus" title="${node?.title ?? '?'} · ещё ${Math.ceil(fs.activeFocus.remaining)} дн (клик — древо)">◈ <b>${node?.title ?? '?'}</b>
+      return `<span class="hud-ind hud-focus" id="hud-focus">◈ <b>${node?.title ?? '?'}</b>
+        <span class="hud-tag">${Math.ceil(fs.activeFocus.remaining)} дн</span>
         <span class="focus-mini"><span style="width:${pct.toFixed(0)}%"></span></span></span>`;
     })();
 
-    // Шапка: слева флаг фракции и показатели, справа — перемотка времени и день.
+    // Показатели подписаны прямо в строке, а не всплывашкой по наведению:
+    // цифра без имени ничего не значит, а наводить мышь на каждую — не дело.
+    const ind = (icon: string, tag: string, value: string, color?: string): string =>
+      `<span class="hud-ind">${icon} <span class="hud-tag">${tag}</span> <b${color ? ` style="color:${color}"` : ''}>${value}</b></span>`;
+
+    const stabColor = fs.stability > 60 ? 'var(--ok)' : fs.stability > 35 ? 'var(--gold)' : 'var(--alr)';
     const inds = [
       focusInd,
-      `<span class="hud-ind" title="Политическая власть">⚖ <b>${fs.politicalPower.toFixed(0)}</b></span>`,
-      s.player === 'superEarth'
-        ? `<span class="hud-ind" title="Стабильность">☼ <b style="color:${fs.stability > 60 ? '#6fe39a' : fs.stability > 35 ? 'var(--gold)' : 'var(--fed)'}">${fs.stability.toFixed(0)}%</b></span>`
-        : '',
-      `<span class="hud-ind" title="Поддержка войны">⚔ <b>${fs.warSupport.toFixed(0)}%</b></span>`,
-      `<span class="hud-ind" title="Очки производства">⚒ <b style="color:var(--gold)">${fs.production.toFixed(0)}</b></span>`,
-      fs.flags.e711Mining ? `<span class="hud-ind" title="Топливо Е-711">⛽ <b style="color:var(--gold)">${fs.resources.e711.toFixed(0)}</b></span>` : '',
-      fs.resources.minerals > 0 ? `<span class="hud-ind" title="Ископаемые">⛏ <b>${fs.resources.minerals.toFixed(0)}</b></span>` : '',
+      ind('⚖', 'ПВ', fs.politicalPower.toFixed(0)),
+      s.player === 'superEarth' ? ind('☼', 'СТАБ', `${fs.stability.toFixed(0)}%`, stabColor) : '',
+      ind('⚔', 'ВОЙНА', `${fs.warSupport.toFixed(0)}%`),
+      ind('⚒', 'ПРОИЗВ', fs.production.toFixed(0), 'var(--gold)'),
+      fs.flags.e711Mining ? ind('⛽', 'Е-711', fs.resources.e711.toFixed(0), 'var(--gold)') : '',
+      fs.resources.minerals > 0 ? ind('⛏', 'РУДА', fs.resources.minerals.toFixed(0)) : '',
     ].filter(Boolean).join('');
 
     this.hud.innerHTML = `
-      <button id="flag-btn" title="Досье фракции"><img src="${emblemDataURL(s.player)}" alt=""></button>
+      <button id="flag-btn"><img src="${emblemDataURL(s.player)}" alt=""></button>
       <div class="hud-inds">${inds}</div>
       <div class="hud-clock" style="margin-left:auto">
         <div class="hud-day">ДЕНЬ ${s.day}</div>
@@ -405,8 +550,8 @@ export class UI {
         const alive = planetsOf(s, f).length > 0 || fleetsOf(s, f).length > 0;
         const count = planetsOf(s, f).length;
         return `<div class="fac-chip ${alive ? '' : 'dead'}">
-          <span class="fac-dot" style="background:${FACTIONS[f].color}"></span>
-          ${FACTIONS[f].short} <b style="color:${FACTIONS[f].color}">${count}</b></div>`;
+          <span class="fac-dot" style="background:${factionColor(f)}"></span>
+          ${FACTIONS[f].short} <b style="color:${factionColor(f)}">${count}</b></div>`;
       }).join('');
   }
 
@@ -534,7 +679,7 @@ export class UI {
             : master ? 'вы под её протекторатом'
             : war ? 'ВОЙНА' : canTalk ? relationLabel(rel) : 'рой не ведёт переговоров';
           return `<div class="bonus-row" title="Симпатия ${rel.toFixed(0)}">
-            <div class="grow"><b style="color:${FACTIONS[f2].color}">${FACTIONS[f2].name}</b>
+            <div class="grow"><b style="color:${factionColor(f2)}">${FACTIONS[f2].name}</b>
               <span style="color:${relColor};font-size:0.7rem"> · ${status}</span>
               <div class="rel-bar"><i style="width:${pct}%;background:${relColor}"></i></div>
             </div>
@@ -680,18 +825,18 @@ export class UI {
       </div>
       <div class="pc-body">
       <div class="pp-sub">${p.isCapital ? 'СТОЛИЧНЫЙ МИР · ' : ''}${p.sector} · ${BIOMES[p.biome].label}${p.gloom ? ' · ВО МРАКЕ' : ''}${reconActive(s, p.sector) ? ' · <span style="color:var(--gold)">👁 СЕКТОР РАЗВЕДАН</span>' : ''}${p.scarred ? ' · ⚱ ШРАМЫ ВОЙНЫ' : ''}</div>
-      <div class="pp-owner"><span class="fac-dot" style="background:${FACTIONS[p.owner].color}"></span>${FACTIONS[p.owner].name}</div>
+      <div class="pp-owner"><span class="fac-dot" style="background:${factionColor(p.owner)}"></span>${FACTIONS[p.owner].name}</div>
 
       <div class="pp-section">Контроль</div>
       <div class="ctrl-bar">
-        <span style="width:${controlPct}%;background:${FACTIONS[p.owner].color}"></span>
-        ${b ? `<span style="width:${attackerPct}%;background:${FACTIONS[b.attacker].color}"></span>` : ''}
+        <span style="width:${controlPct}%;background:${factionColor(p.owner)}"></span>
+        ${b ? `<span style="width:${attackerPct}%;background:${factionColor(b.attacker)}"></span>` : ''}
       </div>
       <div class="ctrl-row">
-        <span style="color:${FACTIONS[p.owner].color}">${FACTIONS[p.owner].short} ${controlPct.toFixed(0)}%</span>
-        ${b ? `<span style="color:${FACTIONS[b.attacker].color}">${FACTIONS[b.attacker].short} ${attackerPct.toFixed(0)}%</span>` : ''}
+        <span style="color:${factionColor(p.owner)}">${FACTIONS[p.owner].short} ${controlPct.toFixed(0)}%</span>
+        ${b ? `<span style="color:${factionColor(b.attacker)}">${FACTIONS[b.attacker].short} ${attackerPct.toFixed(0)}%</span>` : ''}
       </div>
-      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день${b.phase ? ` · фаза: <b style="color:var(--gold)">${PHASE_LABEL[b.phase]}</b>` : ''}${(b.landed ?? 0) >= 1 ? ` · десант на земле: <b style="color:${FACTIONS[b.attacker].color}">${(b.landed ?? 0).toFixed(0)}</b>` : ''}</div>` : ''}
+      ${b ? `<div class="hint">⚔ Битва идёт ${b.days}-й день${b.phase ? ` · фаза: <b style="color:var(--gold)">${PHASE_LABEL[b.phase]}</b>` : ''}${(b.landed ?? 0) >= 1 ? ` · десант на земле: <b style="color:${factionColor(b.attacker)}">${(b.landed ?? 0).toFixed(0)}</b>` : ''}</div>` : ''}
       ${(() => {
         // Снабжение атаки игрока: с какого плацдарма идёт и не перерезано ли.
         if (!b || b.attacker !== s.player) return '';
@@ -735,7 +880,7 @@ export class UI {
           const canCede = s.factions[s.player].politicalPower >= CEDE_COST;
           html += `<div class="pp-section">Передать мир</div>
             <div class="hint">Дар соседу резко улучшает отношения. Столицу и планету под огнём передать нельзя.</div>
-            <div class="cede-row">${takers.map((f2) => `<button class="mini-btn ${canCede ? '' : 'off'}" data-cede="${f2}" ${canCede ? '' : 'disabled'} title="Передать ${p.name} фракции «${FACTIONS[f2].name}» за ${CEDE_COST} ПВ" style="border-color:${FACTIONS[f2].color}">${FACTIONS[f2].short}</button>`).join('')}</div>`;
+            <div class="cede-row">${takers.map((f2) => `<button class="mini-btn ${canCede ? '' : 'off'}" data-cede="${f2}" ${canCede ? '' : 'disabled'} title="Передать ${p.name} фракции «${FACTIONS[f2].name}» за ${CEDE_COST} ПВ" style="border-color:${factionColor(f2)}">${FACTIONS[f2].short}</button>`).join('')}</div>`;
         }
       }
     }
@@ -795,7 +940,7 @@ export class UI {
       html += `<div class="pp-section">Города</div>`;
       p.cities.forEach((c) => {
         const spec = c.spec === 'yard' ? '⚓ верфь −25% срока' : c.spec === 'academy' ? '🎓 академия +пополнение' : c.spec === 'mine' ? '⛏ шахта +руда' : '';
-        html += `<div class="pp-stat"><span>🏙 ${c.name}${spec ? ` <span style="color:var(--muted);font-size:0.7rem">· ${spec}</span>` : ''}</span><b><span class="fac-dot" style="background:${FACTIONS[c.holder].color}"></span> ${FACTIONS[c.holder].short}</b></div>`;
+        html += `<div class="pp-stat"><span>🏙 ${c.name}${spec ? ` <span style="color:var(--muted);font-size:0.7rem">· ${spec}</span>` : ''}</span><b><span class="fac-dot" style="background:${factionColor(c.holder)}"></span> ${FACTIONS[c.holder].short}</b></div>`;
       });
     }
 
@@ -809,7 +954,7 @@ export class UI {
         html += `<div class="pp-section">Заготовка атаки</div>`;
         for (const pl of plansFrom) {
           const t = s.galaxy.planets.get(pl.to)!;
-          html += `<div class="fleet-row"><div class="grow">⇶ План: <b style="color:${FACTIONS[t.owner].color}">${t.name}</b></div>
+          html += `<div class="fleet-row"><div class="grow">⇶ План: <b style="color:${factionColor(t.owner)}">${t.name}</b></div>
             <button class="mini-btn" data-act="launch" data-target="${pl.to}">▶ АТАКА</button>
             <button class="mini-btn" data-act="unplan" data-target="${pl.to}">✕</button></div>`;
         }
@@ -841,7 +986,7 @@ export class UI {
     if (enemyFleets.length) {
       html += `<div class="pp-section">Противник на орбите</div>`;
       enemyFleets.forEach((f) => {
-        html += `<div class="fleet-row"><div class="grow"><div style="color:${FACTIONS[f.faction].color}">
+        html += `<div class="fleet-row"><div class="grow"><div style="color:${factionColor(f.faction)}">
           ${f.special ? '◆ ' + (f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name) : 'Флот ' + FACTION_GEN[f.faction]}</div>
           <div style="color:var(--muted);font-size:0.7rem">Корабли ${f.ships.toFixed(0)} · Пехота ${f.infantry.toFixed(0)}</div></div></div>`;
       });
@@ -1076,6 +1221,12 @@ export class UI {
 
   // ---------------- Нижняя панель сил (флот / армия / спецтех) ----------------
 
+  /** В какой группе состоит соединение (для значка на карточке). */
+  private groupOf(fid: string): number | null {
+    for (const [slot, ids] of this.groups) if (ids.includes(fid)) return slot;
+    return null;
+  }
+
   /** Человекочитаемое имя соединения. */
   private fleetName(fid: string): string {
     const f = this.state.fleets.get(fid);
@@ -1108,7 +1259,11 @@ export class UI {
           // Крупный значок тяжелейшего класса: ✦ линкор, ◈ дредноут, силуэт эсминца.
           const clsIcon = f.special ? '◆' : f.battleships >= 1 ? '✦' : f.dreadnoughts >= 1 ? '◈' : ICON_DESTROYER;
           const num = this.fleetName(f.id).replace('Соединение ', '');
+          // Номер группы прямо на карточке — так видно, что цифры на клавиатуре
+          // вообще что-то делают, и не нужно ничего объяснять словами.
+          const slot = this.groupOf(f.id);
           return `<div class="force-card ${open ? 'open' : ''} ${multi ? 'multi' : ''}" data-card-fleet="${f.id}">
+            ${slot ? `<div class="fc-group">${slot}</div>` : ''}
             <div class="fc-ico">${clsIcon}</div>
             <div class="fc-name">${num}${f.commander ? ' ★' : ''}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}${multi ? ' <span class="fc-check">✓</span>' : ''}</div>
             <div class="fc-comp">${hulls.toFixed(0)} корп · ${f.infantry.toFixed(0)} пех</div>
@@ -1120,7 +1275,7 @@ export class UI {
         cards = troopsOf(s.player).map((t) => {
           const pool = fs.units[t.id] ?? 0;
           const art = unitIcon(t.id);
-          return `<div class="force-card static" title="${esc(t.name)} — ${esc(t.desc ?? '')}">
+          return `<div class="force-card static">
             <div class="fc-ico">${art ? `<img class="fc-art" src="${art}" alt="">` : '⛊'}</div>
             <div class="fc-name">${t.name}</div>
             <div class="fc-comp">${pool.toFixed(0)}</div>
@@ -1237,7 +1392,7 @@ export class UI {
           return `<div class="pp-section">Очередь приказов</div>
             ${q.map((o, i) => {
               const t = s.galaxy.planets.get(o.target);
-              return `<div class="pp-stat"><span>${i + 1}. ⇢ ${t?.name ?? '?'}</span><b style="color:${t ? FACTIONS[t.owner].color : 'var(--muted)'}">${t ? FACTIONS[t.owner].short : ''}</b></div>`;
+              return `<div class="pp-stat"><span>${i + 1}. ⇢ ${t?.name ?? '?'}</span><b style="color:${t ? factionColor(t.owner) : 'var(--muted)'}">${t ? FACTIONS[t.owner].short : ''}</b></div>`;
             }).join('')}
             <button class="mini-btn wide" id="fd-clearqueue">✕ Очистить очередь</button>`;
         })()}
@@ -1633,7 +1788,7 @@ export class UI {
     const fs = this.state.factions[this.focusTab];
 
     const tabs = FACTION_IDS.map((f) =>
-      `<div class="focus-tab ${f === this.focusTab ? 'active' : ''}" data-fac="${f}" style="border-color:${FACTIONS[f].color}">${FACTIONS[f].short}</div>`
+      `<div class="focus-tab ${f === this.focusTab ? 'active' : ''}" data-fac="${f}" style="border-color:${factionColor(f)}">${FACTIONS[f].short}</div>`
     ).join('');
 
     // connectors: от низа иконки родителя к верху узла-потомка.
@@ -1808,69 +1963,42 @@ export class UI {
   }
 
   private renderMenu(): void {
-    const slotRow = (slot: string, canSave: boolean) => {
+    const slotRow = (slot: string, canSave: boolean): string => {
       const meta = saveMeta(slot);
       const label = slot === AUTOSAVE_SLOT ? 'Автосейв' : `Слот ${slot.slice(-1)}`;
-      const info = meta ? `День ${meta.day} · ${meta.savedAt}` : 'Пусто';
       return `<div class="save-row">
-        <div class="grow"><b>${label}</b><div class="hint" style="margin-top:2px">${info}</div></div>
+        <span class="save-name">${label}</span>
+        <span class="save-when">${meta ? `день ${meta.day} · ${meta.savedAt}` : '—'}</span>
         ${canSave ? `<button class="mini-btn" data-save="${slot}">СОХРАНИТЬ</button>` : ''}
         ${meta ? `<button class="mini-btn" data-load="${slot}">ЗАГРУЗИТЬ</button>` : ''}
       </div>`;
     };
 
+    // Слева партия, справа настройки. Фальшивых слотов «пригласить друга»
+    // больше нет: сетевая игра живёт в главном меню, а здесь они годами
+    // занимали половину экрана надписью «СКОРО».
     this.menuEl.innerHTML = `
       <div class="menu-inner">
         <div class="menu-left">
-          <div class="menu-squad">
-            <div class="menu-title">КОМАНДА · 4 МЕСТА</div>
-            <div class="squad-slot filled">
-              <span class="fac-dot" style="background:${FACTIONS[this.state.player].color}"></span>
-              <div class="grow"><b>Вы</b><div class="hint" style="margin-top:0">${FACTIONS[this.state.player].name} · Командующий</div></div>
-            </div>
-            ${[2, 3, 4].map((i) => `
-            <div class="squad-slot">
-              <span class="squad-plus">+</span>
-              <div class="grow"><b>Место ${i}</b><div class="hint" style="margin-top:0">Пригласить друга на карту</div></div>
-              <button class="mini-btn off" disabled>СКОРО</button>
-            </div>`).join('')}
+          <div class="menu-title">Партия</div>
+          <button class="menu-btn" id="menu-continue">Продолжить</button>
+          <button class="menu-btn" id="menu-new">Новая игра</button>
+          <div class="menu-title">Сохранения</div>
+          <div class="save-list">
+            ${slotRow(AUTOSAVE_SLOT, false)}
+            ${MANUAL_SLOTS.map((sl) => slotRow(sl, true)).join('')}
           </div>
-          <button class="menu-quit" id="menu-quit">ВЫЙТИ<br>ИЗ ИГРЫ</button>
+          <button class="menu-quit" id="menu-quit">Выйти из игры</button>
         </div>
         <div class="menu-right">
-          <div class="menu-title" style="text-align:right">ВТОРАЯ ГАЛАКТИЧЕСКАЯ ВОЙНА</div>
-          <button class="menu-btn" id="menu-continue">▶ ПРОДОЛЖИТЬ</button>
-          <button class="menu-btn" id="menu-new">✚ НАЧАТЬ НОВУЮ ИГРУ</button>
-          <div class="menu-title" style="margin-top:14px">СОХРАНИТЬ / ЗАГРУЗИТЬ</div>
-          ${slotRow(AUTOSAVE_SLOT, false)}
-          ${MANUAL_SLOTS.map((sl) => slotRow(sl, true)).join('')}
-          <div class="hint">Автосейв: каждые ${getAutosaveDays()} игровых дней.</div>
-          <div class="menu-title" style="margin-top:14px">Настройки</div>
-          <div class="set-row"><span>Общая громкость</span>
-            <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.master * 100)}" data-vol="master"></div>
-          <div class="set-row"><span>Эмбиент</span>
-            <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.ambient * 100)}" data-vol="ambient"></div>
-          <div class="set-row"><span>Звуки событий</span>
-            <input type="range" min="0" max="100" value="${Math.round(this.sound.settings.effects * 100)}" data-vol="effects"></div>
-          <div class="set-row"><span>Свечение (bloom)</span>
-            <button class="mini-btn ${this.fx.bloom ? 'sel' : ''}" data-set="bloom">${this.fx.bloom ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
-          <div class="set-row"><span>Сканлайны панелей</span>
-            <button class="mini-btn ${this.fx.scan ? 'sel' : ''}" data-set="scan">${this.fx.scan ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
-          <div class="set-row"><span>Виньетка</span>
-            <button class="mini-btn ${this.fx.vignette ? 'sel' : ''}" data-set="vignette">${this.fx.vignette ? 'ВКЛ' : 'ВЫКЛ'}</button></div>
-          <div class="set-row"><span>Автосейв</span>
-            <button class="mini-btn" data-set="autosave">каждые ${this.fx.autosaveDays} дн</button></div>
+          <div class="menu-title">Настройки</div>
+          <div id="menu-settings" class="st-host"></div>
         </div>
       </div>`;
 
     this.menuEl.querySelector('#menu-continue')!.addEventListener('click', () => this.toggleMenu());
-    this.menuEl.querySelector('#menu-new')!.addEventListener('click', () => {
-      location.reload();
-    });
-    this.menuEl.querySelector('#menu-quit')!.addEventListener('click', () => {
-      window.close();
-      this.toast('ЗАКРЫТИЕ ДОСТУПНО В ДЕСКТОП-ВЕРСИИ');
-    });
+    this.menuEl.querySelector('#menu-new')!.addEventListener('click', () => location.reload());
+    this.menuEl.querySelector('#menu-quit')!.addEventListener('click', () => window.close());
     this.menuEl.querySelectorAll<HTMLButtonElement>('[data-save]').forEach((b) =>
       b.addEventListener('click', () => {
         const slot = b.dataset.save!;
@@ -1884,40 +2012,10 @@ export class UI {
         requestLoad(b.dataset.load!);
         location.reload();
       }));
-    // --- Настройки ---
-    this.menuEl.querySelectorAll<HTMLInputElement>('[data-vol]').forEach((inp) =>
-      inp.addEventListener('input', () => {
-        const key = inp.dataset.vol as 'master' | 'ambient' | 'effects';
-        this.sound.settings[key] = Number(inp.value) / 100;
-        this.sound.save();
-      }));
-    this.menuEl.querySelectorAll<HTMLButtonElement>('[data-set]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const key = b.dataset.set!;
-        if (key === 'autosave') {
-          // Цикл интервалов: 180 → 365 → 730 дней.
-          this.fx.autosaveDays = this.fx.autosaveDays === 180 ? 365 : this.fx.autosaveDays === 365 ? 730 : 180;
-          this.saveFx();
-        } else if (key === 'bloom' || key === 'scan' || key === 'vignette') {
-          this.fx[key] = !this.fx[key];
-          this.saveFx();
-        }
-        this.renderMenu();
-      }));
-  }
 
-  // ---------------- Настройки ----------------
-
-  private applyFx(): void {
-    this.scene.setBloomEnabled(this.fx.bloom);
-    document.body.classList.toggle('no-scan', !this.fx.scan);
-    document.body.classList.toggle('no-vignette', !this.fx.vignette);
-    setAutosaveDays(this.fx.autosaveDays);
-  }
-
-  private saveFx(): void {
-    localStorage.setItem(FX_KEY, JSON.stringify(this.fx));
-    this.applyFx();
+    // Тот же экран настроек, что и в главном меню: одна модель, одна вёрстка.
+    const host = this.menuEl.querySelector<HTMLElement>('#menu-settings')!;
+    new SettingsPanel(host, { hotkeys: this.hotkeys }).render();
   }
 
   // ---------------- Журнал войны ----------------
@@ -1953,12 +2051,12 @@ export class UI {
     }
     for (const f of factions) {
       const pts = hist.map((h) => `${x(h.day).toFixed(1)},${y(h.control[f] ?? 0).toFixed(1)}`).join(' ');
-      svg += `<polyline points="${pts}" fill="none" stroke="${FACTIONS[f].color}" stroke-width="2"/>`;
+      svg += `<polyline points="${pts}" fill="none" stroke="${factionColor(f)}" stroke-width="2"/>`;
     }
     svg += `</svg>`;
     const legend = factions.map((f) => {
       const last = hist[hist.length - 1]!.control[f] ?? 0;
-      return `<span class="chron-leg"><span class="fac-dot" style="background:${FACTIONS[f].color}"></span>${FACTIONS[f].short} <b>${last}</b></span>`;
+      return `<span class="chron-leg"><span class="fac-dot" style="background:${factionColor(f)}"></span>${FACTIONS[f].short} <b>${last}</b></span>`;
     }).join('');
     return svg + `<div class="chron-legend">${legend}</div>`;
   }
@@ -1986,44 +2084,6 @@ export class UI {
   }
 
   // ---------------- Справка по управлению ----------------
-
-  private toggleHelp(): void {
-    const opening = this.helpEl.classList.contains('hidden');
-    this.helpEl.classList.toggle('hidden');
-    if (!opening) return;
-    const row = (keys: string, what: string) =>
-      `<div class="help-row"><span class="help-keys">${keys}</span><span>${what}</span></div>`;
-    this.helpEl.innerHTML = `
-      <div class="help-inner">
-        <div class="pc-head"><span class="pc-title">⌨ УПРАВЛЕНИЕ</span>
-          <button class="pc-close" id="help-close">✕</button></div>
-        <div class="pc-body">
-          <div class="pp-section">Карта</div>
-          ${row('<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>', 'Перемещение карты')}
-          ${row('ПКМ + движение', 'Поворот камеры')}
-          ${row('Колесо', 'Приближение / отдаление')}
-          ${row('Двойной ЛКМ', 'Подлёт к планете')}
-          <div class="pp-section">Выбор и приказы</div>
-          ${row('ЛКМ по планете', 'Информация (только карточка)')}
-          ${row('ЛКМ-рамка', 'Выделить планеты — распределение войск')}
-          ${row('ВЫБРАТЬ / Shift+клик', 'Один флот / несколько флотов')}
-          ${row('ПКМ по планете', 'Приказ: перелёт или вторжение')}
-          ${row('Shift+ПКМ', 'Добавить цель в очередь приказов')}
-          <div class="pp-section">Время и окна</div>
-          ${row('<kbd>Пробел</kbd>', 'Пауза / прежняя скорость')}
-          ${row('<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>', 'Скорость времени')}
-          ${row('<kbd>F</kbd>', 'Древо фокусов')}
-          ${row('<kbd>Esc</kbd>', 'Закрыть окно / главное меню')}
-          <div class="pp-section">Кнопки слева</div>
-          ${row('◈ ⚙ ⚒', 'Фокусы · Решения · Производство')}
-          ${row('🎥', 'Камера летит к идущей битве')}
-        </div>
-      </div>`;
-    this.helpEl.querySelector('#help-close')?.addEventListener('click', () => this.helpEl.classList.add('hidden'));
-    this.helpEl.addEventListener('click', (e) => {
-      if (e.target === this.helpEl) this.helpEl.classList.add('hidden');
-    });
-  }
 
   // ---------------- Боевые оповещения и кинокамера ----------------
 
@@ -2096,7 +2156,7 @@ export class UI {
       ? `<b>ВЫ ПОВЕРЖЕНЫ</b> — фракция «${FACTIONS[faction].name}» проигрывает ${victor}.
          <span class="banner-sub">Война продолжается — вы наблюдаете за картой.</span>`
       : `Фракция «${FACTIONS[faction].name}» проигрывает ${victor} и выбывает из войны.`;
-    this.bannerEl.style.borderColor = FACTIONS[faction].color;
+    this.bannerEl.style.borderColor = factionColor(faction);
     this.bannerEl.classList.remove('hidden');
     clearTimeout(this.bannerTimer);
     // Баннер игрока висит, чужой — уходит сам.

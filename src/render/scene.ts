@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameState } from '../game/state';
-import { FACTIONS } from '../data/factions';
+import { factionColor } from '../data/factions';
 import { bus } from '../core/emitter';
 import { createPlanetVisual, type PlanetVisual } from './planetMesh';
 import { createComets, createNebulaDisc, createStarfield, type CometLayer } from './starfield';
@@ -10,9 +10,14 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { FleetLayer } from './fleets';
 import { emblemSprite } from './emblems';
 import { reconActive } from '../game/specops';
+import { QUALITY_PRESETS, type Quality } from '../ui/settings';
+import type { Hotkeys } from '../ui/hotkeys';
 import type { FactionId } from '../core/types';
 
 export const GALAXY_SCALE = 0.03;
+
+/** Звёзды строятся один раз по максимуму; пресеты рисуют часть из них. */
+const STAR_MAX = 3200;
 
 const NEUTRAL_SECTOR = new THREE.Color('#33415e');
 
@@ -50,6 +55,10 @@ export class GalaxyScene {
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
   private comets!: CometLayer;
+  private stars!: THREE.Points;
+  /** Текущий пресет качества — bloom-тумблер не должен его затирать. */
+  private quality: Quality = 'high';
+  private bloomOn = true;
 
   // Пульс захвата: расходящееся кольцо цвета нового владельца.
   private prevOwners = new Map<string, FactionId>();
@@ -94,7 +103,10 @@ export class GalaxyScene {
   // --- construction --------------------------------------------------------
 
   private buildBackground(): void {
-    this.scene.add(createStarfield(3200, this.radiusWorld * 16));
+    // Звёзды строятся сразу по максимуму: пресеты качества не пересобирают
+    // геометрию, а просто рисуют меньше точек через setDrawRange.
+    this.stars = createStarfield(STAR_MAX, this.radiusWorld * 16);
+    this.scene.add(this.stars);
     this.scene.add(createNebulaDisc(this.radiusWorld));
     // Живой фон: редкие кометы за краем карты.
     this.comets = createComets(this.radiusWorld);
@@ -249,8 +261,8 @@ export class GalaxyScene {
       const pa = this.state.galaxy.planets.get(ln.a)!;
       const pb = this.state.galaxy.planets.get(ln.b)!;
       const dim = pa.abyss || pb.abyss || pa.shattered || pb.shattered ? 0.12 : 1;
-      const ca = new THREE.Color(FACTIONS[pa.owner].color).multiplyScalar(dim);
-      const cb = new THREE.Color(FACTIONS[pb.owner].color).multiplyScalar(dim);
+      const ca = new THREE.Color(factionColor(pa.owner)).multiplyScalar(dim);
+      const cb = new THREE.Color(factionColor(pb.owner)).multiplyScalar(dim);
       const base = li * 6;
       arr[base] = ca.r * 0.5; arr[base + 1] = ca.g * 0.5; arr[base + 2] = ca.b * 0.5;
       arr[base + 3] = cb.r * 0.5; arr[base + 4] = cb.g * 0.5; arr[base + 5] = cb.b * 0.5;
@@ -266,7 +278,7 @@ export class GalaxyScene {
       const alive = sector.planets.map((pid) => this.state.galaxy.planets.get(pid)!).filter((p) => !p.shattered);
       const owners = new Set(alive.map((p) => p.owner));
       if (owners.size === 1 && alive.length > 0) {
-        const color = FACTIONS[[...owners][0]!].color;
+        const color = factionColor([...owners][0]!);
         vis.fillMat.color.set(color);
         vis.fillMat.opacity = 0.05;
         vis.borderMat.color.set(color);
@@ -295,7 +307,7 @@ export class GalaxyScene {
       const p = this.state.galaxy.planets.get(id)!;
       const vis = this.planets.get(id);
       if (!vis) continue;
-      vis.setOwner(FACTIONS[p.owner].color);
+      vis.setOwner(factionColor(p.owner));
       vis.setGloom(p.gloom);
       vis.setAbyss(p.abyss);
       vis.setShattered(p.shattered);
@@ -309,7 +321,7 @@ export class GalaxyScene {
       // Смена владельца → расходящийся пульс цвета нового хозяина.
       const prev = this.prevOwners.get(id);
       if (prev !== undefined && prev !== p.owner && !p.abyss && !p.shattered) {
-        this.spawnCapturePulse(p.pos.x * GALAXY_SCALE, p.pos.y * GALAXY_SCALE, FACTIONS[p.owner].color);
+        this.spawnCapturePulse(p.pos.x * GALAXY_SCALE, p.pos.y * GALAXY_SCALE, factionColor(p.owner));
       }
       this.prevOwners.set(id, p.owner);
     }
@@ -359,6 +371,11 @@ export class GalaxyScene {
   setSelected(id: string | null): void {
     this.selectedId = id;
     this.refreshSelection();
+  }
+
+  /** Подключить общий диспетчер клавиш (панорама, поворот, зум). */
+  attachHotkeys(hk: Hotkeys): void {
+    this.hotkeys = hk;
   }
 
   /** Групповое выделение планет рамкой (подсветка колец). */
@@ -426,9 +443,27 @@ export class GalaxyScene {
     return this.cinemaPlanet !== null;
   }
 
-  /** Тумблер bloom-постобработки (настройки → эффекты). */
+  /** Тумблер bloom-постобработки (настройки → изображение). */
   setBloomEnabled(on: boolean): void {
-    this.bloom.enabled = on;
+    this.bloomOn = on;
+    // На низком пресете свечения нет вовсе — тумблер тогда ничего не включает.
+    this.bloom.enabled = on && QUALITY_PRESETS[this.quality].bloomStrength > 0;
+  }
+
+  /**
+   * Пресет качества: плотность пикселей, число звёзд, кометы и сила свечения.
+   * Плотность ограничена сверху ещё и возможностями экрана — на обычном
+   * мониторе «высокое» не станет рисовать вчетверо больше пикселей впустую.
+   */
+  setQuality(q: Quality): void {
+    this.quality = q;
+    const p = QUALITY_PRESETS[q];
+    this.renderer.setPixelRatio(Math.min(p.pixelRatio, window.devicePixelRatio));
+    this.stars.geometry.setDrawRange(0, Math.min(STAR_MAX, p.stars));
+    this.comets.group.visible = p.comets;
+    this.bloom.strength = p.bloomStrength;
+    this.setBloomEnabled(this.bloomOn);
+    this.resize();
   }
 
   private updateCinema(dt: number): void {
@@ -463,7 +498,8 @@ export class GalaxyScene {
   // --- input ---------------------------------------------------------------
 
   /** Зажатые клавиши WASD (по e.code — не зависит от раскладки). */
-  private keys = new Set<string>();
+  /** Диспетчер горячих клавиш; ставится интерфейсом сразу после запуска. */
+  private hotkeys: Hotkeys | null = null;
   private boxEl: HTMLDivElement | null = null;
 
   private attachInput(): void {
@@ -472,16 +508,6 @@ export class GalaxyScene {
     let startX = 0, startY = 0;
     let px = 0, py = 0;
     let moved = 0;
-
-    // WASD — перемещение карты.
-    window.addEventListener('keydown', (e) => {
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
-        this.keys.add(e.code);
-        this.stopCinema();
-      }
-    });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
 
     // Белая рамка выделения.
     const ensureBox = (): HTMLDivElement => {
@@ -567,17 +593,34 @@ export class GalaxyScene {
     }, { passive: false });
   }
 
-  /** Сдвиг камеры от WASD; вызывается каждый кадр. */
+  /**
+   * Движение камеры с клавиатуры; вызывается каждый кадр.
+   *
+   * Клавиши берутся из общего диспетчера, а не из своего набора кодов: так
+   * панорама, поворот и зум переназначаются вместе со всем остальным и не
+   * ломаются на нелатинской раскладке.
+   */
   private applyKeyPan(dt: number): void {
-    if (this.keys.size === 0) return;
+    const hk = this.hotkeys;
+    if (!hk) return;
+    const step = Math.min(dt, 0.05);
+
+    // Поворот и зум — независимо от панорамы, их можно совмещать.
+    if (hk.held('rotateLeft')) this.yaw -= step * 1.6;
+    if (hk.held('rotateRight')) this.yaw += step * 1.6;
+    if (hk.held('zoomIn')) this.distance = Math.max(this.minDist, this.distance - step * this.distance * 1.8);
+    if (hk.held('zoomOut')) this.distance = Math.min(this.maxDist, this.distance + step * this.distance * 1.8);
+
     let fx = 0, fy = 0; // экранные оси: fy>0 — вверх экрана, fx>0 — вправо
-    if (this.keys.has('KeyW')) fy += 1;
-    if (this.keys.has('KeyS')) fy -= 1;
-    if (this.keys.has('KeyD')) fx += 1;
-    if (this.keys.has('KeyA')) fx -= 1;
+    if (hk.held('panUp')) fy += 1;
+    if (hk.held('panDown')) fy -= 1;
+    if (hk.held('panRight')) fx += 1;
+    if (hk.held('panLeft')) fx -= 1;
+    // Любое ручное движение прерывает кинокамеру: игрок забрал управление.
+    if (fx || fy || hk.anyHeld(['rotateLeft', 'rotateRight', 'zoomIn', 'zoomOut'])) this.stopCinema();
     if (!fx && !fy) return;
     // dt зажат: при просадке кадров карта не должна прыгать к краю.
-    const spd = this.distance * 0.55 * Math.min(dt, 0.05);
+    const spd = this.distance * 0.55 * step;
     // Оси строго ОТ ЭКРАНА при любом повороте камеры: камера стоит в
     // target + (sin(yaw)·h, y, cos(yaw)·h) и смотрит на target, поэтому
     // «вверх экрана» на плоскости = (−sin, −cos), «вправо» = (cos, −sin).
@@ -619,7 +662,7 @@ export class GalaxyScene {
   /** Все линии атак: планы игрока + видимые вражеские вторжения (с плацдармов). */
   private collectArrowRuns(): { from: string; to: string; color: string }[] {
     const runs: { from: string; to: string; color: string }[] = [];
-    const playerColor = FACTIONS[this.state.player].color;
+    const playerColor = factionColor(this.state.player);
     for (const p of this.state.attackPlans) runs.push({ from: p.from, to: p.to, color: playerColor });
     // Вражеские вторжения: у планеты с битвой видно, С КАКОГО плацдарма бьют.
     const seen = new Set<string>(runs.map((r) => `${r.from}>${r.to}`));
@@ -641,7 +684,7 @@ export class GalaxyScene {
         const key = `${f.origin}>${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        runs.push({ from: f.origin, to: id, color: FACTIONS[f.faction].color });
+        runs.push({ from: f.origin, to: id, color: factionColor(f.faction) });
       }
     }
     return runs;
@@ -738,7 +781,7 @@ export class GalaxyScene {
     if (pts.length < 2) return;
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
     const mat = new THREE.LineDashedMaterial({
-      color: new THREE.Color(FACTIONS[f.faction].color),
+      color: new THREE.Color(factionColor(f.faction)),
       transparent: true,
       opacity: 0.75,
       dashSize: 0.22,

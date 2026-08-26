@@ -1,11 +1,11 @@
 import type { FactionId } from '../core/types';
-import { FACTIONS, FACTION_IDS } from '../data/factions';
+import { FACTIONS, FACTION_IDS, factionColor } from '../data/factions';
 import { emblemDataURL } from '../render/emblems';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, saveMeta } from '../game/persist';
-import { getUiScale, setUiScale, UI_SCALE_MAX, UI_SCALE_MIN } from './uiScale';
 import { netAvailable } from '../net/bridge';
 import { careerLines, careerRank, loadCareer, resetCareer } from '../game/career';
 import { logoBlock } from './logo';
+import { SettingsPanel } from './settingsPanel';
 import {
   claimFaction, getLobbySlots, joinGame, setLobbyHandlers, startHosting,
   leave as leaveNet,
@@ -155,7 +155,7 @@ export class MainMenu {
       <div class="mm-panel-title">${this.factionPurpose === 'host' ? 'Ваша сторона в сетевой партии' : 'Выберите сторону'}</div>
       <div class="mm-factions">
         ${playable.map((f) => `
-          <button class="mm-fac" data-fac="${f}" style="--fac:${FACTIONS[f].color}">
+          <button class="mm-fac" data-fac="${f}" style="--fac:${factionColor(f)}">
             <img src="${emblemDataURL(f)}" alt="">
             <span class="mm-fac-name">${FACTIONS[f].name}</span>
           </button>`).join('')}
@@ -181,27 +181,18 @@ export class MainMenu {
     </div>`;
   }
 
+  /**
+   * Настройки — тот же экран, что в паузе. Раньше здесь жил один ползунок
+   * масштаба, а всё остальное было доступно только из запущенной партии.
+   */
   private settingsScreen(): string {
-    const scale = getUiScale();
-    return `<div class="mm-panel">
+    return `<div class="mm-panel wide">
       <div class="mm-panel-title">Настройки</div>
-      <div class="mm-set">
-        <button class="mm-btn" data-go="net">
-          <span class="mm-btn-text">
-            <span class="mm-btn-label">СЕТЕВАЯ ПАРТИЯ</span>
-            <span class="mm-btn-hint">${netAvailable() ? 'Создать партию или подключиться' : 'Только в десктопной сборке'}</span>
-          </span>
-          <span class="mm-btn-arrow">▸</span>
-        </button>
-        <label class="mm-set-row">
-          <span>Масштаб интерфейса</span>
-          <input type="range" id="mm-scale" min="${UI_SCALE_MIN}" max="${UI_SCALE_MAX}"
-                 step="0.05" value="${scale}">
-          <b id="mm-scale-val">${Math.round(scale * 100)}%</b>
-        </label>
-        <div class="mm-set-hint">Тянет за собой шрифты, панели и отступы разом. Остальные настройки — в игре, кнопка ⚙.</div>
+      <div id="mm-settings" class="st-host"></div>
+      <div class="mm-row">
+        <button class="mm-back" data-go="root">← Назад</button>
+        ${netAvailable() ? '<button class="mm-back" data-go="net">Сетевая партия →</button>' : ''}
       </div>
-      <button class="mm-back" data-go="root">← Назад</button>
     </div>`;
   }
 
@@ -219,17 +210,13 @@ export class MainMenu {
       ${this.netInfo ? `<div class="mm-note">${this.netInfo}</div>` : ''}
       <div class="mm-net">
         <button class="mm-btn" data-go="host">
-          <span class="mm-btn-text">
-            <span class="mm-btn-label">СОЗДАТЬ ПАРТИЮ</span>
-            <span class="mm-btn-hint">Ваш компьютер станет сервером. Симуляцию ведёт хост.</span>
-          </span>
+          <span class="mm-btn-label">СОЗДАТЬ ПАРТИЮ</span>
           <span class="mm-btn-arrow">▸</span>
         </button>
         <div class="mm-join">
           <input id="mm-addr" type="text" placeholder="Адрес хоста, например 192.168.1.42" autocomplete="off">
           <button class="mm-btn narrow" id="mm-join">ПОДКЛЮЧИТЬСЯ</button>
         </div>
-        <div class="mm-set-hint">Хост и клиенты должны быть в одной сети. Уход хоста завершает партию.</div>
       </div>
       <button class="mm-back" data-go="root">← Назад</button>
     </div>`;
@@ -243,7 +230,7 @@ export class MainMenu {
       <div class="mm-slots">
         ${slots.map((s) => `
           <button class="mm-slot ${s.takenBy ? 'taken' : ''}" data-claim="${s.faction}"
-                  style="--fac:${FACTIONS[s.faction].color}">
+                  style="--fac:${factionColor(s.faction)}">
             <img src="${emblemDataURL(s.faction)}" alt="">
             <span class="mm-slot-name">${FACTIONS[s.faction].name}</span>
             <span class="mm-slot-who">${s.takenBy ? s.name : 'ИИ — можно занять'}</span>
@@ -251,13 +238,10 @@ export class MainMenu {
       </div>
       ${this.isHost
         ? `<button class="mm-btn wide" id="mm-launch">
-             <span class="mm-btn-text">
-               <span class="mm-btn-label">НАЧАТЬ ВОЙНУ</span>
-               <span class="mm-btn-hint">Свободные места останутся за ИИ</span>
-             </span>
+             <span class="mm-btn-label">НАЧАТЬ ВОЙНУ</span>
              <span class="mm-btn-arrow">▸</span>
            </button>`
-        : '<div class="mm-set-hint">Займите фракцию и дождитесь хоста.</div>'}
+        : ''}
       <button class="mm-back" data-go="leave">← Покинуть</button>
     </div>`;
   }
@@ -348,13 +332,9 @@ export class MainMenu {
       this.render();
     });
 
-    const scale = this.root.querySelector<HTMLInputElement>('#mm-scale');
-    scale?.addEventListener('input', () => {
-      const v = Number(scale.value);
-      setUiScale(v);
-      const out = this.root.querySelector('#mm-scale-val');
-      if (out) out.textContent = `${Math.round(v * 100)}%`;
-    });
+    // Настройки монтируются в свой контейнер — вёрстка и модель общие с паузой.
+    const host = this.root.querySelector<HTMLElement>('#mm-settings');
+    if (host) new SettingsPanel(host).render();
   }
 
   private hostFaction: FactionId = 'superEarth';

@@ -5,23 +5,13 @@
 //   • События: сирена вторжения, чайм успеха, тяжёлый удар потери.
 // AudioContext стартует только после первого жеста пользователя (политика
 // браузеров); до этого все вызовы тихо игнорируются.
+//
+// Громкости живут в общей модели настроек (ui/settings), а не в собственном
+// ключе: экран настроек один на игру и меню, и своё хранилище здесь только
+// плодило бы расхождения.
 // ---------------------------------------------------------------------------
 
-const STORE_KEY = 'sgw2_sound';
-
-export interface SoundSettings {
-  master: number;   // 0..1
-  ambient: number;  // 0..1
-  effects: number;  // 0..1
-}
-
-function loadSettings(): SoundSettings {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return { master: 0.8, ambient: 0.5, effects: 0.8, ...JSON.parse(raw) as Partial<SoundSettings> };
-  } catch { /* повреждённые настройки — берём умолчания */ }
-  return { master: 0.8, ambient: 0.5, effects: 0.8 };
-}
+import { getSettings } from './settings';
 
 export class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -29,7 +19,6 @@ export class SoundEngine {
   private ambientGain: GainNode | null = null;
   private fxGain: GainNode | null = null;
   private started = false;
-  settings: SoundSettings = loadSettings();
 
   /** Инициализация по первому жесту (клик/клавиша) — политика браузеров. */
   armOnFirstGesture(): void {
@@ -58,14 +47,10 @@ export class SoundEngine {
 
   applyVolumes(): void {
     if (!this.ctx) return;
-    this.masterGain!.gain.value = this.settings.master;
-    this.ambientGain!.gain.value = this.settings.ambient * 0.5;
-    this.fxGain!.gain.value = this.settings.effects;
-  }
-
-  save(): void {
-    localStorage.setItem(STORE_KEY, JSON.stringify(this.settings));
-    this.applyVolumes();
+    const s = getSettings();
+    this.masterGain!.gain.value = s.master;
+    this.ambientGain!.gain.value = s.ambient * 0.5;
+    this.fxGain!.gain.value = s.effects;
   }
 
   /** Низкий дрон карты: две расстроенные пилы через лоупас + шум-«ветер». */

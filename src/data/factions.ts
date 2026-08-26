@@ -143,7 +143,36 @@ export const SPECIALS: Record<FactionId, SpecialUnitDef> = {
   },
 };
 
-/** Diplomatic matrix — true means the two factions are hostile. */
+// ---------------------------------------------------------------------------
+// Палитра фракций.
+//
+// Базовые цвета подобраны под канон, но три пары в них плохо различимы при
+// дальтонизме: красный автоматонов рядом с оранжевым Федерации, жёлтый роя
+// рядом с тем же оранжевым, синяя СЗ рядом с фиолетовыми иллюминатами.
+// Настройка «палитра без красно-зелёного» подменяет их набором Оkabe–Ito —
+// восемь оттенков, специально подобранных так, чтобы попарно различаться при
+// всех распространённых типах дальтонизма.
+//
+// Подмена живёт здесь, а не в настройках, чтобы данные не зависели от
+// интерфейса: слой ui только вызывает setFactionPalette.
+// ---------------------------------------------------------------------------
+
+export const COLORBLIND_PALETTE: Record<FactionId, string> = {
+  superEarth: '#3d9bd8',
+  automatons: '#d55e00',
+  illuminate: '#cc79a7',
+  terminids: '#e6d34a',
+  superFederation: '#009e73',
+};
+
+let palette: Partial<Record<FactionId, string>> = {};
+
+/** Включить или снять подмену палитры (пустой объект — вернуть канон). */
+export function setFactionPalette(p: Partial<Record<FactionId, string>>): void {
+  palette = p;
+}
+
+/** Цвет фракции с учётом выбранной палитры. Читать поле .color напрямую нельзя. */
 export function factionColor(id: FactionId): string {
-  return FACTIONS[id].color;
+  return palette[id] ?? FACTIONS[id].color;
 }

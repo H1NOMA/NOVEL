@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Fleet } from '../core/types';
-import { FACTIONS } from '../data/factions';
+import { factionColor } from '../data/factions';
 import { fleetWorldPos } from '../game/units';
 import type { GameState } from '../game/state';
 import { shipModel, stationModel, type ShipClass } from './ships';
@@ -55,7 +55,7 @@ export class FleetLayer {
   constructor(private scale: number) {}
 
   private make(fleet: Fleet): FleetMesh {
-    const color = new THREE.Color(FACTIONS[fleet.faction].color);
+    const color = new THREE.Color(factionColor(fleet.faction));
     const special = !!fleet.special;
     const cls = dominantClass(fleet);
     const model = special ? stationModel(color) : shipModel(fleet.faction, color, cls);
@@ -301,8 +301,8 @@ export class FleetLayer {
         .map((f) => this.meshes.get(f.id))
         .filter((m): m is FleetMesh => !!m && m.group.visible);
       const planetPos = new THREE.Vector3(p.pos.x * this.scale, 0.18, p.pos.y * this.scale);
-      const atkColor = FACTIONS[p.battle.attacker].color;
-      const defColor = FACTIONS[p.owner].color;
+      const atkColor = factionColor(p.battle.attacker);
+      const defColor = factionColor(p.owner);
 
       // Атакующие бьют по защитникам (или по планете при орбитальной бомбардировке).
       if (Math.random() < dt * 5) {
