@@ -7,9 +7,10 @@ import { careerLines, careerRank, loadCareer, resetCareer } from '../game/career
 import { logoBlock } from './logo';
 import { SettingsPanel } from './settingsPanel';
 import {
-  claimFaction, getLobbySlots, joinGame, setLobbyHandlers, startHosting,
-  leave as leaveNet,
+  claimFaction, getLobbySlots, getPartyCode, getPartyMembers, joinGame, kickPeer,
+  setLobbyHandlers, startHosting, leave as leaveNet,
 } from '../net/session';
+import { partyCodeBlock, rosterList } from './party';
 import type { LobbySlot } from '../net/protocol';
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,8 @@ const el = (tag: string, cls?: string, html?: string): HTMLElement => {
 
 export class MainMenu {
   private root = el('div', 'mm');
+  /** Контейнер сменного содержимого; оболочка строится один раз. */
+  private body!: HTMLElement;
   private screen: Screen = 'root';
   /** Куда ведёт выбор фракции: одиночная игра или роль хоста. */
   private factionPurpose: 'single' | 'host' = 'single';
@@ -49,6 +52,18 @@ export class MainMenu {
     // Идентификатор свой: #main-menu занят внутриигровым меню паузы (ui.ts),
     // и его стили — заливка и центрирование — ломали бы стартовый экран.
     this.root.id = 'start-menu';
+    // Оболочка — фон, вуаль и логотип — собирается ОДИН раз. Раньше каждый
+    // переход между экранами переписывал innerHTML целиком: фоновая картинка
+    // пересоздавалась, анимация наезда начиналась заново, логотип
+    // раскодировался снова. Отсюда и рывки на каждом клике.
+    this.root.innerHTML = `
+      <div class="mm-bg"></div>
+      <div class="mm-veil"></div>
+      <div class="mm-inner">
+        <div class="mm-head">${logoBlock()}</div>
+        <div class="mm-body"></div>
+      </div>`;
+    this.body = this.root.querySelector<HTMLElement>('.mm-body')!;
     document.body.appendChild(this.root);
     setLobbyHandlers({
       onLobby: () => {
@@ -91,15 +106,14 @@ export class MainMenu {
       : this.screen === 'net' ? this.netScreen()
       : this.lobbyScreen();
 
-    this.root.innerHTML = `
-      <div class="mm-bg"></div>
-      <div class="mm-veil"></div>
-      <div class="mm-inner${this.screen === 'root' ? '' : ' sub'}">
-        <div class="mm-head">
-          ${logoBlock()}
-        </div>
-        ${body}
-      </div>`;
+    const inner = this.root.querySelector<HTMLElement>('.mm-inner')!;
+    inner.classList.toggle('sub', this.screen !== 'root');
+    // Меняется только тело экрана. Класс появления снимается и ставится
+    // заново, чтобы анимация проигралась и на повторном заходе на тот же экран.
+    this.body.innerHTML = body;
+    this.body.classList.remove('mm-enter');
+    void this.body.offsetWidth; // перезапуск анимации: нужен рефлоу
+    this.body.classList.add('mm-enter');
     this.wire();
   }
 
@@ -110,6 +124,7 @@ export class MainMenu {
     // иначе кнопки прыгают под курсором от запуска к запуску.
     const items: [string, string, boolean][] = [
       ['continue', 'ПРОДОЛЖИТЬ', !!auto],
+      ['net', 'СЕТЕВАЯ ИГРА', netAvailable()],
       ['new', 'НАЧАТЬ НОВУЮ ИГРУ', true],
       ['load', 'ЗАГРУЗИТЬ', hasSaves],
       ['career', 'КАРЬЕРА', true],
@@ -189,10 +204,7 @@ export class MainMenu {
     return `<div class="mm-panel wide">
       <div class="mm-panel-title">Настройки</div>
       <div id="mm-settings" class="st-host"></div>
-      <div class="mm-row">
-        <button class="mm-back" data-go="root">← Назад</button>
-        ${netAvailable() ? '<button class="mm-back" data-go="net">Сетевая партия →</button>' : ''}
-      </div>
+      <button class="mm-back" data-go="root">← Назад</button>
     </div>`;
   }
 
@@ -214,7 +226,8 @@ export class MainMenu {
           <span class="mm-btn-arrow">▸</span>
         </button>
         <div class="mm-join">
-          <input id="mm-addr" type="text" placeholder="Адрес хоста, например 192.168.1.42" autocomplete="off">
+          <input id="mm-addr" type="text" placeholder="КОД ПАРТИИ" autocomplete="off"
+                 spellcheck="false" maxlength="24">
           <button class="mm-btn narrow" id="mm-join">ПОДКЛЮЧИТЬСЯ</button>
         </div>
       </div>
@@ -224,9 +237,12 @@ export class MainMenu {
 
   private lobbyScreen(): string {
     const slots: LobbySlot[] = getLobbySlots();
-    return `<div class="mm-panel">
+    const code = getPartyCode();
+    return `<div class="mm-panel wide">
       <div class="mm-panel-title">Лобби</div>
       ${this.netInfo ? `<div class="mm-note">${this.netInfo}</div>` : ''}
+      ${code ? partyCodeBlock(code) : ''}
+      ${rosterList(getPartyMembers(), this.isHost)}
       <div class="mm-slots">
         ${slots.map((s) => `
           <button class="mm-slot ${s.takenBy ? 'taken' : ''}" data-claim="${s.faction}"
@@ -289,7 +305,8 @@ export class MainMenu {
           return;
         }
         this.isHost = true;
-        this.netInfo = `Партия открыта. Адрес для подключения: ${(res.addresses ?? []).join(' · ') || 'localhost'}`;
+        // Адрес больше не диктуют вслух: он упакован в код партии.
+        this.netInfo = res.code ? '' : `Адрес: ${(res.addresses ?? []).join(' · ') || 'localhost'}`;
         this.hostFaction = faction;
         this.go('lobby');
       }));
@@ -320,6 +337,16 @@ export class MainMenu {
       this.isHost = false;
       this.netInfo = 'Подключено. Займите свободную фракцию.';
       this.go('lobby');
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-kick]').forEach((b) =>
+      b.addEventListener('click', () => {
+        kickPeer(b.dataset.kick!);
+        this.render();
+      }));
+
+    this.root.querySelector('#party-code')?.addEventListener('click', () => {
+      void navigator.clipboard?.writeText(getPartyCode() ?? '');
     });
 
     this.root.querySelector('#mm-launch')?.addEventListener('click', () => {

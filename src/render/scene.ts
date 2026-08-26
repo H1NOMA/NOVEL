@@ -3,7 +3,7 @@ import type { GameState } from '../game/state';
 import { factionColor } from '../data/factions';
 import { bus } from '../core/emitter';
 import { createPlanetVisual, type PlanetVisual } from './planetMesh';
-import { createComets, createNebulaDisc, createStarfield, type CometLayer } from './starfield';
+import { createComets, createNebulaDisc, createNebulaField, createStarfield, type CometLayer } from './starfield';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -56,6 +56,7 @@ export class GalaxyScene {
   private bloom!: UnrealBloomPass;
   private comets!: CometLayer;
   private stars!: THREE.Points;
+  private nebulae!: THREE.Group;
   /** Текущий пресет качества — bloom-тумблер не должен его затирать. */
   private quality: Quality = 'high';
   private bloomOn = true;
@@ -108,6 +109,10 @@ export class GalaxyScene {
     this.stars = createStarfield(STAR_MAX, this.radiusWorld * 16);
     this.scene.add(this.stars);
     this.scene.add(createNebulaDisc(this.radiusWorld));
+    // Туманности — дальний фон: висят в девяти радиусах карты и рисуются
+    // раньше всего, поэтому не лезут к планетам даже на подлёте к краю.
+    this.nebulae = createNebulaField(this.radiusWorld);
+    this.scene.add(this.nebulae);
     // Живой фон: редкие кометы за краем карты.
     this.comets = createComets(this.radiusWorld);
     this.scene.add(this.comets.group);
@@ -461,6 +466,7 @@ export class GalaxyScene {
     this.renderer.setPixelRatio(Math.min(p.pixelRatio, window.devicePixelRatio));
     this.stars.geometry.setDrawRange(0, Math.min(STAR_MAX, p.stars));
     this.comets.group.visible = p.comets;
+    this.nebulae.visible = p.comets;
     this.bloom.strength = p.bloomStrength;
     this.setBloomEnabled(this.bloomOn);
     this.resize();

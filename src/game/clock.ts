@@ -9,9 +9,6 @@ const MAX_STEPS_PER_FRAME = 6;
 
 export class GameClock {
   private dayFloat: number;
-  private last = 0;
-  private raf = 0;
-  private running = false;
 
   constructor(private state: GameState) {
     this.dayFloat = state.day;
@@ -22,26 +19,13 @@ export class GameClock {
     bus.emit('speedChanged', { speed });
   }
 
-  start(): void {
-    if (this.running) return;
-    this.running = true;
-    this.last = performance.now();
-    const loop = (now: number) => {
-      if (!this.running) return;
-      const dt = Math.min(0.1, (now - this.last) / 1000);
-      this.last = now;
-      this.frame(dt);
-      this.raf = requestAnimationFrame(loop);
-    };
-    this.raf = requestAnimationFrame(loop);
-  }
-
-  stop(): void {
-    this.running = false;
-    cancelAnimationFrame(this.raf);
-  }
-
-  private frame(dt: number): void {
+  /**
+   * Шаг симуляции. Собственного requestAnimationFrame у часов нет намеренно:
+   * два независимых цикла (симуляция и рендер) просыпались в разные моменты
+   * кадра, и флоты дёргались — сцена рисовала положение, посчитанное на
+   * прошлый вызов. Теперь один цикл в main.ts двигает и то и другое.
+   */
+  frame(dt: number): void {
     const { state } = this;
     if (state.speed === 0 || state.winner) {
       bus.emit('tick', { day: state.day });

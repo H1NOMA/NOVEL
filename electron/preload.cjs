@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('netBridge', {
   sendTo: (peer, msg) => ipcRenderer.invoke('net:send-to', { peer, msg }),
   /** Хост → всем. */
   broadcast: (msg) => ipcRenderer.invoke('net:broadcast', msg),
+  // Хост исключает игрока: причина уходит клиенту, затем канал закрывается.
+  drop: (peer, reason) => ipcRenderer.invoke('net:drop', { peer, reason }),
   /** Разорвать всё. */
   close: () => ipcRenderer.invoke('net:close'),
   /** Адреса этой машины для приглашения. */

@@ -47,6 +47,68 @@ function blobTexture(rgb: string): THREE.Texture {
   return new THREE.CanvasTexture(cv);
 }
 
+/**
+ * Дальние туманности — именно ФОН, а не декорация вокруг планет.
+ *
+ * Каждое облако висит на сфере радиусом в несколько диаметров карты и
+ * развёрнуто billboard'ом к камере. Материал пишет только цвет (depthWrite
+ * выключен) и рендерится первым: как бы близко ни подлетела камера к краю
+ * галактики, туманность останется позади всего.
+ *
+ * Форма набирается из нескольких перекрывающихся пятен со случайным
+ * поворотом и вытяжкой — одно круглое пятно читалось бы как размытый шар.
+ */
+export function createNebulaField(worldRadius: number, count = 7): THREE.Group {
+  const group = new THREE.Group();
+  // renderOrder ниже всего и никакого теста глубины: слой всегда сзади.
+  group.renderOrder = -100;
+  const palettes = [
+    '86,132,214', '132,96,196', '58,120,168', '176,104,150', '92,150,180',
+  ];
+  const texes = palettes.map((p) => blobTexture(p));
+  // Далеко: ближний край облаков втрое дальше края карты.
+  const R = worldRadius * 9;
+
+  for (let i = 0; i < count; i++) {
+    const cloud = new THREE.Group();
+    const theta = (Math.PI * 2 * i) / count + Math.random() * 0.6;
+    // Облака держатся вблизи плоскости галактики, но не строго в ней.
+    const phi = (Math.random() - 0.5) * 0.9;
+    const r = R * (0.85 + Math.random() * 0.4);
+    cloud.position.set(
+      Math.cos(theta) * Math.cos(phi) * r,
+      Math.sin(phi) * r * 0.55,
+      Math.sin(theta) * Math.cos(phi) * r,
+    );
+
+    const tex = texes[i % texes.length]!;
+    const blobs = 3 + Math.floor(Math.random() * 3);
+    for (let k = 0; k < blobs; k++) {
+      const mat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0.16 + Math.random() * 0.12,
+        rotation: Math.random() * Math.PI,
+      });
+      const sp = new THREE.Sprite(mat);
+      const w = worldRadius * (2.4 + Math.random() * 2.6);
+      sp.scale.set(w, w * (0.45 + Math.random() * 0.5), 1);
+      sp.position.set(
+        (Math.random() - 0.5) * w * 0.7,
+        (Math.random() - 0.5) * w * 0.3,
+        (Math.random() - 0.5) * w * 0.7,
+      );
+      sp.renderOrder = -100;
+      cloud.add(sp);
+    }
+    group.add(cloud);
+  }
+  return group;
+}
+
 export interface CometLayer {
   group: THREE.Group;
   update(t: number): void;

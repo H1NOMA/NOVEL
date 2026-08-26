@@ -41,13 +41,27 @@ export interface LobbySlot {
   name: string;
 }
 
+/**
+ * Строка списка игроков. Отличается от LobbySlot тем, что перечисляет ЛЮДЕЙ,
+ * а не места: подключившийся, но ещё не выбравший сторону виден сразу, и его
+ * можно исключить до того, как он что-то займёт.
+ */
+export interface PartyMember {
+  /** Идентификатор соединения; у хоста — 'host'. */
+  peer: string;
+  name: string;
+  faction: FactionId | null;
+  isHost: boolean;
+}
+
 export type NetMessage =
   /** Клиент → хост, первым делом. */
   | { k: 'hello'; version: number; name: string }
-  /** Хост → клиенту в ответ: кто он и что в лобби. */
-  | { k: 'welcome'; version: number; peer: string; slots: LobbySlot[] }
+  /** Хост → клиенту в ответ: кто он, что в лобби и код партии. */
+  | { k: 'welcome'; version: number; peer: string; slots: LobbySlot[];
+      members?: PartyMember[]; code?: string | null }
   /** Хост → всем: состав лобби изменился. */
-  | { k: 'lobby'; slots: LobbySlot[] }
+  | { k: 'lobby'; slots: LobbySlot[]; members?: PartyMember[]; code?: string | null }
   /** Клиент → хост: занять фракцию. */
   | { k: 'claim'; faction: FactionId }
   /** Хост → всем: партия началась, вот полное состояние. */

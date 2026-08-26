@@ -24,9 +24,13 @@ export interface Galaxy {
   radiusMax: number;
 }
 
-const RING_COUNT = 6;
+const RING_COUNT = 8;
 const RING_SPACING = 95;
-const PLANETS_PER_RING = [8, 12, 16, 20, 24, 28];
+const PLANETS_PER_RING = [9, 14, 19, 23, 27, 30, 33, 36];
+/** Отступ полосы кольца от соседей — в него укладывается разброс секторов. */
+const RING_INSET = 15;
+/** На сколько сектор может выпятиться внутрь или наружу своей полосы. */
+const RING_BULGE = 9;
 // Angular home wedges (radians). Center is Super Earth; enemies own outer wedges.
 const WEDGES: { faction: FactionId; from: number; to: number }[] = [
   { faction: 'automatons', from: deg(105), to: deg(165) },
@@ -119,83 +123,108 @@ export function generateGalaxy(seed: number): Galaxy {
     a1: Math.PI * 2,
   });
 
-  // --- Rings ---
+  // --- Кольца ---
+  //
+  // Сектор — не одинаковая долька: угловая ширина в кольце разная, а полоса
+  // радиусов у каждого своя, с выпуклостью внутрь или наружу. Форма гуляет,
+  // но разбиение по-прежнему покрывает круг целиком: доли нормируются на
+  // полный оборот, а выпуклость не выходит за отступ между кольцами.
   for (let ring = 1; ring <= RING_COUNT; ring++) {
     const count = PLANETS_PER_RING[ring - 1]!;
     const baseR = ring * RING_SPACING;
-    const buckets = Math.max(3, Math.round(count / 3));
-    for (let j = 0; j < count; j++) {
-      const angle = (Math.PI * 2 * j) / count + rng.range(-0.1, 0.1);
-      const r = baseR + rng.range(-18, 18);
+    const bandR0 = baseR - RING_SPACING / 2 + RING_INSET;
+    const bandR1 = baseR + RING_SPACING / 2 - RING_INSET;
 
-      // Ownership: inner rings mostly Super Earth; outer rings by wedge.
-      let owner: FactionId = 'superEarth';
-      if (ring >= 2) {
-        for (const w of WEDGES) {
-          if (inWedge(angle, w.from, w.to)) {
-            owner = w.faction;
-            break;
+    // Неравные доли кольца: вес каждой от 0.6 до 1.4, затем нормировка.
+    const buckets = Math.max(4, Math.min(12, Math.round(count / 2.6)));
+    const weights = Array.from({ length: buckets }, () => rng.range(0.5, 1.6));
+    const total = weights.reduce((a, b) => a + b, 0);
+    const edges: number[] = [0];
+    for (const w of weights) edges.push(edges[edges.length - 1]! + (w / total) * Math.PI * 2);
+    edges[buckets] = Math.PI * 2; // хвост округления — строго на полный круг
+
+    // Планеты делятся между секторами по их угловой ширине, но каждый
+    // сектор получает хотя бы одну: пустых долей на карте быть не должно.
+    const shares = weights.map((w) => Math.max(1, Math.round((w / total) * count)));
+
+    for (let bucket = 0; bucket < buckets; bucket++) {
+      const a0 = edges[bucket]!;
+      const a1 = edges[bucket + 1]!;
+      const sectorId = `sector_${ring}_${bucket}`;
+      const r0 = bandR0 - rng.range(0, RING_BULGE);
+      const r1 = bandR1 + rng.range(0, RING_BULGE);
+      const sector: Sector = {
+        id: sectorId,
+        name: sectorName(rng, usedSectors),
+        ring,
+        bucket,
+        planets: [],
+        r0,
+        r1,
+        a0,
+        a1,
+      };
+      sectors.set(sectorId, sector);
+
+      const n = shares[bucket]!;
+      for (let k = 0; k < n; k++) {
+        // Планеты раскладываются по своей доле равномерно с лёгким разбросом,
+        // поэтому и в узком, и в широком секторе они стоят не в линейку.
+        const span = a1 - a0;
+        const angle = a0 + (span * (k + 0.5)) / n + rng.range(-span / (n * 3), span / (n * 3));
+        const r = r0 + (r1 - r0) * rng.range(0.2, 0.8);
+
+        let owner: FactionId = 'superEarth';
+        if (ring >= 2) {
+          for (const w of WEDGES) {
+            if (inWedge(angle, w.from, w.to)) {
+              owner = w.faction;
+              break;
+            }
           }
         }
-      }
 
-      const bucket = Math.min(buckets - 1, Math.floor((norm(angle) / (Math.PI * 2)) * buckets));
-      const sectorId = `sector_${ring}_${bucket}`;
-      if (!sectors.has(sectorId)) {
-        sectors.set(sectorId, {
-          id: sectorId,
-          name: sectorName(rng, usedSectors),
-          ring,
-          bucket,
-          planets: [],
-          r0: baseR - RING_SPACING / 2 + 8,
-          r1: baseR + RING_SPACING / 2 - 8,
-          a0: (Math.PI * 2 * bucket) / buckets,
-          a1: (Math.PI * 2 * (bucket + 1)) / buckets,
+        // Каждая планета — строго внутри своего сектора: клампим радиус и угол
+        // с запасом на видимый размер шара, чтобы не было «пограничных» планет.
+        const scale = rng.range(0.7, 1.25);
+        const pad = 14 * scale + 6; // видимый радиус планеты + зазор
+        const rClamped = Math.max(r0 + pad, Math.min(r1 - pad, r));
+        const aPad = pad / Math.max(1, rClamped);
+        const aClamped = Math.max(a0 + aPad, Math.min(a1 - aPad, norm(angle)));
+        const posC: Vec2 = { x: Math.cos(aClamped) * rClamped, y: Math.sin(aClamped) * rClamped };
+
+        const id = `p_${idCounter++}`;
+        addPlanet({
+          id,
+          name: planetName(rng, used),
+          biome: biomeFor(owner, rng),
+          sector: sector.name,
+          radius: rClamped,
+          angle: aClamped,
+          pos: posC,
+          scale,
+          seed: rng.int(0, 999_999),
+          owner,
+          origin: owner,
+          isCapital: false,
+          links: [],
+          garrison: owner === 'superEarth' ? rng.int(15, 35) : rng.int(25, 55),
+          fortification: rng.int(0, 2),
+          value: rng.int(1, 5),
+          cities: rng.chance(0.42)
+            ? Array.from({ length: rng.int(1, 3) }, () => ({ name: cityName(rng, usedCities), holder: owner, spec: rng.pick(['yard', 'academy', 'mine'] as const) }))
+            : [],
+          depot: false,
+          supplied: true,
+          gloom: false,
+          abyss: false,
+          minerals: 0,
+          buildings: [],
+          e711Rich: false,
+          shattered: false,
         });
+        sector.planets.push(id);
       }
-      const sector = sectors.get(sectorId)!;
-
-      // Каждая планета — строго внутри своего сектора: клампим радиус и угол
-      // с запасом на видимый размер шара, чтобы не было «пограничных» планет.
-      const scale = rng.range(0.7, 1.25);
-      const pad = 14 * scale + 6; // видимый радиус планеты в мировых единицах + зазор
-      const rClamped = Math.max(sector.r0 + pad, Math.min(sector.r1 - pad, r));
-      const aPad = pad / rClamped;
-      const aClamped = Math.max(sector.a0 + aPad, Math.min(sector.a1 - aPad, norm(angle)));
-      const posC: Vec2 = { x: Math.cos(aClamped) * rClamped, y: Math.sin(aClamped) * rClamped };
-
-      const id = `p_${idCounter++}`;
-      addPlanet({
-        id,
-        name: planetName(rng, used),
-        biome: biomeFor(owner, rng),
-        sector: sector.name,
-        radius: rClamped,
-        angle: aClamped,
-        pos: posC,
-        scale,
-        seed: rng.int(0, 999_999),
-        owner,
-        origin: owner,
-        isCapital: false,
-        links: [],
-        garrison: owner === 'superEarth' ? rng.int(15, 35) : rng.int(25, 55),
-        fortification: rng.int(0, 2),
-        value: rng.int(1, 5),
-        cities: rng.chance(0.42)
-          ? Array.from({ length: rng.int(1, 3) }, () => ({ name: cityName(rng, usedCities), holder: owner, spec: rng.pick(['yard', 'academy', 'mine'] as const) }))
-          : [],
-        depot: false,
-        supplied: true,
-        gloom: false,
-        abyss: false,
-        minerals: 0,
-        buildings: [],
-        e711Rich: false,
-        shattered: false,
-      });
-      sector.planets.push(id);
     }
   }
 

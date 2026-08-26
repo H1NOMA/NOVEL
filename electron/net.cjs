@@ -94,6 +94,22 @@ function sendToPeer(id, msg) {
   return writeTo(peers.get(id), msg);
 }
 
+/**
+ * Отключить одного клиента: хост исключает игрока из лобби.
+ * Сообщение о причине шлётся до разрыва — flush успевает уйти, потому что
+ * end() дописывает буфер и только потом закрывает канал.
+ */
+function dropPeer(id, reason) {
+  const socket = peers.get(id);
+  if (!socket) return false;
+  try {
+    if (!socket.destroyed) socket.end(JSON.stringify({ k: 'bye', reason }) + '\n');
+  } catch { /* канал уже мёртв — достаточно снять его с учёта */ }
+  peers.delete(id);
+  setTimeout(() => socket.destroy(), 200);
+  return true;
+}
+
 function broadcast(msg) {
   const line = JSON.stringify(msg) + '\n';
   let sent = 0;
@@ -166,5 +182,5 @@ function localAddresses() {
 
 module.exports = {
   PORT, startHost, joinHost, sendToPeer, sendToHost, broadcast, stopAll,
-  localAddresses, setDeliver,
+  localAddresses, setDeliver, dropPeer,
 };

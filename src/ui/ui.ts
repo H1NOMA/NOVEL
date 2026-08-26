@@ -26,6 +26,8 @@ import { buildShield, buildStation, SHIELD_COST, STATION_COST } from '../game/de
 import { nextRankIn, rankOf } from '../game/veterancy';
 import { SoundEngine } from './sound';
 import { Hotkeys } from './hotkeys';
+import { partyCodeBlock, rosterList } from './party';
+import { currentRole, getPartyCode, getPartyMembers, kickPeer } from '../net/session';
 import { SettingsPanel } from './settingsPanel';
 import { applyDom, getSettings, onSettings } from './settings';
 import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
@@ -1963,6 +1965,11 @@ export class UI {
   }
 
   private renderMenu(): void {
+    // Сетевая партия: код виден всё время, список игроков — с кнопкой
+    // исключения у хоста.
+    const code = getPartyCode();
+    const members = getPartyMembers();
+    const isHost = currentRole() === 'host';
     const slotRow = (slot: string, canSave: boolean): string => {
       const meta = saveMeta(slot);
       const label = slot === AUTOSAVE_SLOT ? 'Автосейв' : `Слот ${slot.slice(-1)}`;
@@ -1980,6 +1987,8 @@ export class UI {
     this.menuEl.innerHTML = `
       <div class="menu-inner">
         <div class="menu-left">
+          ${code ? partyCodeBlock(code) : ''}
+          ${members.length ? `<div class="menu-title">Игроки</div>${rosterList(members, isHost)}` : ''}
           <div class="menu-title">Партия</div>
           <button class="menu-btn" id="menu-continue">Продолжить</button>
           <button class="menu-btn" id="menu-new">Новая игра</button>
@@ -1995,6 +2004,18 @@ export class UI {
           <div id="menu-settings" class="st-host"></div>
         </div>
       </div>`;
+
+    this.menuEl.querySelectorAll<HTMLButtonElement>('[data-kick]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (kickPeer(b.dataset.kick!)) {
+          this.toast('ИГРОК ИСКЛЮЧЁН');
+          this.renderMenu();
+        }
+      }));
+    this.menuEl.querySelector('#party-code')?.addEventListener('click', () => {
+      void navigator.clipboard?.writeText(getPartyCode() ?? '');
+      this.toast('КОД СКОПИРОВАН');
+    });
 
     this.menuEl.querySelector('#menu-continue')!.addEventListener('click', () => this.toggleMenu());
     this.menuEl.querySelector('#menu-new')!.addEventListener('click', () => location.reload());

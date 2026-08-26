@@ -556,6 +556,41 @@ kbd {
 .save-name { font-weight: 700; min-width: 5.5rem; }
 .save-when { flex: 1; color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; }
 
+/* ---------- Код партии и список игроков ---------- */
+/* Код виден всё время до старта: его диктуют вслух, поэтому знаки крупные,
+   моноширинные и с разрядкой, а клик кладёт код в буфер обмена. */
+.party-code {
+  display: flex; flex-direction: column; gap: 0.15rem; cursor: pointer;
+  padding: 0.6rem 0.9rem; background: rgba(242, 210, 78, 0.07);
+  border: 1px solid var(--yel-dim); border-left: 3px solid var(--yel);
+}
+.party-code:hover { background: rgba(242, 210, 78, 0.13); }
+.pc-label {
+  font-size: 0.62rem; letter-spacing: 0.18em; color: var(--muted); text-transform: uppercase;
+}
+.pc-value {
+  font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700;
+  letter-spacing: 0.22em; color: var(--yel); line-height: 1.1;
+}
+.party-list { display: flex; flex-direction: column; gap: 0.25rem; }
+.party-row {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem;
+  background: var(--panel); border: 1px solid var(--edge); font-size: 0.8rem;
+}
+.party-dot {
+  width: 0.5rem; height: 0.5rem; flex: 0 0 auto; border-radius: 50%; background: var(--fac);
+}
+.party-name { font-weight: 700; color: var(--text-hi); }
+.party-side { flex: 1; color: var(--muted); font-size: 0.75rem; text-align: right; }
+.party-kick {
+  flex: 0 0 auto; padding: 0.2rem 0.55rem; cursor: pointer;
+  background: none; color: var(--alr); border: 1px solid var(--alr);
+  font-family: var(--font-ui); font-size: 0.68rem; letter-spacing: 0.06em;
+}
+.party-kick:hover { background: var(--alr); color: #180a08; }
+/* Пустышка вместо кнопки у хоста — строки не съезжают по ширине. */
+.party-kick-gap { flex: 0 0 auto; width: 3.9rem; }
+
 /* ---------- Экран настроек (общий для меню и паузы) ---------- */
 .st-host { display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
 .st-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; border-bottom: 1px solid var(--edge); }
@@ -927,8 +962,13 @@ body.no-grain #vignette::after { display: none; }
 .mm-bg {
   position: absolute; inset: 0;
   background: #05060a url('./assets/menubg.webp') center/cover no-repeat;
-  /* лёгкий наезд камеры: кадр «дышит», интерфейс при этом неподвижен */
+  /* Лёгкий наезд камеры: кадр «дышит», интерфейс при этом неподвижен.
+     will-change держит слой на GPU — без него браузер каждый кадр
+     перерисовывает картинку 2560×1440 на процессоре. */
   animation: mm-drift 48s ease-in-out infinite alternate;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 @keyframes mm-drift { from { transform: scale(1.04) translateX(0.6%); } to { transform: scale(1.1) translateX(-0.6%); } }
 /* Затемнение: слева плотная шторка под интерфейс, справа лёгкая виньетка,
@@ -958,6 +998,19 @@ body.no-grain #vignette::after { display: none; }
 /* На вложенных экранах знак ужимается: место нужнее панели, а не заголовку. */
 .mm-inner.sub { gap: 1.1rem; }
 .mm-inner.sub .logo-mark { width: min(15rem, 24vw); }
+
+/* Появление экрана: короткий подъём с прозрачностью. Тело меню меняется
+   отдельно от оболочки, поэтому анимация не задевает фон и логотип. */
+.mm-body { display: contents; }
+.mm-enter > * { animation: mm-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+@keyframes mm-in {
+  from { opacity: 0; transform: translateY(0.6rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mm-bg { animation: none; }
+  .mm-enter > * { animation: none; }
+}
 
 /* --- логотип -------------------------------------------------------------- */
 .logo { display: block; }

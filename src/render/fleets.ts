@@ -39,6 +39,57 @@ function dominantClass(fleet: Fleet): ShipClass {
   return 'destroyer';
 }
 
+// ---------------------------------------------------------------------------
+// Плавный перелёт по линиям снабжения.
+//
+// Симуляция ведёт флот по ломаной: доля пути внутри текущего отрезка. Если
+// рисовать это буквально, на каждой промежуточной планете корабль ломает курс
+// под углом и дёргается. Здесь та же доля пути сэмплируется на сплайне
+// Катмулла–Рома, продетом через узлы маршрута: положение остаётся тем же с
+// точностью до кривизны, а курс меняется непрерывно.
+//
+// Сплайн — только для картинки. Симуляция по-прежнему считает по отрезкам,
+// поэтому расстояния, скорость и перехваты не меняются.
+// ---------------------------------------------------------------------------
+
+/** Одна координата Катмулла–Рома (натяжение 0.5). */
+function catmull(p0: number, p1: number, p2: number, p3: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+    + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+}
+
+interface SmoothPos { x: number; y: number; lift: number }
+
+/**
+ * Положение флота на сглаженном маршруте. `lift` — 0…1 вдоль перелёта:
+ * корабль приподнимается над плоскостью карты в середине пути и садится
+ * обратно у цели, поэтому взлёт и посадка читаются как движение, а не как
+ * телепорт с орбиты на линию.
+ */
+function smoothTransit(state: GameState, fleet: Fleet): SmoothPos | null {
+  const t = fleet.transit;
+  if (!t) return null;
+  const path = t.path;
+  const n = path.length - 1;
+  if (n < 1) return null;
+  const at = (i: number): { x: number; y: number } => {
+    const id = path[Math.max(0, Math.min(n, i))]!;
+    return state.galaxy.planets.get(id)?.pos ?? { x: 0, y: 0 };
+  };
+  const i = Math.max(0, Math.min(n - 1, t.legIndex));
+  const local = Math.max(0, Math.min(1, t.progress));
+  const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+  // Доля всего перелёта — по ней считается высота дуги.
+  const global = (i + local) / n;
+  return {
+    x: catmull(p0.x, p1.x, p2.x, p3.x, local),
+    y: catmull(p0.y, p1.y, p2.y, p3.y, local),
+    lift: Math.sin(Math.PI * global),
+  };
+}
+
 /** Кратчайшая интерполяция угла (через ±π). */
 function lerpAngle(a: number, b: number, t: number): number {
   let d = (b - a) % (Math.PI * 2);
@@ -200,17 +251,25 @@ export class FleetLayer {
         }
       }
 
-      // В полёте по линиям снабжения.
-      const wp = fleetWorldPos(state.galaxy, fleet);
+      // В полёте по линиям снабжения: положение снимается со сплайна, поэтому
+      // на промежуточных мирах курс не ломается под углом.
+      const sp = smoothTransit(state, fleet);
+      const wp = sp ?? fleetWorldPos(state.galaxy, fleet);
       const x = wp.x * this.scale;
       const z = wp.y * this.scale;
       const dx = x - fm.last.x;
       const dz = z - fm.last.y;
       if (Math.abs(dx) + Math.abs(dz) > 1e-6) {
-        fm.yaw = lerpAngle(fm.yaw, Math.atan2(dx, dz), dt * 5);
+        // Курс тоже тянется плавно: резкий доворот на узле маршрута выглядел
+        // бы рывком даже на гладкой траектории.
+        fm.yaw = lerpAngle(fm.yaw, Math.atan2(dx, dz), dt * 3.2);
       }
       fm.model.rotation.y = fm.yaw;
-      fm.group.position.set(x, (fm.special ? 0.32 : 0.2) + bob, z);
+      // Дуга перелёта: корабль поднимается над плоскостью и садится у цели.
+      const lift = sp ? sp.lift * 0.5 : 0;
+      fm.group.position.set(x, (fm.special ? 0.32 : 0.2) + bob + lift, z);
+      // Крен в поворот — корабль «ложится на крыло», а не скользит боком.
+      fm.model.rotation.z = THREE.MathUtils.lerp(fm.model.rotation.z, 0, dt * 3);
       // выхлоп: разгорается в полёте и пульсирует
       fm.exhaustMat.opacity = Math.min(0.75, fm.exhaustMat.opacity + dt * 3);
       fm.exhaust.scale.y = 0.85 + Math.sin(this.t * 9 + fm.phase) * 0.25;

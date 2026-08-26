@@ -3,7 +3,8 @@ import { FACTIONS, FACTION_IDS } from '../data/factions';
 import type { GameState } from '../game/state';
 import { applyCommand } from './commands';
 import { netBridge, type NetEvent } from './bridge';
-import { PROTOCOL_VERSION, type Cmd, type LobbySlot, type NetMessage } from './protocol';
+import { PROTOCOL_VERSION, type Cmd, type LobbySlot, type NetMessage, type PartyMember } from './protocol';
+import { partyCodeFor, resolveJoinTarget } from './partyCode';
 import { applySnapshot, encodeSnapshot } from './snapshot';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,10 @@ let hostFaction: FactionId = 'superEarth';
 
 /** Клиент: что показывать в лобби и есть ли связь. */
 let lobbySlots: LobbySlot[] = [];
+/** Список людей в партии — виден и в лобби, и в меню паузы. */
+let partyMembers: PartyMember[] = [];
+/** Код партии: у хоста считается из адреса, клиенту приходит с welcome. */
+let partyCodeValue: string | null = null;
 let onLobby: ((slots: LobbySlot[]) => void) | null = null;
 let onStart: ((faction: FactionId, snapshot: string) => void) | null = null;
 let onDropped: (() => void) | null = null;
@@ -63,15 +68,54 @@ function buildSlots(): LobbySlot[] {
   });
 }
 
+/** Кто сейчас в партии: хост плюс все подключённые, с их сторонами. */
+function buildMembers(): PartyMember[] {
+  const out: PartyMember[] = [
+    { peer: 'host', name: 'Хост', faction: hostFaction, isHost: true },
+  ];
+  for (const [peer, name] of peerName) {
+    out.push({ peer, name, faction: peerFaction.get(peer) ?? null, isHost: false });
+  }
+  return out;
+}
+
 function pushLobby(): void {
   const slots = buildSlots();
   lobbySlots = slots;
-  netBridge()?.broadcast({ k: 'lobby', slots });
+  partyMembers = buildMembers();
+  netBridge()?.broadcast({ k: 'lobby', slots, members: partyMembers, code: partyCodeValue });
   onLobby?.(slots);
 }
 
 export function getLobbySlots(): LobbySlot[] {
   return lobbySlots;
+}
+
+/** Список игроков партии. Пуст в одиночной игре. */
+export function getPartyMembers(): PartyMember[] {
+  return partyMembers;
+}
+
+/** Код партии для показа. null — партия не сетевая или адрес не IPv4. */
+export function getPartyCode(): string | null {
+  return partyCodeValue;
+}
+
+/**
+ * Хост исключает игрока. Клиенту уходит причина, затем канал закрывается;
+ * освободившуюся фракцию подхватывает ИИ — как при обычном отвале.
+ */
+export function kickPeer(peer: string): boolean {
+  if (role !== 'host' || peer === 'host') return false;
+  const net = netBridge();
+  if (!net) return false;
+  const faction = peerFaction.get(peer);
+  peerFaction.delete(peer);
+  peerName.delete(peer);
+  if (faction && state) state.humans = state.humans.filter((f) => f !== faction);
+  void net.drop(peer, 'Вас исключил хост');
+  pushLobby();
+  return true;
 }
 
 export function setLobbyHandlers(h: {
@@ -88,7 +132,7 @@ export function setLobbyHandlers(h: {
 
 // --- Хост -------------------------------------------------------------------
 
-export async function startHosting(faction: FactionId): Promise<{ ok: boolean; addresses?: string[]; port?: number; error?: string }> {
+export async function startHosting(faction: FactionId): Promise<{ ok: boolean; addresses?: string[]; port?: number; code?: string | null; error?: string }> {
   const net = netBridge();
   if (!net) return { ok: false, error: 'Сетевая игра доступна только в десктопной сборке' };
   const res = await net.host();
@@ -97,9 +141,12 @@ export async function startHosting(faction: FactionId): Promise<{ ok: boolean; a
   hostFaction = faction;
   peerFaction.clear();
   peerName.clear();
+  // Код партии — это упакованный адрес хоста, поэтому считается один раз
+  // здесь и дальше только раздаётся.
+  partyCodeValue = partyCodeFor(res.addresses ?? [], res.port ?? undefined);
   listen();
   pushLobby();
-  return { ok: true, addresses: res.addresses, port: res.port };
+  return { ok: true, addresses: res.addresses, port: res.port, code: partyCodeValue };
 }
 
 function handleHostMessage(from: string, msg: NetMessage): void {
@@ -112,7 +159,10 @@ function handleHostMessage(from: string, msg: NetMessage): void {
         return;
       }
       peerName.set(from, (msg.name || 'Игрок').slice(0, 24));
-      net.sendTo(from, { k: 'welcome', version: PROTOCOL_VERSION, peer: from, slots: buildSlots() });
+      net.sendTo(from, {
+        k: 'welcome', version: PROTOCOL_VERSION, peer: from,
+        slots: buildSlots(), members: buildMembers(), code: partyCodeValue,
+      });
       pushLobby();
       return;
     }
@@ -173,10 +223,16 @@ function startSnapshotLoop(): void {
 
 // --- Клиент -----------------------------------------------------------------
 
-export async function joinGame(host: string, name: string): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Подключиться по коду партии или по обычному адресу — разбираем и то и
+ * другое, чтобы не заставлять игрока выбирать формат.
+ */
+export async function joinGame(input: string, name: string): Promise<{ ok: boolean; error?: string }> {
   const net = netBridge();
   if (!net) return { ok: false, error: 'Сетевая игра доступна только в десктопной сборке' };
-  const res = await net.join(host);
+  const target = resolveJoinTarget(input);
+  if (!target) return { ok: false, error: 'Не разобрать код партии' };
+  const res = await net.join(target.host, target.port);
   if (!res.ok) return { ok: false, error: res.error ?? 'не удалось подключиться' };
   role = 'client';
   listen();
@@ -192,10 +248,14 @@ function handleClientMessage(msg: NetMessage): void {
   switch (msg.k) {
     case 'welcome':
       lobbySlots = msg.slots;
+      partyMembers = msg.members ?? [];
+      partyCodeValue = msg.code ?? null;
       onLobby?.(msg.slots);
       return;
     case 'lobby':
       lobbySlots = msg.slots;
+      partyMembers = msg.members ?? partyMembers;
+      if (msg.code !== undefined) partyCodeValue = msg.code;
       onLobby?.(msg.slots);
       return;
     case 'start':
@@ -257,6 +317,8 @@ export function leave(): void {
   peerFaction.clear();
   peerName.clear();
   lobbySlots = [];
+  partyMembers = [];
+  partyCodeValue = null;
   role = 'single';
   state = null;
   netBridge()?.close();

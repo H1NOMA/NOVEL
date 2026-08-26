@@ -77,10 +77,13 @@ function parseGlbJson(buf: Buffer): { asset?: { version?: string }; meshes?: unk
 
 // --- Рельефные меши миров -----------------------------------------------------
 {
+  // Базовый набор, без которого рендер откатится на гладкую сферу. Семейств
+  // рельефа с тех пор прибавилось (раунд 48), поэтому проверяем наличие, а не
+  // точное число: новый меш не должен ронять тест.
   const expected = ['mountain', 'crater', 'dune', 'fracture', 'volcanic', 'smooth',
     'ring', 'moon', 'asteroid'];
   const files = readdirSync(PLANETS_DIR).filter((f) => f.endsWith('.glb'));
-  ok(files.length === expected.length, `мешей миров ${expected.length} (нашлось ${files.length})`);
+  ok(files.length >= expected.length, `мешей миров не меньше ${expected.length} (нашлось ${files.length})`);
   for (const name of expected) {
     const buf = readFileSync(join(PLANETS_DIR, `${name}.glb`));
     ok(buf.length > 20_000, `${name}: меш не пустышка (${buf.length} байт)`);
@@ -95,7 +98,15 @@ function parseGlbJson(buf: Buffer): { asset?: { version?: string }; meshes?: unk
 // --- Интеграция рельефа -------------------------------------------------------
 {
   const assets = readFileSync(join(ROOT, 'src', 'render', 'planetAssets.ts'), 'utf8');
-  ok((assets.match(/\.glb\?url/g) ?? []).length === 9, 'planetAssets импортирует все меши');
+  // Импортов ровно столько, сколько файлов в папке: новый меш, забытый в
+  // planetAssets, никуда не попадёт и молча пропадёт из игры.
+  const meshFiles = readdirSync(PLANETS_DIR).filter((f) => f.endsWith('.glb'));
+  const glbCount = (assets.match(/\.glb\?url/g) ?? []).length;
+  ok(glbCount === meshFiles.length,
+    `planetAssets импортирует все меши (${glbCount} из ${meshFiles.length})`);
+  for (const f of meshFiles) {
+    ok(assets.includes(`planets/${f}?url`), `меш подключён: ${f}`);
+  }
   ok(assets.includes('computeVertexNormals'), 'нормали считаются в рантайме');
 
   const mesh = readFileSync(join(ROOT, 'src', 'render', 'planetMesh.ts'), 'utf8');

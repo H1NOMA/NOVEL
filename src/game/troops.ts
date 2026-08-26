@@ -71,14 +71,21 @@ export function mineMinerals(state: GameState, faction: FactionId): number {
   // Балансовые прогоны (5 сидов × 10 лет): при 0.22 машины выигрывали
   // экономику в каждой партии — темп срезан до 0.17.
   let rate = faction === 'automatons' ? 0.17 : 0.11;
-  // Условие кампании «Богатые жилы»: щедрая галактика.
-  if (modActive(state, 'richVeins')) rate *= 1.5;
+  let mineRate = 0.06;
+  // Условие кампании «Богатые жилы»: щедрая галактика. Множитель идёт и на
+  // города-шахты — жилы богаче ВЕЗДЕ, а не только в залежах на карте. Раньше
+  // шахты его не получали, и на мирах, где вся добыча держалась на них,
+  // условие кампании почти ничего не меняло.
+  if (modActive(state, 'richVeins')) {
+    rate *= 1.5;
+    mineRate *= 1.5;
+  }
   let income = 0;
   for (const p of planetsOf(state, faction)) {
     if (!p.supplied) continue;
     if (p.minerals > 0) income += p.minerals * rate;
     // Город-шахта даёт руду даже на бедных мирах.
-    income += p.cities.filter((c) => c.spec === 'mine' && c.holder === faction).length * 0.06;
+    income += p.cities.filter((c) => c.spec === 'mine' && c.holder === faction).length * mineRate;
   }
   state.factions[faction].resources.minerals += income;
   return income;

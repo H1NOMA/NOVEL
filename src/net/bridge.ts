@@ -19,6 +19,8 @@ interface NetBridge {
   send(msg: NetMessage): Promise<boolean>;
   sendTo(peer: string, msg: NetMessage): Promise<boolean>;
   broadcast(msg: NetMessage): Promise<number>;
+  /** Хост исключает клиента: причина уходит ему, затем канал закрывается. */
+  drop(peer: string, reason: string): Promise<boolean>;
   close(): Promise<boolean>;
   addresses(): Promise<string[]>;
   onEvent(fn: (e: NetEvent) => void): () => void;

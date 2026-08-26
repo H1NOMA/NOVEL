@@ -122,6 +122,60 @@ def relief_smooth():
     return o
 
 
+def relief_canyon():
+    """Каньоны: длинные глубокие русла, прорезающие плато."""
+    o = _sphere(112, 76)
+    _displace(o, _noise_tex('k_plate', 'CLOUDS', 0.62, depth=2), 0.048)
+    # Узкие борозды: Вороного с высоким контрастом вырезает русла, а не ямы.
+    _displace(o, _noise_tex('k_gorge', 'VORONOI', 0.30, intensity=1.4, contrast=3.0), -0.052)
+    _displace(o, _noise_tex('k_fine', 'CLOUDS', 0.11, depth=4), 0.016)
+    return o
+
+
+def relief_archipelago():
+    """Архипелаги: мелководные шельфы и россыпь островных дуг."""
+    o = _sphere(104, 70)
+    _displace(o, _noise_tex('a_shelf', 'CLOUDS', 0.85, depth=3), 0.030)
+    _displace(o, _noise_tex('a_isles', 'CLOUDS', 0.24, depth=5, contrast=2.2), 0.038)
+    _displace(o, _noise_tex('a_ripple', 'CLOUDS', 0.07, depth=2), 0.010)
+    return o
+
+
+def relief_shard():
+    """Осколочный мир: угловатые грани, будто планету собрали из обломков."""
+    o = _sphere(96, 64)
+    _displace(o, _noise_tex('h_facet', 'VORONOI', 0.55, intensity=1.5, contrast=2.8), 0.062)
+    _displace(o, _noise_tex('h_chip', 'VORONOI', 0.20, contrast=2.4), -0.028)
+    return o
+
+
+def relief_mesa():
+    """Столовые горы: широкие плоские плато с обрывистыми краями."""
+    o = _sphere(112, 76)
+    # Высокий контраст на крупном шуме даёт «ступени» вместо плавных холмов.
+    _displace(o, _noise_tex('t_mesa', 'CLOUDS', 0.48, depth=2, contrast=3.2), 0.058)
+    _displace(o, _noise_tex('t_step', 'VORONOI', 0.38, contrast=2.0), 0.020)
+    _displace(o, _noise_tex('t_grit', 'CLOUDS', 0.09, depth=3), 0.012)
+    return o
+
+
+def relief_basin():
+    """Древние бассейны: огромные пологие впадины и валы вокруг них."""
+    o = _sphere(104, 70)
+    _displace(o, _noise_tex('b_basin', 'VORONOI', 0.72, intensity=1.1), -0.060)
+    _displace(o, _noise_tex('b_rim', 'CLOUDS', 0.34, depth=3), 0.028)
+    _displace(o, _noise_tex('b_dust', 'CLOUDS', 0.12, depth=2), 0.010)
+    return o
+
+
+def relief_storm():
+    """Газовые гиганты: широкие полосы облаков и вихревые пятна."""
+    o = _sphere(96, 64)
+    _displace(o, _noise_tex('g_band', 'CLOUDS', 1.4, depth=2), 0.026)
+    _displace(o, _noise_tex('g_eddy', 'CLOUDS', 0.30, depth=4, contrast=1.5), 0.016)
+    return o
+
+
 RELIEFS = {
     'mountain': relief_mountain,
     'crater': relief_crater,
@@ -129,6 +183,12 @@ RELIEFS = {
     'fracture': relief_fracture,
     'volcanic': relief_volcanic,
     'smooth': relief_smooth,
+    'canyon': relief_canyon,
+    'archipelago': relief_archipelago,
+    'shard': relief_shard,
+    'mesa': relief_mesa,
+    'basin': relief_basin,
+    'storm': relief_storm,
 }
 
 

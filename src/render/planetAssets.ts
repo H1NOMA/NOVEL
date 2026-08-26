@@ -24,8 +24,16 @@ import smoothUrl from '../assets/planets/smooth.glb?url';
 import ringUrl from '../assets/planets/ring.glb?url';
 import moonUrl from '../assets/planets/moon.glb?url';
 import asteroidUrl from '../assets/planets/asteroid.glb?url';
+import canyonUrl from '../assets/planets/canyon.glb?url';
+import archipelagoUrl from '../assets/planets/archipelago.glb?url';
+import shardUrl from '../assets/planets/shard.glb?url';
+import mesaUrl from '../assets/planets/mesa.glb?url';
+import basinUrl from '../assets/planets/basin.glb?url';
+import stormUrl from '../assets/planets/storm.glb?url';
 
-export type ReliefId = 'mountain' | 'crater' | 'dune' | 'fracture' | 'volcanic' | 'smooth';
+export type ReliefId =
+  | 'mountain' | 'crater' | 'dune' | 'fracture' | 'volcanic' | 'smooth'
+  | 'canyon' | 'archipelago' | 'shard' | 'mesa' | 'basin' | 'storm';
 
 const URLS: Record<string, string> = {
   mountain: mountainUrl,
@@ -37,6 +45,12 @@ const URLS: Record<string, string> = {
   ring: ringUrl,
   moon: moonUrl,
   asteroid: asteroidUrl,
+  canyon: canyonUrl,
+  archipelago: archipelagoUrl,
+  shard: shardUrl,
+  mesa: mesaUrl,
+  basin: basinUrl,
+  storm: stormUrl,
 };
 
 const geoms = new Map<string, THREE.BufferGeometry>();
@@ -65,17 +79,17 @@ export function preloadPlanetModels(): Promise<void> {
 /** Какое семейство рельефа носит биом. Часть биомов делит два варианта —
  *  выбор закреплён за seed'ом мира, поэтому одинаковые планеты не рождаются. */
 const BIOME_RELIEF: Record<BiomeId, ReliefId[]> = {
-  terran: ['mountain', 'mountain', 'crater'],
-  ocean: ['smooth', 'mountain'],
-  desert: ['dune', 'dune', 'crater'],
-  ice: ['fracture', 'crater'],
-  volcanic: ['volcanic', 'mountain'],
-  jungle: ['mountain'],
-  gloom: ['mountain', 'dune'],
-  barren: ['crater', 'crater', 'fracture'],
-  toxic: ['mountain', 'dune'],
-  gas: ['smooth'],
-  magma: ['volcanic', 'volcanic', 'crater'],
+  terran: ['mountain', 'canyon', 'mesa', 'crater', 'archipelago'],
+  ocean: ['archipelago', 'smooth', 'archipelago', 'basin'],
+  desert: ['dune', 'mesa', 'canyon', 'dune', 'crater'],
+  ice: ['fracture', 'shard', 'basin', 'crater'],
+  volcanic: ['volcanic', 'canyon', 'shard', 'mesa'],
+  jungle: ['mountain', 'archipelago', 'canyon'],
+  gloom: ['mountain', 'dune', 'basin', 'mesa'],
+  barren: ['crater', 'basin', 'shard', 'fracture', 'mesa'],
+  toxic: ['mountain', 'dune', 'canyon', 'basin'],
+  gas: ['storm', 'smooth', 'storm'],
+  magma: ['volcanic', 'canyon', 'shard', 'crater'],
 };
 
 /** Геометрия рельефа мира; null — модели нет (откат на гладкую сферу). */

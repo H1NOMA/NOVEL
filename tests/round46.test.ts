@@ -152,16 +152,22 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   // Недоступные пункты гасятся, а не пропадают — порядок кнопок заучивается.
   ok(menu.includes("mm-btn plain ${on ? '' : 'off'}"), 'недоступный пункт гасится классом off');
   ok(menu.includes('disabled'), 'недоступный пункт не кликается');
-  // Корневые кнопки — только надпись: подсказок под ними нет.
-  const rootBlock = menu.slice(menu.indexOf('rootScreen'), menu.indexOf('careerScreen'));
+  // Тело корневого экрана. Режем от ОПРЕДЕЛЕНИЯ метода, а не от первого
+  // упоминания имени: в роутере render() оно встречается раньше, и срез
+  // получался в три строки — проверки ниже смотрели в пустоту.
+  const rootStart = menu.indexOf('private rootScreen(): string {');
+  ok(rootStart > 0, 'тело корневого экрана найдено');
+  const rootBlock = menu.slice(rootStart, menu.indexOf('private careerScreen(): string {'));
+  ok(rootBlock.length > 300, `срез корневого экрана непустой (${rootBlock.length} симв.)`);
   ok(!rootBlock.includes('mm-btn-hint'), 'подсказок под кнопками меню нет');
   ok(!rootBlock.includes('mm-btn-text'), 'обёртка под две строки больше не нужна');
   ok(!rootBlock.includes('mm-btn-idx'), 'нумерации слева от надписей нет');
   ok(!menu.includes('mm-sub'), 'подзаголовок над меню убран');
-  // Сеть уехала из корня в настройки: корневых пунктов ровно шесть.
-  const root = menu.slice(menu.indexOf('rootScreen'), menu.indexOf('careerScreen'));
-  ok(!root.includes("'net'"), 'сетевая партия убрана из корневого меню');
-  ok(menu.includes("data-go=\"net\""), 'вход в сеть остался в настройках');
+  // Сетевая игра стоит в корне сразу под «Продолжить» (раунд 48).
+  ok(rootBlock.includes("['net', 'СЕТЕВАЯ ИГРА'"), 'сетевая игра — пункт корневого меню');
+  ok(rootBlock.indexOf("'continue'") < rootBlock.indexOf("'net'")
+    && rootBlock.indexOf("'net'") < rootBlock.indexOf("'new'"),
+    'сеть стоит сразу под «Продолжить»');
   console.log('состав главного меню: OK');
 }
 

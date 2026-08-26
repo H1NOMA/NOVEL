@@ -37,15 +37,21 @@ function startGame(state: GameState, opts: { host?: boolean } = {}): void {
   // Отладочный крючок для автотестов и консоли (не влияет на игру).
   (window as unknown as Record<string, unknown>).__game = { state, scene, clock, ui };
 
-  // Render loop (visuals run every frame regardless of sim speed).
-  const renderLoop = (): void => {
+  // Один цикл на симуляцию и рендер.
+  //
+  // Раньше их было два: свой requestAnimationFrame у часов и свой у сцены.
+  // Просыпались они в разные моменты кадра, поэтому сцена то и дело рисовала
+  // положение флотов, посчитанное для прошлого вызова, — отсюда микро-рывки
+  // на перелётах. Теперь порядок жёсткий: сначала шаг мира, потом кадр.
+  let last = performance.now();
+  const loop = (now: number): void => {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    clock.frame(dt);
     scene.render();
-    requestAnimationFrame(renderLoop);
+    requestAnimationFrame(loop);
   };
-  requestAnimationFrame(renderLoop);
-
-  // Simulation clock (advances days according to speed).
-  clock.start();
+  requestAnimationFrame(loop);
 
   // Reveal the galaxy.
   const loading = document.getElementById('loading');
