@@ -16,8 +16,22 @@ import { applySnapshot, encodeSnapshot } from './snapshot';
 // следующим снапшотом.
 // ---------------------------------------------------------------------------
 
-/** Как часто хост рассылает состояние (реальные миллисекунды). */
-const SNAPSHOT_INTERVAL_MS = 900;
+/**
+ * Как часто хост рассылает состояние (реальные миллисекунды).
+ *
+ * Клиент больше ничего не считает сам, поэтому срез — единственный источник
+ * движения мира на его экране: на прежних 900 мс война шла заметными скачками
+ * раз в секунду. Замер на партии 200-го дня: срез 139 КиБ, сборка 1.4 мс,
+ * применение 1.0 мс — при 300 мс это меньше процента процессорного времени и
+ * порядка 0.5 МБ/с на клиента, что локальная сеть не замечает.
+ */
+const SNAPSHOT_INTERVAL_MS = 300;
+
+/**
+ * На паузе мир не меняется, гнать по три среза в секунду незачем — держим
+ * редкий пульс, чтобы чужие приказы всё же доезжали за секунду.
+ */
+const PAUSED_SNAPSHOT_EVERY = 4;
 
 export type Role = 'single' | 'host' | 'client';
 
@@ -236,7 +250,11 @@ function handleHostMessage(from: string, msg: NetMessage): void {
       }
       if (!applyCommand(state, actor, msg.cmd)) {
         net.sendTo(from, { k: 'nak', reason: 'Приказ отклонён' });
+        return;
       }
+      // На паузе очередной срез ждать до секунды: отдав приказ, игрок должен
+      // увидеть результат сразу, а не после того, как кто-то снимет паузу.
+      if (state.speed === 0) net.broadcast({ k: 'snapshot', snapshot: encodeSnapshot(state) });
       return;
     }
     case 'resync': {
@@ -264,8 +282,11 @@ export function hostStartGame(s: GameState): void {
 
 function startSnapshotLoop(): void {
   if (snapshotTimer !== null) return;
+  let tick = 0;
   snapshotTimer = window.setInterval(() => {
     if (role !== 'host' || !state || peerFaction.size === 0) return;
+    tick++;
+    if (state.speed === 0 && tick % PAUSED_SNAPSHOT_EVERY !== 0) return;
     netBridge()?.broadcast({ k: 'snapshot', snapshot: encodeSnapshot(state) });
   }, SNAPSHOT_INTERVAL_MS);
 }

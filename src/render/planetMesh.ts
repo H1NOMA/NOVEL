@@ -53,14 +53,64 @@ float snoise(vec3 v){
   m = m * m;
   return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
+/**
+ * Сколько октав шума ИМЕЕТ СМЫСЛ считать в этом пикселе.
+ *
+ * Ставится один раз в main() и дальше действует на весь шум поверхности.
+ * Верхняя граница — настройка качества и дистанция (uOct), нижняя — размер
+ * пикселя: октаву, период которой уже, чем пиксель, считать не только
+ * бесполезно, но и вредно — из неё рождается ползущая рябь.
+ */
+float gOct = 5.0;
+
 float fbm(vec3 p){
   float f = 0.0; float amp = 0.5;
-  // Дальняя камера рубит октавы (uOct 3 вместо 5) — деталей всё равно не видно.
-  for(int i=0;i<5;i++){
-    if (float(i) >= uOct) break;
-    f += amp*snoise(p); p *= 2.02; amp *= 0.5;
+  // Октав стало семь вместо пяти, и множитель частоты чуть больше двух:
+  // «мыло» на поверхности было именно нехваткой верхних октав — крупные
+  // пятна шума без мелкой структуры читаются как размытие.
+  for(int i=0;i<7;i++){
+    if (float(i) >= gOct) break;
+    f += amp*snoise(p); p *= 2.07; amp *= 0.5;
   }
   return f;
+}
+
+/**
+ * Ridged multifractal — хребты с ОСТРЫМ гребнем.
+ *
+ * Обычный fbm даёт мягкие холмы: сумма синусоподобного шума нигде не имеет
+ * излома. Модуль с инверсией создаёт складку на нуле, и рельеф получает
+ * чёткие кромки — то, чего поверхностям не хватало больше всего.
+ */
+float ridged(vec3 p, float oct){
+  float f = 0.0; float amp = 0.5; float prev = 1.0;
+  for(int i=0;i<6;i++){
+    if (float(i) >= oct) break;
+    float n = 1.0 - abs(snoise(p));
+    n *= n;
+    f += n * amp * prev;
+    prev = n;
+    p *= 2.13; amp *= 0.5;
+  }
+  return f;
+}
+
+/** Одна октава высокой частоты: зерно поверхности, «кожа» планеты. */
+float grit(vec3 p){
+  return snoise(p) * 0.5 + 0.5;
+}
+
+/**
+ * Насколько уместна деталь такой частоты в этом пикселе.
+ *
+ * Мелкое зерно даёт резкость ровно до того момента, пока период узора шире
+ * пикселя. Дальше начинается муар: планета в двадцать пикселей покрывается
+ * шевелящейся «солью с перцем», и это хуже любого мыла. fwidth говорит,
+ * сколько поверхности приходится на пиксель, — и деталь плавно гаснет ровно
+ * там, где её всё равно не разрешить.
+ */
+float band(float freq, float fw){
+  return 1.0 - smoothstep(0.30, 0.90, fw * freq);
 }
 `;
 
@@ -100,6 +150,13 @@ ${NOISE_GLSL}
 void main(){
   vec3 n = normalize(vObj);
   vec3 sp = n * (uFreq + uRough) + vec3(uSeed);
+  // Размер пикселя на поверхности сферы — мера того, какие частоты вообще
+  // различимы отсюда. Ниже ею гасятся все мелкие узоры.
+  float fw = fwidth(n.x) + fwidth(n.y) + fwidth(n.z);
+  float scl = uFreq + uRough;
+  // Предел различимости: последняя октава, чей период ещё шире пикселя.
+  // log2(2.07) ≈ 1.05 — во столько раз растёт частота на каждой октаве.
+  gOct = clamp(log2(0.60 / max(fw * scl, 1e-5)) / 1.05, 1.0, uOct);
 
   // Доменное искажение — континенты обретают естественные рваные очертания.
   vec3 w = vec3(fbm(sp + 13.1), fbm(sp + 71.7), fbm(sp + 29.3));
@@ -130,21 +187,56 @@ void main(){
   // Высотная окраска суши: низины темнее и сочнее, нагорья светлее.
   float relief = fbm(q * 2.6);
   surf = mix(surf * 0.8, surf * 1.25, smoothstep(-0.4, 0.6, relief) * land);
-  // Мелкий рельеф.
+
+  // --- Настоящий рельеф вместо размытых пятен ------------------------------
+  //
+  // Три слоя разного масштаба, и каждый добавляет ту частоту, которой раньше
+  // не было: складчатые горы с острым гребнем, эрозионная сетка долин и
+  // мелкое зерно поверхности. Всё считается только на суше — на воде и в
+  // облаках эти детали не нужны и стоили бы даром.
+  float mountains = ridged(q * 1.9 + 4.3, min(gOct, 5.0));
+  float chains = smoothstep(0.55, 0.95, mountains) * band(scl * 1.9, fw);
+  surf = mix(surf, surf * 0.66, chains * 0.55 * land);
+  float crest = smoothstep(0.86, 1.02, mountains) * band(scl * 1.9, fw);
+  surf += vec3(0.13, 0.12, 0.11) * crest * land;
+
+  // Эрозия: узкие тёмные жилы долин там, где склон круче всего.
+  float valleys = 1.0 - abs(fbm(q * 4.1 + 51.0));
+  surf = mix(surf, surf * 0.72,
+    smoothstep(0.88, 1.0, valleys) * land * 0.7 * band(scl * 4.1, fw));
+
+  // Зерно поверхности — то, что глаз читает как «резкость». Каждый слой
+  // живёт ровно до своего предела различимости, иначе вместо резкости
+  // получается муар.
   float detail = fbm(q * 5.3);
-  surf *= 0.86 + 0.24 * (detail * 0.5 + 0.5);
+  surf *= 1.0 + (detail * 0.5 - 0.07) * 0.28 * band(scl * 5.3, fw);
+  surf *= 1.0 + (grit(q * 15.0) - 0.5) * 0.22 * band(scl * 15.0, fw);
+  surf *= 1.0 + (grit(q * 38.0 + 7.0) - 0.5) * 0.13 * band(scl * 38.0, fw);
+
   // Прибрежная полоса чуть светлее (отмели).
   float shore = smoothstep(uWater - 0.05, uWater, hn) * (1.0 - land);
   surf += uSea * shore * 0.5;
 
   // Хребты: тёмные жилы горных цепей (пустыни и безводные миры).
   if (uRidges > 0.5) {
-    float ridge = 1.0 - abs(fbm(q * 2.2 + 31.0));
-    float chains = smoothstep(0.78, 0.94, ridge);
-    surf = mix(surf, surf * 0.45, chains * 0.8);
-    // подсветка гребней
-    float crest = smoothstep(0.9, 0.98, ridge);
-    surf += vec3(0.16, 0.13, 0.09) * crest;
+    // На безводных мирах горы — главный сюжет поверхности, поэтому вторая,
+    // более крупная гряда поверх общей складчатости.
+    float ridge = ridged(q * 1.15 + 31.0, min(gOct, 5.0));
+    float big = smoothstep(0.50, 0.92, ridge) * band(scl * 1.15, fw);
+    surf = mix(surf, surf * 0.45, big * 0.8);
+    surf += vec3(0.16, 0.13, 0.09) * smoothstep(0.88, 1.05, ridge) * band(scl * 1.15, fw);
+    // Дюнные поля между грядами: направленная рябь, а не изотропный шум.
+    float dunes = sin(dot(n, vec3(0.7, 0.2, -0.68)) * 90.0 + fbm(q * 1.7) * 9.0);
+    surf *= 1.0 + 0.055 * dunes * (1.0 - big) * band(90.0, fw);
+  }
+
+  // Ледяные миры: поля разломанных плит с подсвеченными кромками.
+  if (uIce > 0.5) {
+    float plate = 1.0 - abs(fbm(q * 3.3 + 77.0));
+    float vis = band(scl * 3.3, fw);
+    float crack = smoothstep(0.90, 0.995, plate) * vis;
+    surf = mix(surf, surf * 0.68 + vec3(0.05, 0.09, 0.14), crack * 0.85);
+    surf += vec3(0.10, 0.13, 0.16) * smoothstep(0.975, 1.0, plate) * vis;
   }
 
   // Кратерные поля мёртвых миров: чаши с подсвеченными валами.
@@ -237,7 +329,7 @@ void main(){
   // Ледяные миры: сеть трещин и холодный зеркальный блеск.
   if (uIce > 0.5) {
     float cracks = smoothstep(0.84, 0.96, 1.0 - abs(fbm(q * 5.5 + 23.0)));
-    col = mix(col, vec3(0.6, 0.8, 1.0), cracks * 0.3);
+    col = mix(col, vec3(0.6, 0.8, 1.0), cracks * 0.3 * band(scl * 5.5, fw));
     col += vec3(0.7, 0.85, 1.0) * spec * 0.4;
   }
 
@@ -252,14 +344,15 @@ void main(){
     float heat = fbm(flow) * 0.5 + 0.5;
     col += uSea * (1.0 - land) * (0.42 + 0.16 * heat);
     float veins = smoothstep(0.78, 0.93, 1.0 - abs(fbm(q * 4.2 + 7.0)));
-    col += vec3(1.0, 0.36, 0.06) * veins * land * (0.62 + 0.34 * heat);
+    col += vec3(1.0, 0.36, 0.06) * veins * land * (0.62 + 0.34 * heat) * band(scl * 4.2, fw);
   }
 
   // Ночные огни городов на тёмной стороне обитаемых миров.
   if (uCity > 0.5) {
     float night = 1.0 - smoothstep(0.0, 0.25, diff);
     float lights = smoothstep(0.72, 0.86, fbm(q * 7.0) * 0.5 + 0.5);
-    col += vec3(1.0, 0.82, 0.45) * lights * night * land * (1.0 - clouds) * 0.9;
+    col += vec3(1.0, 0.82, 0.45) * lights * night * land * (1.0 - clouds) * 0.9
+      * mix(0.35, 1.0, band(scl * 7.0, fw));
   }
 
   // Погода войны: на сражающейся планете тлеют пожары и стелется гарь.
@@ -469,7 +562,10 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const land = new THREE.Color(biome.land).offsetHSL(rand() * 0.08 - 0.04, rand() * 0.2 - 0.1, rand() * 0.16 - 0.08);
   const sea = new THREE.Color(biome.sea).offsetHSL(rand() * 0.06 - 0.03, rand() * 0.2 - 0.1, rand() * 0.12 - 0.06);
   const water = Math.min(0.95, Math.max(0.02, biome.water + rand() * 0.26 - 0.13));
-  const freq = 1.0 + rand() * 2.3;
+  // Разброс базовой частоты расширен: раньше все миры одного биома лепились
+  // из шума почти одного масштаба и на общем плане выглядели однояйцевыми.
+  // Теперь рядом стоят и мир крупных плит, и мир мелко изрезанной суши.
+  const freq = 0.75 + rand() * 4.1;
   const clouds = Math.min(1, Math.max(0, biome.clouds + rand() * 0.25 - 0.12));
   const spinSpeed = (0.0012 + rand() * 0.003) * (rand() < 0.15 ? -1 : 1);
   const tilt = (rand() * 2 - 1) * 0.35;
@@ -497,6 +593,9 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
+    // fwidth: нужен, чтобы гасить мелкие узоры там, где пиксель шире узора.
+    // На WebGL2 доступен всегда, на WebGL1 включается расширением.
+    extensions: { derivatives: true } as unknown as THREE.ShaderMaterialParameters['extensions'],
     uniforms: {
       uLand: { value: land },
       uSea: { value: sea },
@@ -518,7 +617,7 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       uBattle: { value: 0 },
       uDim: { value: 1 },
       uScar: { value: 0 },
-      uOct: { value: 5 },
+      uOct: { value: 7 },
       uLava: { value: planet.biome === 'magma' || planet.biome === 'volcanic' ? 1 : 0 },
       uIce: { value: planet.biome === 'ice' ? 1 : 0 },
       uToxic: { value: planet.biome === 'toxic' ? 1 : 0 },

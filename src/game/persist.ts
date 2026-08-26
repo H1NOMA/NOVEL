@@ -44,6 +44,8 @@ interface SaveBlob {
   seed: number;
   rngS: number;
   day: number;
+  /** Скорость партии. В сетевой игре она общая и едет клиентам со срезом. */
+  speed?: number;
   player: FactionId;
   factions: Record<FactionId, FactionState>;
   planets: Planet[];
@@ -67,6 +69,7 @@ interface SaveBlob {
   truces?: { a: FactionId; b: FactionId; until: number }[];
   doneObjectives?: string[];
   pendingChoice?: string | null;
+  pendingChoices?: Partial<Record<FactionId, string>>;
   recons?: { sector: string; until: number }[];
   chronicle?: { day: number; text: string }[];
   history?: { day: number; control: Partial<Record<FactionId, number>> }[];
@@ -100,6 +103,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     seed: state.seed,
     rngS: state.rng.dump(),
     day: state.day,
+    speed: state.speed,
     player: state.player,
     factions: state.factions,
     planets: state.galaxy.order.map((id) => state.galaxy.planets.get(id)!),
@@ -122,7 +126,7 @@ export function serializeState(state: GameState, slot: string, name: string): st
     attackPlans: state.attackPlans,
     truces: state.truces,
     doneObjectives: state.doneObjectives,
-    pendingChoice: state.pendingChoice,
+    pendingChoices: state.pendingChoices,
     recons: state.recons,
     chronicle: state.chronicle,
     history: state.history,
@@ -165,7 +169,9 @@ export function deserializeState(json: string): GameState {
     fleetOrder: b.fleetOrder.filter((id) => fleets.has(id)),
     fleetCounter: b.fleetCounter,
     day: b.day,
-    speed: 0,
+    // Загруженная из файла партия всё равно получит скорость из настроек
+    // (см. startGame), а сетевому срезу она нужна: время у стола общее.
+    speed: (b.speed ?? 0) as GameState['speed'],
     player: b.player,
     // Старые сейвы не знают о сетевых партиях: игрок в них ровно один.
     humans: b.humans ?? [b.player],
@@ -192,7 +198,9 @@ export function deserializeState(json: string): GameState {
     // Старые сохранения хранили цели простыми id — они принадлежали одному
     // игроку партии. Дописываем ему фракцию, иначе награда выдастся заново.
     doneObjectives: (b.doneObjectives ?? []).map((id) => (id.includes(':') ? id : `${b.player}:${id}`)),
-    pendingChoice: b.pendingChoice ?? null,
+    // Старое сохранение знало одну развилку — она принадлежала игроку сейва.
+    pendingChoices: b.pendingChoices
+      ?? (b.pendingChoice ? { [b.player]: b.pendingChoice } : {}),
     recons: b.recons ?? [],
     chronicle: b.chronicle ?? [],
     history: b.history ?? [],

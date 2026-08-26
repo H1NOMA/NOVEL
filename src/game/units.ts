@@ -109,6 +109,31 @@ export function stepFleets(state: GameState, days: number): Fleet[] {
   return arrived;
 }
 
+/**
+ * Плавное движение флотов НА КЛИЕНТЕ — только для глаз.
+ *
+ * Клиент сетевой партии мир не считает: правду о нём знает хост, и она
+ * приезжает снапшотом два раза в секунду. Но между снапшотами корабли обязаны
+ * ехать, иначе перелёт превращается в череду рывков. Поэтому здесь двигается
+ * ровно одна величина — доля пройденного участка, и она НЕ доводится до
+ * единицы: прибытие, высадка, продолжение очереди приказов — дело хоста.
+ * Своими силами клиент не должен менять мир ни на грамм.
+ */
+export function interpolateFleets(state: GameState, days: number): void {
+  if (days <= 0) return;
+  for (const id of state.fleetOrder) {
+    const fleet = state.fleets.get(id);
+    const t = fleet?.transit;
+    if (!t) continue;
+    const a = t.path[t.legIndex];
+    const b = t.path[t.legIndex + 1];
+    if (!a || !b) continue;
+    const len = Math.max(1, edgeLength(state.galaxy, a, b));
+    // Упираемся в 0.995: последний штрих сделает снапшот хоста.
+    t.progress = Math.min(0.995, t.progress + (MOVE_SPEED * days) / len);
+  }
+}
+
 /** Interpolated world position of a fleet for rendering. */
 export function fleetWorldPos(galaxy: Galaxy, fleet: Fleet): Vec2 {
   if (!fleet.transit) {

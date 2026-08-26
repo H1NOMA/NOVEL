@@ -511,6 +511,8 @@ export class GalaxyScene {
     this.nebulae.visible = p.comets;
     this.bloom.strength = p.bloomStrength;
     this.setBloomEnabled(this.bloomOn);
+    // Смена пресета сразу меняет и потолок детализации поверхностей.
+    this.lodOct = -1;
     this.resize();
   }
 
@@ -847,8 +849,12 @@ export class GalaxyScene {
   render(): void {
     const dt = this.clock.getDelta();
     const t = this.clock.elapsedTime;
-    // LOD шейдера планет: издали хватает трёх октав шума вместо пяти.
-    const wantOct = this.distance > 24 ? 3 : 5;
+    // LOD шейдера планет. Порог поднят: на общем плане галактики раньше
+    // работали три октавы, и все миры выглядели размытыми пятнами именно
+    // оттуда, откуда на них смотрят почти всё время. Теперь на общем плане
+    // пять, на среднем шесть, вблизи все семь.
+    const cap = QUALITY_PRESETS[this.quality].planetOct;
+    const wantOct = Math.min(cap, this.distance > 34 ? 5 : this.distance > 18 ? 6 : 7);
     if (wantOct !== this.lodOct) {
       this.lodOct = wantOct;
       for (const vis of this.planets.values()) vis.setLod(wantOct);

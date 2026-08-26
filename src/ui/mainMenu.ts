@@ -5,6 +5,8 @@ import { AUTOSAVE_SLOT, MANUAL_SLOTS, saveMeta } from '../game/persist';
 import { netAvailable } from '../net/bridge';
 import { careerLines, careerRank, loadCareer, resetCareer } from '../game/career';
 import { logoBlock } from './logo';
+import { SHAPE_ART } from './shapeArt';
+import { DEFAULT_SHAPE, GALAXY_SHAPES, type GalaxyShape } from '../game/galaxyShapes';
 import { SettingsPanel } from './settingsPanel';
 import {
   claimFaction, findParties, getHostAdapters, getHostAddress, getLobbySlots, getPartyCode,
@@ -21,17 +23,17 @@ import type { FoundParty } from '../net/bridge';
 // ---------------------------------------------------------------------------
 
 export interface MenuActions {
-  /** Новая одиночная кампания за выбранную фракцию. */
-  newGame(faction: FactionId): void;
+  /** Новая одиночная кампания за выбранную фракцию в галактике выбранной формы. */
+  newGame(faction: FactionId, shape: GalaxyShape): void;
   /** Загрузить слот сохранения. */
   loadGame(slot: string): void;
   /** Начать сетевую партию хостом. */
-  hostGame(faction: FactionId): void;
+  hostGame(faction: FactionId, shape: GalaxyShape): void;
   /** Присоединиться к чужой партии: состояние придёт с хоста. */
   joinedGame(faction: FactionId, snapshot: string): void;
 }
 
-type Screen = 'root' | 'faction' | 'load' | 'career' | 'settings' | 'net' | 'lobby';
+type Screen = 'root' | 'faction' | 'shape' | 'load' | 'career' | 'settings' | 'net' | 'lobby';
 
 const el = (tag: string, cls?: string, html?: string): HTMLElement => {
   const e = document.createElement(tag);
@@ -47,6 +49,8 @@ export class MainMenu {
   private screen: Screen = 'root';
   /** Куда ведёт выбор фракции: одиночная игра или роль хоста. */
   private factionPurpose: 'single' | 'host' = 'single';
+  /** Сторона, выбранная на прошлом экране: форму галактики выбирают после неё. */
+  private pickedFaction: FactionId | null = null;
   private netInfo = '';
   private isHost = false;
   /** Найденные в сети партии и признак идущего поиска. */
@@ -105,6 +109,7 @@ export class MainMenu {
     const body =
       this.screen === 'root' ? this.rootScreen()
       : this.screen === 'faction' ? this.factionScreen()
+      : this.screen === 'shape' ? this.shapeScreen()
       : this.screen === 'load' ? this.loadScreen()
       : this.screen === 'career' ? this.careerScreen()
       : this.screen === 'settings' ? this.settingsScreen()
@@ -113,6 +118,7 @@ export class MainMenu {
 
     const inner = this.root.querySelector<HTMLElement>('.mm-inner')!;
     inner.classList.toggle('sub', this.screen !== 'root');
+    inner.classList.toggle('shapes', this.screen === 'shape');
     // Меняется только тело экрана. Класс появления снимается и ставится
     // заново, чтобы анимация проигралась и на повторном заходе на тот же экран.
     this.body.innerHTML = body;
@@ -181,6 +187,26 @@ export class MainMenu {
           </button>`).join('')}
       </div>
       <button class="mm-back" data-go="root">← Назад</button>
+    </div>`;
+  }
+
+  /**
+   * Форма галактики. Картинки — настоящие снимки этих галактик, снятые с
+   * верхней камеры без единого элемента интерфейса: выбирать форму по
+   * описанию бессмысленно, её надо видеть.
+   */
+  private shapeScreen(): string {
+    return `<div class="mm-panel wide">
+      <div class="mm-panel-title">Форма галактики</div>
+      <div class="mm-shapes">
+        ${GALAXY_SHAPES.map((g) => `
+          <button class="mm-shape" data-shape="${g.id}">
+            <img src="${SHAPE_ART[g.id]}" alt="">
+            <span class="mm-shape-name">${g.label}</span>
+            <span class="mm-shape-blurb">${g.blurb}</span>
+          </button>`).join('')}
+      </div>
+      <button class="mm-back" data-go="faction">← Назад</button>
     </div>`;
   }
 
@@ -316,12 +342,21 @@ export class MainMenu {
         }
       }));
 
+    // Сторона выбрана — дальше форма галактики, и только потом старт.
     this.root.querySelectorAll<HTMLElement>('[data-fac]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.pickedFaction = b.dataset.fac as FactionId;
+        this.go('shape');
+      }));
+
+    this.root.querySelectorAll<HTMLElement>('[data-shape]').forEach((b) =>
       b.addEventListener('click', async () => {
-        const faction = b.dataset.fac as FactionId;
+        const shape = b.dataset.shape as GalaxyShape;
+        const faction = this.pickedFaction;
+        if (!faction) return this.go('faction');
         if (this.factionPurpose === 'single') {
           this.close();
-          this.actions.newGame(faction);
+          this.actions.newGame(faction, shape);
           return;
         }
         const res = await startHosting(faction);
@@ -334,6 +369,7 @@ export class MainMenu {
         // Адрес больше не диктуют вслух: он упакован в код партии.
         this.netInfo = res.code ? '' : 'Не удалось определить адрес этой машины.';
         this.hostFaction = faction;
+        this.hostShape = shape;
         this.go('lobby');
       }));
 
@@ -388,7 +424,7 @@ export class MainMenu {
 
     this.root.querySelector('#mm-launch')?.addEventListener('click', () => {
       this.close();
-      this.actions.hostGame(this.hostFaction);
+      this.actions.hostGame(this.hostFaction, this.hostShape);
     });
 
     this.root.querySelector('#mm-career-reset')?.addEventListener('click', () => {
@@ -427,4 +463,6 @@ export class MainMenu {
   }
 
   private hostFaction: FactionId = 'superEarth';
+  /** Форма галактики, выбранная хостом для сетевой партии. */
+  private hostShape: GalaxyShape = DEFAULT_SHAPE;
 }

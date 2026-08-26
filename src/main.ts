@@ -9,12 +9,14 @@ import { preloadPlanetModels } from './render/planetAssets';
 import { applyDom, getSettings } from './ui/settings';
 import { MainMenu } from './ui/mainMenu';
 import { careerStart } from './game/career';
+import { WAR_CRY } from './data/factions';
 import { attachState, hostStartGame } from './net/session';
 import { applySnapshot } from './net/snapshot';
 import type { FactionId } from './core/types';
+import type { GalaxyShape } from './game/galaxyShapes';
 import type { GameState } from './game/state';
 
-function startGame(state: GameState, opts: { host?: boolean } = {}): void {
+function startGame(state: GameState, opts: { host?: boolean; client?: boolean } = {}): void {
   const canvas = document.getElementById('scene') as HTMLCanvasElement;
 
   // Кинематографичная виньетка поверх сцены (чистый CSS-оверлей).
@@ -24,9 +26,12 @@ function startGame(state: GameState, opts: { host?: boolean } = {}): void {
 
   const scene = new GalaxyScene(canvas, state);
   const clock = new GameClock(state);
+  // Клиент сетевой партии мир НЕ симулирует: он рисует срезы хоста и шлёт ему
+  // приказы. Иначе рядом с хозяйской войной идёт вторая, своя.
+  if (opts.client) clock.setAuthoritative(false);
   // Скорость на старте берётся из настроек: кто-то хочет осмотреться в паузе,
-  // кто-то — сразу в бой.
-  clock.setSpeed(getSettings().startSpeed);
+  // кто-то — сразу в бой. У клиента время общее и приезжает с хостом.
+  if (!opts.client) clock.setSpeed(getSettings().startSpeed);
   const ui = new UI(state, scene, clock);
 
   // Сетевая партия: состояние привязывается к сессии — хост начинает рассылку,
@@ -57,7 +62,9 @@ function startGame(state: GameState, opts: { host?: boolean } = {}): void {
   const loading = document.getElementById('loading');
   setTimeout(() => {
     loading?.classList.add('hidden');
-    ui.toast('НЕСИ УПРАВЛЯЕМУЮ ДЕМОКРАТИЮ', 2600);
+    ui.toast(WAR_CRY[state.player] ?? WAR_CRY.superEarth, 2600);
+    // Позывной своей стороны: по одному звуку слышно, за кого играешь.
+    ui.startFanfare();
   }, 700);
 }
 
@@ -85,10 +92,10 @@ async function boot(): Promise<void> {
   loading?.classList.add('hidden');
 
   new MainMenu({
-    newGame(faction: FactionId) {
+    newGame(faction: FactionId, shape: GalaxyShape) {
       loading?.classList.remove('hidden');
       careerStart(faction);
-      startGame(createGame(Math.floor(Math.random() * 1e9), faction));
+      startGame(createGame(Math.floor(Math.random() * 1e9), faction, shape));
     },
     loadGame(slot: string) {
       const raw = readSave(slot);
@@ -96,10 +103,10 @@ async function boot(): Promise<void> {
       loading?.classList.remove('hidden');
       startGame(deserializeState(raw));
     },
-    hostGame(faction: FactionId) {
+    hostGame(faction: FactionId, shape: GalaxyShape) {
       loading?.classList.remove('hidden');
       careerStart(faction);
-      startGame(createGame(Math.floor(Math.random() * 1e9), faction), { host: true });
+      startGame(createGame(Math.floor(Math.random() * 1e9), faction, shape), { host: true });
     },
     joinedGame(faction: FactionId, snapshot: string) {
       loading?.classList.remove('hidden');
@@ -109,7 +116,7 @@ async function boot(): Promise<void> {
       const state = createGame(1, faction);
       applySnapshot(state, snapshot);
       state.player = faction;
-      startGame(state);
+      startGame(state, { client: true });
     },
   });
 }

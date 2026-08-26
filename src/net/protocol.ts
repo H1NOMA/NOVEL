@@ -1,4 +1,4 @@
-import type { FactionId } from '../core/types';
+import type { FactionId, GameSpeed } from '../core/types';
 
 // ---------------------------------------------------------------------------
 // Протокол сетевой партии. Модель — авторитетный хост: симуляцию крутит только
@@ -6,10 +6,17 @@ import type { FactionId } from '../core/types';
 // правды о формате сообщений — этот файл.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const DEFAULT_PORT = 47624;
 
-/** Команда игрока. Хост проверяет право на неё и применяет у себя. */
+/**
+ * Команда игрока. Хост проверяет право на неё и применяет у себя.
+ *
+ * ЗДЕСЬ ДОЛЖНО БЫТЬ ВСЁ, что игрок вообще способен сделать с миром. Интерфейс
+ * не имеет права менять состояние напрямую: в одиночной партии команда идёт в
+ * applyCommand локально, в сетевой — уезжает хосту. Один код исполнения на оба
+ * случая — единственный способ не разъехаться.
+ */
 export type Cmd =
   | { k: 'orderFleet'; fleet: string; target: string; invade: boolean }
   | { k: 'enqueueOrder'; fleet: string; target: string }
@@ -30,10 +37,28 @@ export type Cmd =
   | { k: 'buyBonus'; bonus: string }
   | { k: 'buyTruce'; with: FactionId }
   | { k: 'produceDivision'; troop: string }
-  | { k: 'recon'; sector: string }
+  | { k: 'recon'; planet: string }
   | { k: 'sabotage'; planet: string }
   | { k: 'uprising'; planet: string }
-  | { k: 'fireSuper'; planet: string };
+  | { k: 'fireSuper'; planet: string }
+  // --- раунд 51: остальное, что раньше интерфейс делал мимо сети ---
+  /** Скорость партии общая: её меняет любой игрок, применяет хост. */
+  | { k: 'setSpeed'; speed: GameSpeed }
+  | { k: 'planAttack'; from: string; to: string }
+  | { k: 'unplanAttack'; from: string; to: string }
+  | { k: 'launchAttack'; from: string; to: string }
+  | { k: 'buildSpecialDock'; planet: string }
+  | { k: 'buildE711Station'; planet: string }
+  | { k: 'enableE711' }
+  | { k: 'rebuildSpecial' }
+  | { k: 'installTermicide'; planet: string }
+  | { k: 'plantGloom'; planet: string }
+  | { k: 'raiseSpire'; planet: string }
+  | { k: 'cedePlanet'; to: FactionId; planet: string }
+  | { k: 'declareWar'; on: FactionId }
+  | { k: 'makePeace'; with: FactionId }
+  | { k: 'cycleCommander'; fleet: string }
+  | { k: 'resolveChoice'; event: string; choice: number };
 
 export interface LobbySlot {
   faction: FactionId;

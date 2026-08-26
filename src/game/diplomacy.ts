@@ -26,17 +26,21 @@ export function hostileNow(state: GameState, a: FactionId, b: FactionId): boolea
   return atWar(state, a, b) && !truceActive(state, a, b);
 }
 
-/** Купить перемирие за политвласть (игрок → фракция). */
-export function buyTruce(state: GameState, withFaction: FactionId): boolean {
-  const fs = state.factions[state.player];
-  if (withFaction === state.player || !state.factions[withFaction].alive) return false;
-  if (truceActive(state, state.player, withFaction)) return false;
+/**
+ * Купить перемирие за политвласть. Покупатель передаётся явно: в сетевой
+ * партии перемирие может заключать любой из людей, а не только тот, чьими
+ * глазами смотрит экран хоста.
+ */
+export function buyTruce(state: GameState, actor: FactionId, withFaction: FactionId): boolean {
+  const fs = state.factions[actor];
+  if (withFaction === actor || !fs?.alive || !state.factions[withFaction]?.alive) return false;
+  if (truceActive(state, actor, withFaction)) return false;
   const cost = truceCost(state);
   if (fs.politicalPower < cost) return false;
   fs.politicalPower -= cost;
-  state.truces.push({ a: state.player, b: withFaction, until: state.day + TRUCE_DAYS });
+  state.truces.push({ a: actor, b: withFaction, until: state.day + TRUCE_DAYS });
   pushLog(state, {
-    faction: state.player,
+    faction: actor,
     text: `Заключено перемирие с фракцией на ${TRUCE_DAYS} дней. Пушки замолкают — до времени.`,
     tone: 'good',
   });

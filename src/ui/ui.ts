@@ -4,35 +4,37 @@ import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, factionColor, fleetTitle,
 import { RESOURCE_ICON, RESOURCE_LABEL, resourceReport, type ResourceId } from '../game/economy';
 import { FOCUS_TREES } from '../data/focus';
 import { BIOMES } from '../data/biomes';
-import { canSelectFocus, cyberstanLost, selectFocus } from '../game/focus';
+import { canSelectFocus, cyberstanLost } from '../game/focus';
 import { focusIconURL } from '../render/focusIcons';
-import { orderFleetTo, garrisonReinforce, lockedInBattle, mergeFleets, splitFleet, disbandFleet } from '../game/units';
-import { buildShipyard, cancelQueue, formFleetFromYard, queueShip, storedHulls, takeStoredShips, yardsOf, SHIPYARD_COST } from '../game/shipyards';
+import { lockedInBattle } from '../game/units';
+import { storedHulls, yardsOf, SHIPYARD_COST } from '../game/shipyards';
 import { canEnter } from '../game/supply';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
-import { buildDepot, DEPOT_COST } from '../game/supply';
-import { buildE711Station, buildSpecialDock, E711_STATION_COST, enableE711Mining, fireSuperweapon, installTermicide, plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
-import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, type ShipClassId } from '../data/troops';
+import { DEPOT_COST } from '../game/supply';
+import { E711_STATION_COST, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
+import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
-import { bonusesFor, buyBonus, canBuyBonus, timesBought } from '../game/politics';
-import { buyTruce, hostileNow, truceActive, truceCost } from '../game/diplomacy';
-import { atWar, canNegotiate, cedePlanet, declareWar, makePeace, relationLabel, relationOf, CEDE_COST, PEACE_THRESHOLD, WAR_THRESHOLD } from '../game/relations';
+import { careerFinish } from '../game/career';
+import { bonusesFor, canBuyBonus, timesBought } from '../game/politics';
+import { hostileNow, truceActive, truceCost } from '../game/diplomacy';
+import { atWar, canNegotiate, relationLabel, relationOf, CEDE_COST, PEACE_THRESHOLD, WAR_THRESHOLD } from '../game/relations';
 import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { objectiveKey, objectivesFor } from '../game/objectives';
-import { commanderOf, cycleCommander } from '../game/commanders';
+import { commanderOf } from '../game/commanders';
 import { PHASE_LABEL } from '../game/combat';
-import { canSabotage, canUprising, opReadyIn, reconActive, runRecon, runSabotage, runUprising, SPEC_OPS } from '../game/specops';
-import { buildShield, buildStation, SHIELD_COST, STATION_COST } from '../game/defense';
+import { canSabotage, canUprising, opReadyIn, reconActive, SPEC_OPS } from '../game/specops';
+import { SHIELD_COST, STATION_COST } from '../game/defense';
 import { nextRankIn, rankOf } from '../game/veterancy';
 import { SoundEngine } from './sound';
 import { Hotkeys } from './hotkeys';
 import { partyCodeBlock, rosterList } from './party';
 import { currentRole, getPartyCode, getPartyMembers, isClient, kickPeer, sendCommand } from '../net/session';
+import { applyCommand } from '../net/commands';
+import type { Cmd } from '../net/protocol';
 import { SettingsPanel } from './settingsPanel';
 import { applyDom, getSettings, onSettings } from './settings';
 import { markTutorialDone, TUTORIAL_STEPS, tutorialDone } from './tutorial';
-import { resolveChoice } from '../game/events';
 import { TIMELINE_EVENTS } from '../data/events';
 import { emblemDataURL } from '../render/emblems';
 import { unitIcon } from '../render/unitIcons';
@@ -136,6 +138,16 @@ export class UI {
   /** Окно чужой фракции (ПКМ по её родному миру) и подсветка карты. */
   private factionEl!: HTMLElement;
   private factionView: FactionId | null = null;
+  /**
+   * Кто был жив на прошлом срезе.
+   *
+   * Хост объявляет о гибели фракции событием шины, но у клиента симуляции нет
+   * и событий тоже — до него доезжает только состояние. Поэтому клиент ловит
+   * переход «жива → повержена» сам, глядя на снапшот.
+   */
+  private prevAlive = new Map<FactionId, boolean>();
+  /** Итог партии уже записан в карьеру (чтобы не считать его дважды). */
+  private outcomeLogged = false;
   /** Индекс для перебора битв кнопкой кинокамеры. */
   private cinemaIdx = 0;
   /** Последняя ненулевая скорость — пауза возвращает именно её. */
@@ -337,6 +349,11 @@ export class UI {
     this.scene.attachHotkeys(hk);
   }
 
+  /** Позывной своей фракции при входе в галактику. */
+  startFanfare(): void {
+    this.sound.fanfare(this.state.player);
+  }
+
   /** Закрыть самое верхнее открытое окно. Возвращает true, если было что закрывать. */
   private closeTopOverlay(): boolean {
     // Окно фракции первым: оно держит подсветку карты, и Esc должен снимать
@@ -381,8 +398,22 @@ export class UI {
   private stepSpeed(delta: number): void {
     const next = Math.max(0, Math.min(3, this.state.speed + delta)) as 0 | 1 | 2 | 3;
     if (next === this.state.speed) return;
-    if (next > 0) this.lastSpeed = next as 1 | 2 | 3;
-    this.clock.setSpeed(next);
+    this.applySpeed(next);
+  }
+
+  /**
+   * Поставить скорость партии.
+   *
+   * Время у стола ОБЩЕЕ: пауза одного игрока останавливает мир для всех, и
+   * менять её может любой участник. Приказ уходит хосту, а локально скорость
+   * ставится сразу — иначе кнопка отвечала бы с задержкой в полсекунды; если
+   * хост приказ отклонит, ближайший снапшот вернёт как было.
+   */
+  private applySpeed(v: 0 | 1 | 2 | 3): void {
+    if (v !== 0) this.lastSpeed = v;
+    this.act({ k: 'setSpeed', speed: v });
+    if (this.remote()) this.state.speed = v;
+    else this.clock.setSpeed(v);
     this.renderClock();
   }
 
@@ -478,28 +509,79 @@ export class UI {
     if (!this.productionEl.classList.contains('hidden')) this.renderProduction();
     this.renderResource();
     this.renderFaction();
+    this.watchOutcome();
     // owners may have shifted this day
     this.scene.refreshOwners();
     if (this.state.selectedPlanet) this.scene.setSelected(this.state.selectedPlanet);
     if (this.state.winner) this.showWinner();
   }
 
+  /**
+   * Клиент: разбор итогов по снапшоту.
+   *
+   * Гибель фракции, своё поражение и победу хост объявляет событиями, которых
+   * на клиенте не бывает. Здесь то же самое вычитывается из состояния — иначе
+   * игрок за клиента узнавал бы о конце войны только по замершим цифрам.
+   */
+  private watchOutcome(): void {
+    const s = this.state;
+    const all = FACTION_IDS.concat(s.superFederationRisen ? ['superFederation'] : []);
+    for (const f of all) {
+      const alive = s.factions[f]?.alive ?? false;
+      const was = this.prevAlive.get(f);
+      this.prevAlive.set(f, alive);
+      if (this.remote() && was === true && !alive) {
+        this.showDefeatBanner(f, s.lastConqueror[f] ?? null);
+      }
+    }
+    // Итог партии в карьеру пишет тот, кто её симулирует; клиент — сам за себя.
+    if (this.remote() && !this.outcomeLogged && (s.winner || s.playerDefeated)) {
+      this.outcomeLogged = true;
+      careerFinish(s, s.winner === s.player);
+    }
+  }
+
   /** Установить скорость и запомнить её для возврата из паузы. */
   private setSpeedRemember(speed: 1 | 2 | 3): void {
-    this.lastSpeed = speed;
-    this.clock.setSpeed(speed);
-    this.renderClock();
+    this.applySpeed(speed);
   }
 
   /** Пауза с памятью: повторное нажатие возвращает прежнюю скорость. */
   private togglePause(): void {
     if (this.state.speed === 0) {
-      this.clock.setSpeed(this.lastSpeed);
+      this.applySpeed(this.lastSpeed);
     } else {
       this.lastSpeed = this.state.speed as 1 | 2 | 3;
-      this.clock.setSpeed(0);
+      this.applySpeed(0);
     }
-    this.renderClock();
+  }
+
+  // ---------------- Единственная дверь к состоянию мира ----------------
+
+  /**
+   * Выполнить приказ игрока.
+   *
+   * Интерфейс НЕ имеет права трогать состояние напрямую — только через это.
+   * В одиночной партии и у хоста приказ применяется тут же (тем же кодом, что
+   * исполняет чужие приказы), у клиента уходит хосту и возвращается в
+   * ближайшем снапшоте. Раньше половина кнопок правила локальную копию мира, и
+   * в сетевой партии её через секунду затирал хозяйский срез: на экране
+   * дёргались верфи, фокусы и деньги.
+   *
+   * У клиента ответ приходит не сразу, поэтому команда считается принятой:
+   * подтверждение — сам факт, что мир изменился в следующем снапшоте.
+   */
+  private act(cmd: Cmd): boolean {
+    if (isClient()) {
+      sendCommand(cmd);
+      return true;
+    }
+    return applyCommand(this.state, this.state.player, cmd);
+  }
+
+  /** Ждать ли изменений мира из сети, а не от собственного applyCommand. */
+  private remote(): boolean {
+    return isClient();
   }
 
   // ---------------- HUD ----------------
@@ -738,7 +820,7 @@ export class UI {
 
     this.factionEl.querySelector('#fac-close')?.addEventListener('click', () => this.closeFaction());
     this.factionEl.querySelector('#fac-peace')?.addEventListener('click', () => {
-      if (makePeace(this.state, this.state.player, f)) {
+      if (this.act({ k: 'makePeace', with: f })) {
         this.sound.chime();
         this.toast('МИР ПОДПИСАН');
         this.renderFaction();
@@ -746,7 +828,7 @@ export class UI {
       }
     });
     this.factionEl.querySelector('#fac-truce')?.addEventListener('click', () => {
-      if (buyTruce(this.state, f)) {
+      if (this.act({ k: 'buyTruce', with: f })) {
         this.sound.chime();
         this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
         this.renderFaction();
@@ -754,11 +836,7 @@ export class UI {
       }
     });
     this.factionEl.querySelector('#fac-war')?.addEventListener('click', () => {
-      const s2 = this.state;
-      const fs2 = s2.factions[s2.player];
-      if (fs2.politicalPower < 40) return;
-      if (declareWar(s2, s2.player, f, 'решение верховного командования')) {
-        fs2.politicalPower -= 40;
+      if (this.act({ k: 'declareWar', on: f })) {
         this.sound.siren();
         this.toast('ВОЙНА ОБЪЯВЛЕНА');
         this.renderFaction();
@@ -909,22 +987,17 @@ export class UI {
     });
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-truce]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (buyTruce(this.state, b.dataset.truce as FactionId)) {
+        if (this.act({ k: 'buyTruce', with: b.dataset.truce as FactionId })) {
           this.sound.chime();
           this.toast('ПЕРЕМИРИЕ ЗАКЛЮЧЕНО');
           this.renderDossier();
           this.renderHud();
         }
       }));
-    // Объявление войны стоит политвласти: решение должно быть весомым.
+    // Объявление войны стоит политвласти: цену списывает сам приказ.
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-declare]').forEach((b) =>
       b.addEventListener('click', () => {
-        const s2 = this.state;
-        const target = b.dataset.declare as FactionId;
-        const fs2 = s2.factions[s2.player];
-        if (fs2.politicalPower < 40) return;
-        if (declareWar(s2, s2.player, target, 'решение верховного командования')) {
-          fs2.politicalPower -= 40;
+        if (this.act({ k: 'declareWar', on: b.dataset.declare as FactionId })) {
           this.sound.siren();
           this.toast('ВОЙНА ОБЪЯВЛЕНА');
           this.renderDossier();
@@ -933,7 +1006,7 @@ export class UI {
       }));
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-peace]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (makePeace(this.state, this.state.player, b.dataset.peace as FactionId)) {
+        if (this.act({ k: 'makePeace', with: b.dataset.peace as FactionId })) {
           this.sound.chime();
           this.toast('МИР ПОДПИСАН');
           this.renderDossier();
@@ -942,7 +1015,7 @@ export class UI {
       }));
     this.dossierEl.querySelectorAll<HTMLButtonElement>('[data-bonus]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (buyBonus(this.state, this.state.player, b.dataset.bonus!)) {
+        if (this.act({ k: 'buyBonus', bonus: b.dataset.bonus! })) {
           this.toast('ПОЛИТИЧЕСКОЕ РЕШЕНИЕ ПРИНЯТО');
           this.renderDossier();
           this.renderHud();
@@ -1247,7 +1320,7 @@ export class UI {
     this.panel.querySelectorAll<HTMLButtonElement>('[data-cede]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (cedePlanet(s, s.player, btn.dataset.cede as FactionId, p.id)) {
+        if (this.act({ k: 'cedePlanet', to: btn.dataset.cede as FactionId, planet: p.id })) {
           this.sound.chime();
           this.toast('МИР ПЕРЕДАН СОЮЗНИКУ');
           this.renderPanel();
@@ -1260,7 +1333,7 @@ export class UI {
         e.stopPropagation();
         const act = btn.dataset.act;
         if (act === 'depot') {
-          if (buildDepot(s, s.player, p.id)) {
+          if (this.act({ k: 'buildDepot', planet: p.id })) {
             this.toast('ТОЧКА СНАБЖЕНИЯ РАЗВЁРНУТА');
             this.renderPanel();
             this.renderStability();
@@ -1268,14 +1341,14 @@ export class UI {
           return;
         }
         if (act === 'yard') {
-          if (buildShipyard(s, s.player, p.id)) {
+          if (this.act({ k: 'buildShipyard', planet: p.id })) {
             this.toast('ВЕРФЬ РАЗВЁРНУТА · ЗАКАЗЫ — В «⚒ ПРОИЗВОДСТВО»');
             this.renderPanel();
           }
           return;
         }
         if (act === 'shield') {
-          if (buildShield(s, s.player, p.id)) {
+          if (this.act({ k: 'buildShield', planet: p.id })) {
             this.toast('ПЛАНЕТАРНЫЙ ЩИТ РАЗВЁРНУТ');
             this.renderPanel();
             this.renderHud();
@@ -1283,7 +1356,7 @@ export class UI {
           return;
         }
         if (act === 'station') {
-          if (buildStation(s, s.player, p.id)) {
+          if (this.act({ k: 'buildStation', planet: p.id })) {
             this.toast('ОРБИТАЛЬНАЯ СТАНЦИЯ СОБРАНА');
             this.renderPanel();
             this.renderHud();
@@ -1292,9 +1365,9 @@ export class UI {
         }
         if (act === 'op-sabotage' || act === 'op-recon' || act === 'op-uprising') {
           const op = act.slice(3);
-          const done = op === 'sabotage' ? runSabotage(s, s.player, p.id)
-            : op === 'recon' ? runRecon(s, s.player, p.id)
-            : runUprising(s, s.player, p.id);
+          const done = op === 'sabotage' ? this.act({ k: 'sabotage', planet: p.id })
+            : op === 'recon' ? this.act({ k: 'recon', planet: p.id })
+            : this.act({ k: 'uprising', planet: p.id });
           if (done) {
             this.opMode = null;
             this.sound.chime();
@@ -1309,7 +1382,7 @@ export class UI {
           return;
         }
         if (act === 'specialdock') {
-          if (buildSpecialDock(s, s.player, p.id)) {
+          if (this.act({ k: 'buildSpecialDock', planet: p.id })) {
             this.toast('СЕРВИСНЫЙ ДОК СУПЕРОРУЖИЯ РАЗВЁРНУТ');
             this.renderPanel();
             this.renderHud();
@@ -1317,7 +1390,7 @@ export class UI {
           return;
         }
         if (act === 'e711station') {
-          if (buildE711Station(s, p.id)) {
+          if (this.act({ k: 'buildE711Station', planet: p.id })) {
             this.toast('СТАНЦИЯ ДОБЫЧИ Е-711 РАЗВЁРНУТА');
             this.renderPanel();
             this.renderHud();
@@ -1325,17 +1398,16 @@ export class UI {
           return;
         }
         if (act === 'plan') {
-          const to = btn.dataset.target!;
-          if (!s.attackPlans.some((pl) => pl.from === p.id && pl.to === to)) {
-            s.attackPlans.push({ from: p.id, to });
+          if (this.act({ k: 'planAttack', from: p.id, to: btn.dataset.target! })) {
             this.toast('АТАКА ЗАГОТОВЛЕНА · РАЗМЕЩАЙТЕ СИЛЫ НА ПЛАЦДАРМЕ');
           }
           this.renderPanel();
           return;
         }
         if (act === 'unplan') {
-          s.attackPlans = s.attackPlans.filter((pl) => !(pl.from === p.id && pl.to === btn.dataset.target));
-          this.toast('ПЛАН АТАКИ ОТМЕНЁН');
+          if (this.act({ k: 'unplanAttack', from: p.id, to: btn.dataset.target! })) {
+            this.toast('ПЛАН АТАКИ ОТМЕНЁН');
+          }
           this.renderPanel();
           return;
         }
@@ -1343,19 +1415,16 @@ export class UI {
           const to = btn.dataset.target!;
           const dest = s.galaxy.planets.get(to);
           if (!dest) return;
-          let sent = 0;
-          for (const f of fleetsAt(s, p.id).filter((fl) => fl.faction === s.player)) {
-            if (orderFleetTo(s, f, to, true)) sent++;
-          }
+          const sent = this.act({ k: 'launchAttack', from: p.id, to });
           this.toast(sent
-            ? `АТАКА НАЧАЛАСЬ: ${sent} СОЕД. → ${dest.name}`
+            ? `АТАКА НАЧАЛАСЬ → ${dest.name}`
             : 'НА ПЛАЦДАРМЕ НЕТ СОЕДИНЕНИЙ');
           this.renderPanel();
           this.renderForces();
           return;
         }
         if (act === 'fire') {
-          if (fireSuperweapon(s, s.player, p.id)) {
+          if (this.act({ k: 'fireSuper', planet: p.id })) {
             this.sound.thud();
             this.toast(`☄ ${p.name} — ПЛАНЕТА УНИЧТОЖЕНА`, 3500);
             this.scene.refreshOwners();
@@ -1364,7 +1433,7 @@ export class UI {
           return;
         }
         if (act === 'gloomseed') {
-          if (plantGloomSeed(s, p.id)) {
+          if (this.act({ k: 'plantGloom', planet: p.id })) {
             this.gloomMode = false;
             this.toast('ЗАЧАТОК МРАКА ЗАРОНЁН');
             this.renderPanel();
@@ -1372,7 +1441,7 @@ export class UI {
           return;
         }
         if (act === 'termicide') {
-          if (installTermicide(s, p.id)) {
+          if (this.act({ k: 'installTermicide', planet: p.id })) {
             this.termicideMode = false;
             this.toast('ТЕРМИЦИД РАЗВЁРНУТ');
             this.renderPanel();
@@ -1380,7 +1449,7 @@ export class UI {
           return;
         }
         if (act === 'spire') {
-          if (raiseSpire(s, p.id)) {
+          if (this.act({ k: 'raiseSpire', planet: p.id })) {
             this.spireMode = false;
             this.toast('ЭКЗОШПИЛЬ ВОЗДВИГНУТ');
             this.renderPanel();
@@ -1401,11 +1470,11 @@ export class UI {
           this.renderPanel();
           this.renderForces();
         } else if (act === 'deploy') {
-          garrisonReinforce(s, fleet);
+          this.act({ k: 'garrison', fleet: fid });
           this.scene.refreshOwners();
           this.renderPanel();
         } else if (act === 'takeyard') {
-          if (takeStoredShips(s, fleet)) {
+          if (this.act({ k: 'takeStored', fleet: fid })) {
             this.toast('КОРАБЛИ ПРИНЯТЫ С ВЕРФИ');
             this.renderPanel();
             this.renderForces();
@@ -1579,27 +1648,21 @@ export class UI {
       this.toast('ВЫДЕЛИТЕ СОЕДИНЕНИЯ ДЛЯ СЛИЯНИЯ');
       return;
     }
-    const sources = picked
-      .map((id) => s.fleets.get(id))
-      .filter((f): f is NonNullable<typeof f> => !!f);
+    // Сколько групп реально войдёт, знает mergeFleets; в сетевой партии ответ
+    // придёт снапшотом, поэтому считаем кандидатов заранее — только для текста.
+    const fit = picked.filter((id) => {
+      const f = s.fleets.get(id);
+      return !!f && f.at === target.at && !f.transit && !lockedInBattle(s, f);
+    }).length;
 
-    // В сетевой партии решение принимает хост: шлём команду и ждём снапшот.
-    if (isClient()) {
-      sendCommand({ k: 'mergeFleets', target: targetId, sources: picked });
-      this.selectedFleets.clear();
-      this.renderForces();
-      return;
-    }
-
-    const merged = mergeFleets(s, target, sources);
-    if (!merged) {
+    if (!this.act({ k: 'mergeFleets', target: targetId, sources: picked })) {
       this.toast('СЛИЯНИЕ НЕВОЗМОЖНО: РАЗНЫЕ ОРБИТЫ ИЛИ БОЙ');
       return;
     }
     this.selectedFleets.clear();
     this.state.selectedFleet = targetId;
     this.detailFleet = targetId;
-    this.toast(`СОЕДИНЕНИЙ ПРИНЯТО: ${merged}`);
+    this.toast(`СОЕДИНЕНИЙ ПРИНЯТО: ${fit}`);
     this.renderForces();
     this.renderFleetDetail();
     this.renderPanel();
@@ -1659,34 +1722,35 @@ export class UI {
       this.renderForces();
     });
     this.fleetDetailEl.querySelector('#fd-clearqueue')?.addEventListener('click', () => {
-      f.orderQueue = undefined;
+      this.act({ k: 'clearOrders', fleet: f.id });
       this.toast('ОЧЕРЕДЬ ПРИКАЗОВ ОЧИЩЕНА');
       this.renderFleetDetail();
       this.renderForces();
     });
     this.fleetDetailEl.querySelector('#fd-commander')?.addEventListener('click', () => {
-      const c = cycleCommander(s, f);
-      this.toast(c ? `КОМАНДИР: ${c.name.toUpperCase()}` : 'КОМАНДИР СНЯТ');
-      this.renderFleetDetail();
-      this.renderForces();
+      if (this.act({ k: 'cycleCommander', fleet: f.id })) {
+        const c = commanderOf(f);
+        this.toast(c ? `КОМАНДИР: ${c.name.toUpperCase()}` : 'КОМАНДИР СНЯТ');
+        this.renderFleetDetail();
+        this.renderForces();
+      }
     });
     this.fleetDetailEl.querySelector('#fd-split')?.addEventListener('click', () => {
-      const nf = splitFleet(s, f);
-      if (nf) {
+      if (this.act({ k: 'splitFleet', fleet: f.id })) {
         this.toast('СОЕДИНЕНИЕ РАЗДЕЛЕНО');
         this.renderFleetDetail();
         this.renderForces();
       }
     });
     this.fleetDetailEl.querySelector('#fd-take')?.addEventListener('click', () => {
-      if (takeStoredShips(s, f)) {
+      if (this.act({ k: 'takeStored', fleet: f.id })) {
         this.toast('КОРАБЛИ ПРИНЯТЫ С ВЕРФИ');
         this.renderFleetDetail();
         this.renderForces();
       }
     });
     this.fleetDetailEl.querySelector('#fd-disband')?.addEventListener('click', () => {
-      if (disbandFleet(s, f)) {
+      if (this.act({ k: 'disbandFleet', fleet: f.id })) {
         this.toast('СОЕДИНЕНИЕ РАСФОРМИРОВАНО');
         this.detailFleet = null;
         this.selectedFleets.delete(f.id);
@@ -1752,7 +1816,7 @@ export class UI {
         load.set(best.id, load.get(best.id)! + 1);
         continue;
       }
-      if (orderFleetTo(s, f, best.id, invade)) {
+      if (this.act({ k: 'orderFleet', fleet: f.id, target: best.id, invade })) {
         load.set(best.id, load.get(best.id)! + 1);
         sent++;
       }
@@ -1791,16 +1855,15 @@ export class UI {
       // Планировщик: занятый флот с Shift копит маршрут из целей.
       const busy = !!f.transit || (f.order && f.order.kind !== 'idle');
       if (queue && busy) {
-        f.orderQueue = f.orderQueue ?? [];
-        if (f.orderQueue.length < 6 && !f.orderQueue.some((q) => q.target === id)) {
-          f.orderQueue.push({ target: id });
+        if ((f.orderQueue?.length ?? 0) < 6 && !f.orderQueue?.some((q) => q.target === id)
+          && this.act({ k: 'enqueueOrder', fleet: fid, target: id })) {
           queued++;
         }
         continue;
       }
       // Прямой приказ отменяет старую очередь — у флота новый план.
-      if (!queue) f.orderQueue = undefined;
-      if (orderFleetTo(s, f, id, invade)) sent++;
+      if (!queue && f.orderQueue?.length) this.act({ k: 'clearOrders', fleet: fid });
+      if (this.act({ k: 'orderFleet', fleet: fid, target: id, invade })) sent++;
     }
     if (queued) {
       this.toast(`⇢ ЦЕЛЬ ДОБАВЛЕНА В ОЧЕРЕДЬ: ${dest.name} · ${queued} СОЕД.`);
@@ -1901,14 +1964,14 @@ export class UI {
     });
 
     this.decisionsEl.querySelector('#dec-rebuild')?.addEventListener('click', () => {
-      if (rebuildSpecial(this.state, this.state.player)) {
+      if (this.act({ k: 'rebuildSpecial' })) {
         this.toast('СУПЕРОРУЖИЕ ВОССТАНОВЛЕНО');
         this.renderDecisions();
         this.renderStability();
       }
     });
     this.decisionsEl.querySelector('#dec-e711')?.addEventListener('click', () => {
-      if (enableE711Mining(this.state)) {
+      if (this.act({ k: 'enableE711' })) {
         this.toast('ДОБЫЧА Е-711 РАЗВЁРНУТА');
         this.renderDecisions();
         this.renderStability();
@@ -2025,7 +2088,7 @@ export class UI {
 
     box.querySelector('#fi-close')?.addEventListener('click', () => box.classList.add('hidden'));
     box.querySelector('#fi-select')?.addEventListener('click', () => {
-      if (selectFocus(this.state, this.state.player, n.id)) {
+      if (this.act({ k: 'selectFocus', focus: n.id })) {
         this.toast('ФОКУС НАЗНАЧЕН');
         this.renderFocus();
         this.renderFocusInfo(n.id);
@@ -2163,7 +2226,7 @@ export class UI {
     this.productionEl.querySelector('#prod-close')?.addEventListener('click', () => this.productionEl.classList.add('hidden'));
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-div]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (produceDivision(this.state, this.state.player, b.dataset.div!)) {
+        if (this.act({ k: 'produceDivision', troop: b.dataset.div! })) {
           this.toast('ДИВИЗИЯ СФОРМИРОВАНА');
           this.renderProduction();
           this.renderStability();
@@ -2172,14 +2235,14 @@ export class UI {
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-queue]').forEach((b) =>
       b.addEventListener('click', () => {
         const [pid, cls] = b.dataset.queue!.split(':');
-        if (queueShip(this.state, this.state.player, pid!, cls as ShipClassId)) {
+        if (this.act({ k: 'queueShip', planet: pid!, cls })) {
           this.toast('ЗАКАЗ ПОСТАВЛЕН НА СТАПЕЛЬ');
           this.renderProduction();
         }
       }));
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-cancel]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (cancelQueue(this.state, this.state.player, b.dataset.cancel!)) {
+        if (this.act({ k: 'cancelQueue', planet: b.dataset.cancel! })) {
           this.toast('ЗАКАЗ ОТМЕНЁН (ВОЗВРАТ 50%)');
           this.renderProduction();
         }
@@ -2194,7 +2257,7 @@ export class UI {
       }));
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-form]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (formFleetFromYard(this.state, this.state.player, b.dataset.form!)) {
+        if (this.act({ k: 'formFleet', planet: b.dataset.form! })) {
           this.toast('НОВОЕ СОЕДИНЕНИЕ СФОРМИРОВАНО');
           this.renderProduction();
           this.renderForces();
@@ -2443,7 +2506,9 @@ export class UI {
 
   /** Сюжетный ивент: золотой баннер. Развилка — кнопки выбора и пауза. */
   private showEventBanner(title: string, text: string): void {
-    const pending = this.state.pendingChoice;
+    // Развилка личная: берём строку СВОЕЙ фракции. Вопрос, заданный за столом
+    // соседу, на этом экране не показывается.
+    const pending = this.state.pendingChoices[this.state.player];
     const ev = pending ? TIMELINE_EVENTS.find((t) => t.id === pending) : null;
     if (ev?.choices) {
       // Пока развилка не решена, баннер держит именно её — параллельные ивенты не перекрывают выбор.
@@ -2455,7 +2520,7 @@ export class UI {
       this.renderClock();
       this.eventEl.querySelectorAll<HTMLButtonElement>('[data-choice]').forEach((b) =>
         b.addEventListener('click', () => {
-          resolveChoice(this.state, ev.id, Number(b.dataset.choice));
+          this.act({ k: 'resolveChoice', event: ev.id, choice: Number(b.dataset.choice) });
           this.eventEl.classList.add('hidden');
           this.renderHud();
         }));

@@ -33,14 +33,15 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   // своё окно выбора события.
   const host = createGame(4242, 'superEarth');
   const client = createGame(4242, 'illuminate');
-  host.pendingChoice = 'ev_host_only';
+  host.pendingChoices = { superEarth: 'ev_host_only' };
   host.playerDefeated = true;
   host.day = 77;
 
   applySnapshot(client, encodeSnapshot(host));
   ok(client.player === 'illuminate', 'фракция клиента не подменяется хозяйской');
   ok(client.day === 77, 'мир при этом приезжает целиком');
-  ok(client.pendingChoice !== 'ev_host_only', 'чужое окно выбора события не показывается');
+  ok(client.pendingChoices.illuminate !== 'ev_host_only', 'чужое окно выбора события не показывается');
+  ok(client.pendingChoices.superEarth === 'ev_host_only', 'но чужая развилка в состоянии видна — она хозяйская');
   ok(client.playerDefeated === false, 'поражение считается по своей фракции');
 
   // А вот собственное поражение флаг обязан поймать.
@@ -50,9 +51,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(dead.playerDefeated === true, 'гибель СВОЕЙ фракции отмечается поражением');
 
   const snap = read('src', 'net', 'snapshot.ts');
-  for (const field of ['playerDefeated', 'pendingChoice']) {
-    ok(!snap.includes(`target.${field} = fresh.${field}`), `${field} не копируется с хоста`);
-  }
+  ok(!snap.includes('target.playerDefeated = fresh.playerDefeated'), 'playerDefeated не копируется с хоста');
   ok(!snap.includes('target.player = fresh.player'), 'player не копируется с хоста');
 
   // Древо фокусов открывается на своей фракции, а не на Супер-Земле.

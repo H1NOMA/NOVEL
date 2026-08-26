@@ -59,10 +59,17 @@ export const QUALITY_PRESETS: Record<Quality, {
   stars: number;
   comets: boolean;
   bloomStrength: number;
+  /**
+   * Потолок октав шума поверхности планет. Детализация стоит дорого именно
+   * здесь: каждая октава — ещё один вызов симплекс-шума на каждый пиксель
+   * каждой планеты. На слабой машине потолок ниже, и мир снова становится
+   * мягче — зато держит кадры.
+   */
+  planetOct: number;
 }> = {
-  low: { label: 'Низкое', pixelRatio: 1.0, stars: 1200, comets: false, bloomStrength: 0.0 },
-  medium: { label: 'Среднее', pixelRatio: 1.5, stars: 2200, comets: true, bloomStrength: 0.14 },
-  high: { label: 'Высокое', pixelRatio: 2.0, stars: 3200, comets: true, bloomStrength: 0.2 },
+  low: { label: 'Низкое', pixelRatio: 1.0, stars: 1200, comets: false, bloomStrength: 0.0, planetOct: 4 },
+  medium: { label: 'Среднее', pixelRatio: 1.5, stars: 2200, comets: true, bloomStrength: 0.14, planetOct: 6 },
+  high: { label: 'Высокое', pixelRatio: 2.0, stars: 3200, comets: true, bloomStrength: 0.2, planetOct: 7 },
 };
 
 function storage(): Storage | null {

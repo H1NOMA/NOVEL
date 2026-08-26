@@ -1216,6 +1216,40 @@ body.no-grain #vignette::after { display: none; }
 .mm-fac img { width: 3.6rem; height: 3.6rem; transition: filter 0.14s; }
 .mm-fac:hover img { filter: drop-shadow(0 0 0.5rem var(--fac)); }
 .mm-fac-name { font-weight: 700; letter-spacing: 0.06em; color: var(--fac); font-size: 0.95rem; }
+/* --- выбор формы галактики (раунд 51) ------------------------------------- */
+/* Экран форм шире прочих: пять карточек с превью должны помещаться сразу,
+   без прокрутки — иначе половина вариантов остаётся за краем экрана. */
+.mm-inner.shapes { max-width: 64rem; }
+.mm-shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; }
+.mm-shape {
+  padding: 0; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column;
+  background: rgba(12, 12, 11, 0.92); color: var(--text);
+  border: 1px solid var(--edge); border-top: 3px solid var(--edge-strong);
+  font-family: var(--font-ui); overflow: hidden;
+  transition: background 0.14s, border-color 0.14s, box-shadow 0.14s;
+}
+.mm-shape:hover, .mm-shape:focus-visible {
+  outline: none; border-color: var(--yel); border-top-color: var(--yel);
+  background: rgba(24, 22, 12, 0.94);
+  box-shadow: 0 0 1.6rem -0.3rem var(--yel);
+}
+.mm-shape img {
+  /* contain, а не cover: галактика круглая и по центру — обрезав кадр по
+     высоте карточки, мы срезали бы ей верх и низ. */
+  width: 100%; height: 9.5rem; object-fit: contain; display: block;
+  background: #070a12; filter: saturate(0.92) brightness(0.94);
+  transition: filter 0.14s;
+}
+.mm-shape:hover img { filter: saturate(1.05) brightness(1.06); }
+.mm-shape-name {
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--yel); font-size: 0.9rem; padding: 0.45rem 0.7rem 0.1rem;
+}
+.mm-shape-blurb {
+  color: var(--muted); font-size: 0.72rem; line-height: 1.3;
+  padding: 0 0.7rem 0.6rem;
+}
 .mm-saves { display: flex; flex-direction: column; gap: 0.4rem; }
 .mm-save {
   display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;

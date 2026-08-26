@@ -1,4 +1,4 @@
-import { fleetsAt, pushChronicle, pushLog, type GameState } from './state';
+import { fleetsAt, isHuman, pushChronicle, pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
 import { DIVISION_COST, DIVISION_SIZE, FACTORY_DEFS, SHIP_CLASSES, troopDef, type ShipClassId } from '../data/troops';
 import { SPECIALS } from '../data/factions';
@@ -99,7 +99,7 @@ function stepGloom(state: GameState): void {
   }
 
   // ИИ терминидов сам зарождает Мрак в полностью захваченных секторах.
-  if (state.gloomSeeds.length < 2 && state.day % 15 === 0) {
+  if (!isHuman(state, 'terminids') && state.gloomSeeds.length < 2 && state.day % 15 === 0) {
     const candidate = state.galaxy.order
       .map((id) => state.galaxy.planets.get(id)!)
       .find((p) =>
@@ -147,7 +147,8 @@ function stepAbyss(state: GameState): void {
 
   // ИИ иллюминатов время от времени топит очередной тыловой мир.
   const ill = state.factions.illuminate;
-  if (ill.flags.abyss && ill.alive && state.day % 35 === 0 && state.spires.length === 0) {
+  if (ill.flags.abyss && ill.alive && !isHuman(state, 'illuminate')
+    && state.day % 35 === 0 && state.spires.length === 0) {
     const candidates = state.galaxy.order
       .map((id) => state.galaxy.planets.get(id)!)
       .filter((p) => p.owner === 'illuminate' && !p.abyss && !p.isCapital && !p.battle);
@@ -412,15 +413,20 @@ export function rebuildSpecial(state: GameState, faction: FactionId): boolean {
 
 /** ИИ-фракции строят точки снабжения на ценных мирах. */
 function aiDecisions(state: GameState): void {
+  // Живая фракция ПОД ИИ. За человеческие стороны здесь не решает никто: в
+  // сетевой партии их несколько, и тратить чужое производство «за игрока» —
+  // ровно тот рассинхрон, из-за которого казалось, что мир живёт своей жизнью.
+  const ai = (f: FactionId): boolean => state.factions[f].alive && !isHuman(state, f);
+
   // Утраченное супероружие ИИ восстанавливает, как только накопит ресурсы.
   for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
     const fs = state.factions[faction];
-    if (fs.alive && fs.lostSpecial && fs.production >= SPECIAL_REBUILD_COST + 60) {
+    if (ai(faction) && fs.lostSpecial && fs.production >= SPECIAL_REBUILD_COST + 60) {
       rebuildSpecial(state, faction);
     }
   }
   // ASS автоматонов, зависнув над вражеским миром с заряженным орудием, стреляет.
-  if (state.factions.automatons.alive && superShotReadyIn(state, 'automatons') === 0) {
+  if (ai('automatons') && superShotReadyIn(state, 'automatons') === 0) {
     for (const fid of state.fleetOrder) {
       const f = state.fleets.get(fid);
       if (!f || f.faction !== 'automatons' || !f.special || f.transit) continue;
@@ -434,7 +440,7 @@ function aiDecisions(state: GameState): void {
   // План «плацдарм супероружия»: заняв магмовый мир с богатыми залежами,
   // автоматоны разворачивают там особую верфь и сервисный док ССА.
   const autFs = state.factions.automatons;
-  if (autFs.alive && autFs.specialUnlocked && !specialDockWorld(state, 'automatons')) {
+  if (ai('automatons') && autFs.specialUnlocked && !specialDockWorld(state, 'automatons')) {
     const site = state.galaxy.order
       .map((id) => state.galaxy.planets.get(id)!)
       .find((p) => p.owner === 'automatons' && p.biome === 'magma' && p.minerals >= 2 && p.supplied);
@@ -445,7 +451,7 @@ function aiDecisions(state: GameState): void {
 
   // Автоматоны в приоритете строят фабрики особых отрядов.
   const aut = state.factions.automatons;
-  if (aut.alive && aut.production >= 120) {
+  if (ai('automatons') && aut.production >= 120) {
     const own = state.galaxy.order
       .map((id) => state.galaxy.planets.get(id)!)
       .filter((p) => p.owner === 'automatons' && p.supplied)
@@ -460,7 +466,7 @@ function aiDecisions(state: GameState): void {
   }
   for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
     const fs = state.factions[faction];
-    if (!fs.alive) continue;
+    if (!ai(faction)) continue;
     if (fs.production >= 120) {
       const worlds = state.galaxy.order
         .map((id) => state.galaxy.planets.get(id)!)

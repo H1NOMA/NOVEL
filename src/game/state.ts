@@ -9,6 +9,7 @@ import type {
 import { FACTION_IDS, FACTIONS } from '../data/factions';
 import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { generateGalaxy, type Galaxy } from './galaxy';
+import { DEFAULT_SHAPE, type GalaxyShape } from './galaxyShapes';
 import { initUnits } from './troops';
 import { RNG } from '../core/rng';
 import { initRelations, type Relation } from './relations';
@@ -52,14 +53,21 @@ export interface GameState {
   terminidsCapitulated: boolean;
   /** Идентификаторы уже случившихся ивентов таймлайна. */
   firedEvents: string[];
-  /** Заготовки атак игрока: с планеты-плацдарма на смежную вражескую. */
-  attackPlans: { from: string; to: string }[];
+  /**
+   * Заготовки атак: с планеты-плацдарма на смежную вражескую. Хранят фракцию,
+   * потому что в сетевой партии плацдармы у каждого свои.
+   */
+  attackPlans: { from: string; to: string; faction?: FactionId }[];
   /** Перемирия: пары фракций и день, до которого действует мир. */
   truces: { a: FactionId; b: FactionId; until: number }[];
   /** Выполненные цели кампании. */
   doneObjectives: string[];
-  /** Ожидающий выбор игрока по сюжетному ивенту. */
-  pendingChoice: string | null;
+  /**
+   * Ожидающие развилки сюжетных ивентов — ПО ФРАКЦИЯМ. За одним столом сидят
+   * несколько человек, и вопрос, заданный автоматонам, показывать иллюминатам
+   * бессмысленно: у каждого экрана своя строка в этой записи.
+   */
+  pendingChoices: Partial<Record<FactionId, string>>;
   /** Активные разведоперации: сектор просматривается до указанного дня. */
   recons: { sector: string; until: number }[];
   /** Летопись войны: ключевые вехи (капитуляции, столицы, супероружие…). */
@@ -107,8 +115,12 @@ function initFaction(id: FactionId): FactionState {
   };
 }
 
-export function createGame(seed: number, player: FactionId = 'superEarth'): GameState {
-  const galaxy = generateGalaxy(seed);
+export function createGame(
+  seed: number,
+  player: FactionId = 'superEarth',
+  shape: GalaxyShape = DEFAULT_SHAPE,
+): GameState {
+  const galaxy = generateGalaxy(seed, shape);
   const factions = {} as Record<FactionId, FactionState>;
   for (const id of Object.keys(FACTIONS) as FactionId[]) factions[id] = initFaction(id);
 
@@ -138,7 +150,7 @@ export function createGame(seed: number, player: FactionId = 'superEarth'): Game
     attackPlans: [],
     truces: [],
     doneObjectives: [],
-    pendingChoice: null,
+    pendingChoices: {},
     recons: [],
     chronicle: [],
     history: [],

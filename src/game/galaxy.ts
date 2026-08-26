@@ -2,6 +2,7 @@ import type { BiomeId, FactionId, Planet, SupplyLine, Vec2 } from '../core/types
 import { RNG } from '../core/rng';
 import { FACTIONS } from '../data/factions';
 import { cityName, planetName, sectorName } from './names';
+import { DEFAULT_SHAPE, normAngle, shapeDef, type GalaxyShape } from './galaxyShapes';
 
 export interface Sector {
   id: string;
@@ -64,8 +65,9 @@ function biomeFor(faction: FactionId, rng: RNG): BiomeId {
   return rng.pick(all);
 }
 
-export function generateGalaxy(seed: number): Galaxy {
+export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE): Galaxy {
   const rng = new RNG(seed);
+  const form = shapeDef(shape);
   const planets = new Map<string, Planet>();
   const order: string[] = [];
   const sectors = new Map<string, Sector>();
@@ -129,23 +131,45 @@ export function generateGalaxy(seed: number): Galaxy {
   // радиусов у каждого своя, с выпуклостью внутрь или наружу. Форма гуляет,
   // но разбиение по-прежнему покрывает круг целиком: доли нормируются на
   // полный оборот, а выпуклость не выходит за отступ между кольцами.
+  // Радиусы колец задаёт форма: в «кольце» внутренние отодвинуты наружу, и
+  // вокруг Супер-Земли образуется настоящая пустота. Границы полос — середины
+  // между соседними кольцами, поэтому полосы не наезжают друг на друга при
+  // любом профиле.
+  const centres = Array.from({ length: RING_COUNT }, (_, i) =>
+    (i + 1) * RING_SPACING * form.radial(i + 1));
+  const bandOf = (i: number): [number, number] => {
+    const c = centres[i]!;
+    const prev = i === 0 ? Math.max(RING_SPACING * 0.5, c - RING_SPACING) : centres[i - 1]!;
+    const next = i === RING_COUNT - 1 ? c + RING_SPACING : centres[i + 1]!;
+    // Полный отступ с каждой стороны: между полосами остаётся 2×RING_INSET,
+    // и выпуклость секторов (RING_BULGE) в него укладывается с запасом.
+    return [(prev + c) / 2 + RING_INSET, (c + next) / 2 - RING_INSET];
+  };
+
   for (let ring = 1; ring <= RING_COUNT; ring++) {
-    const count = PLANETS_PER_RING[ring - 1]!;
-    const baseR = ring * RING_SPACING;
-    const bandR0 = baseR - RING_SPACING / 2 + RING_INSET;
-    const bandR1 = baseR + RING_SPACING / 2 - RING_INSET;
+    const count = Math.max(4, Math.round(PLANETS_PER_RING[ring - 1]! * form.density(ring)));
+    const [bandR0, bandR1] = bandOf(ring - 1);
 
     // Неравные доли кольца: вес каждой от 0.6 до 1.4, затем нормировка.
+    // Форма ещё и поворачивает кольцо — из накопленного поворота получается
+    // закрутка рукавов, видимая и по плитам секторов.
     const buckets = Math.max(4, Math.min(12, Math.round(count / 2.6)));
     const weights = Array.from({ length: buckets }, () => rng.range(0.5, 1.6));
     const total = weights.reduce((a, b) => a + b, 0);
-    const edges: number[] = [0];
+    const spin = ring * form.twist;
+    const edges: number[] = [spin];
     for (const w of weights) edges.push(edges[edges.length - 1]! + (w / total) * Math.PI * 2);
-    edges[buckets] = Math.PI * 2; // хвост округления — строго на полный круг
+    edges[buckets] = spin + Math.PI * 2; // хвост округления — строго на полный круг
 
-    // Планеты делятся между секторами по их угловой ширине, но каждый
-    // сектор получает хотя бы одну: пустых долей на карте быть не должно.
-    const shares = weights.map((w) => Math.max(1, Math.round((w / total) * count)));
+    // Сколько планет достаётся сектору. Ширина — не единственный довод: форма
+    // задаёт плотность по углу, и в рукаве спирали планет вдвое больше, чем в
+    // пустоши той же ширины. Ноль недопустим — пустых секторов на карте нет.
+    const dens = weights.map((w, b) => {
+      const mid = (edges[b]! + edges[b + 1]!) / 2;
+      return w * form.weight(normAngle(mid), ring);
+    });
+    const densTotal = dens.reduce((a, b) => a + b, 0);
+    const shares = dens.map((d) => Math.max(1, Math.round((d / densTotal) * count)));
 
     for (let bucket = 0; bucket < buckets; bucket++) {
       const a0 = edges[bucket]!;
@@ -249,9 +273,27 @@ export function generateGalaxy(seed: number): Galaxy {
   for (const w of WEDGES) {
     const candidates = order
       .map((id) => planets.get(id)!)
-      .filter((p) => p.owner === w.faction && p.radius > RING_SPACING * 2.5);
-    if (!candidates.length) continue;
-    const strongest = candidates.reduce((a, b) => (b.radius > a.radius ? b : a));
+      .filter((p) => p.owner === w.faction && p.radius > centres[2]!);
+    // Запасной вариант: в спирали или скоплениях клин фракции может целиком
+    // попасть в пустошь, и своих миров на окраине у неё не окажется вовсе.
+    // Тогда престол берётся силой — ближайший к середине клина дальний мир
+    // переходит фракции. Без этого фракция просто исчезала из партии.
+    let strongest: Planet;
+    if (candidates.length) {
+      strongest = candidates.reduce((a, b) => (b.radius > a.radius ? b : a));
+    } else {
+      const mid = norm((norm(w.from) + norm(w.to)) / 2);
+      const outer = order.map((id) => planets.get(id)!)
+        .filter((p) => p.radius > centres[2]! && !p.isCapital);
+      if (!outer.length) continue;
+      const off = (p: Planet): number => {
+        const d = Math.abs(norm(p.angle) - mid);
+        return Math.min(d, Math.PI * 2 - d);
+      };
+      strongest = outer.reduce((a, b) => (off(b) < off(a) ? b : a));
+      strongest.owner = w.faction;
+      strongest.origin = w.faction;
+    }
     if (w.faction === 'terminids') {
       // Hive heart — powerful, but NOT a capital. No head to cut off.
       strongest.name = 'Кеплер Прайм';
@@ -297,10 +339,35 @@ export function generateGalaxy(seed: number): Galaxy {
     }
   }
 
+  // --- Минимальный плацдарм ---
+  //
+  // Домашний сектор может оказаться крошечным: в спирали и скоплениях
+  // плотность по углу гуляет, и фракции иногда доставался ровно один мир — её
+  // сносили в первую неделю, и партия превращалась в игру втроём. Поэтому у
+  // каждого врага гарантированно не меньше трёх миров: недостающие берутся
+  // ближайшие к столице.
+  const MIN_HOME = 3;
+  for (const w of WEDGES) {
+    const seat = order.map((id) => planets.get(id)!)
+      .find((p) => p.owner === w.faction && (p.isCapital || p.name === 'Кеплер Прайм'));
+    if (!seat) continue;
+    const own = order.map((id) => planets.get(id)!).filter((p) => p.owner === w.faction);
+    if (own.length >= MIN_HOME) continue;
+    const spare = order.map((id) => planets.get(id)!)
+      .filter((p) => p.owner === 'superEarth' && !p.isCapital)
+      .sort((a, b) => dist2(a.pos, seat.pos) - dist2(b.pos, seat.pos));
+    for (const p of spare.slice(0, MIN_HOME - own.length)) {
+      p.owner = w.faction;
+      p.origin = w.faction;
+      p.garrison = Math.max(p.garrison, 60);
+      p.fortification = Math.max(p.fortification, 2);
+    }
+  }
+
   // --- Supply lines: relative neighbourhood graph (true neighbours only) ---
   buildSupplyLines(planets, order);
 
-  const radiusMax = RING_COUNT * RING_SPACING + 30;
+  const radiusMax = centres[RING_COUNT - 1]! + RING_SPACING * 0.6 + 30;
   return { planets, order, lines: collectLines(planets, order), sectors, radiusMax };
 }
 

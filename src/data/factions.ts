@@ -188,6 +188,18 @@ export const FLEET_NOUN: Record<FactionId, string> = {
   superFederation: 'Эскадра',
 };
 
+/**
+ * Клич, с которого начинается партия. «Неси Управляемую Демократию» звучало и
+ * за рой, и за машин — теперь у каждой стороны свои слова.
+ */
+export const WAR_CRY: Record<FactionId, string> = {
+  superEarth: 'НЕСИ УПРАВЛЯЕМУЮ ДЕМОКРАТИЮ',
+  automatons: 'ЛОГИКА ТРЕБУЕТ ПОБЕДЫ',
+  illuminate: 'УРОЖАЙ НАЧИНАЕТСЯ',
+  terminids: 'РОЙ ГОЛОДЕН',
+  superFederation: 'ФЕДЕРАЦИЯ НЕ ВСТАНЕТ НА КОЛЕНИ',
+};
+
 /** Имя соединения фракции с номером: «Иерарх №4», «Улей №2». */
 export function fleetTitle(faction: FactionId, index: number): string {
   return `${FLEET_NOUN[faction] ?? 'Соединение'} №${index}`;

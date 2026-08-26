@@ -37,22 +37,34 @@ function triggerable(state: GameState, ev: TimelineEvent): boolean {
   return false;
 }
 
-export function resolveChoice(state: GameState, eventId: string, idx: number): void {
+/**
+ * Разрешить развилку от имени фракции. Развилка принадлежит той стороне,
+ * которой её задали: в сетевой партии кнопка на чужом экране не должна
+ * закрывать чужой вопрос.
+ */
+export function resolveChoice(state: GameState, faction: FactionId, eventId: string, idx: number): boolean {
   const ev = TIMELINE_EVENTS.find((t) => t.id === eventId);
-  if (!ev?.choices || state.pendingChoice !== eventId) return;
+  if (!ev?.choices || state.pendingChoices[faction] !== eventId) return false;
   const ch = ev.choices[idx] ?? ev.choices[0]!;
-  applyEffects(state, ev.faction ?? state.player, ch.effects);
-  state.pendingChoice = null;
-  pushLog(state, { faction: ev.faction, text: `Решение: «${ch.label}» (${ev.title}).`, tone: 'good' });
+  applyEffects(state, ev.faction ?? faction, ch.effects);
+  delete state.pendingChoices[faction];
+  pushLog(state, { faction: ev.faction ?? faction, text: `Решение: «${ch.label}» (${ev.title}).`, tone: 'good' });
+  return true;
 }
 
 function fire(state: GameState, ev: TimelineEvent): void {
   state.firedEvents.push(ev.id);
   if (ev.major || ev.choices) pushChronicle(state, `${ev.title}.`);
-  // Развилка: игрок выбирает сам (пауза + кнопки), ИИ берёт первый вариант.
+  // Развилка: человек выбирает сам (пауза + кнопки), ИИ берёт первый вариант.
+  //
+  // Спрашиваем КАЖДОГО человека за столом, кого это касается: фракционный ивент
+  // — только свою сторону, общий — всех живых людей. Раньше вопрос доставался
+  // одному state.player, то есть в сетевой партии всегда хосту.
   if (ev.choices) {
-    if (ev.faction === state.player || (!ev.faction && state.factions[state.player].alive)) {
-      state.pendingChoice = ev.id;
+    const asked = (state.humans?.length ? state.humans : [state.player])
+      .filter((f) => state.factions[f]?.alive && (!ev.faction || ev.faction === f));
+    if (asked.length) {
+      for (const f of asked) state.pendingChoices[f] = ev.id;
       state.speed = 0;
       pushLog(state, { faction: ev.faction, text: `📰 ${ev.title}. ${ev.text}`, tone: 'alert' });
       bus.emit('gameEvent', { title: ev.title, text: ev.text });
