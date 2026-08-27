@@ -5,7 +5,8 @@ import { advanceDay, moveFleets } from '../src/game/sim';
 import { orderFleetTo } from '../src/game/units';
 import { resolveGround, resolveOrbital, hullCount } from '../src/game/combat';
 import { opReadyIn, reconActive, runRecon, runSabotage, runUprising, originBlockaded } from '../src/game/specops';
-import { buildShield, buildStation, demolishDefenses } from '../src/game/defense';
+import { buildShield, buildStation } from '../src/game/defense';
+import { razeBuildings, stepConstruction } from '../src/game/construction';
 import { gainXp, rankOf, nextRankIn } from '../src/game/veterancy';
 import { serializeState, deserializeState } from '../src/game/persist';
 import { emptyYard } from '../src/game/shipyards';
@@ -81,8 +82,17 @@ function ok(cond: boolean, msg: string): void {
   const se = s.factions.superEarth;
   se.production = 1000;
   const home = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!).find((p) => p.owner === 'superEarth' && p.supplied)!;
-  ok(buildShield(s, 'superEarth', home.id), 'щит строится');
-  ok(buildStation(s, 'superEarth', home.id), 'станция строится');
+  // Стройка занимает время: заказ ставит площадку, а не готовое сооружение.
+  ok(buildShield(s, 'superEarth', home.id), 'щит заложен');
+  ok(!home.buildings.includes('shieldGen'), 'щита ещё нет — идут работы');
+  ok(!buildStation(s, 'superEarth', home.id), 'вторая стройка на одном мире запрещена');
+  home.build!.daysLeft = 1;
+  stepConstruction(s);
+  ok(home.buildings.includes('shieldGen'), 'щит достроен и принят в строй');
+  ok(buildStation(s, 'superEarth', home.id), 'станция заложена');
+  home.build!.daysLeft = 1;
+  stepConstruction(s);
+  ok(home.buildings.includes('orbStation'), 'станция достроена');
   ok(!buildShield(s, 'superEarth', home.id), 'второй щит на планете запрещён');
 
   // Станция бьёт по вражескому флоту даже при пустой своей орбите.
@@ -92,9 +102,9 @@ function ok(cond: boolean, msg: string): void {
   ok(hullCount(raider) < hullsBefore, `станция нанесла урон (${hullsBefore} → ${hullCount(raider)})`);
   ok((home.wreckage ?? 0) > 0, 'после боя на орбите остались обломки');
 
-  // При захвате оборона гибнет.
-  demolishDefenses(home);
-  ok(!home.buildings.includes('shieldGen') && !home.buildings.includes('orbStation'), 'оборона снесена при захвате');
+  // При захвате гибнет ВСЁ построенное, а не только оборона.
+  razeBuildings(home);
+  ok(home.buildings.length === 0 && !home.depot && !home.shipyard, 'при захвате снесены все сооружения');
   console.log('оборона: OK');
 }
 
@@ -146,7 +156,8 @@ function ok(cond: boolean, msg: string): void {
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons' && p.supplied)!;
   target.garrison = 30;
-  const inv = spawnFleet(s, 'superEarth', target.id, { ships: 30, infantry: 400 });
+  // Транспорты обязательны (раунд 53): без них ВССЗ на грунт не сойдут.
+  const inv = spawnFleet(s, 'superEarth', target.id, { ships: 30, infantry: 400, transports: 40 });
   inv.origin = undefined;
   resolveGround(s); // битва завязывается
   ok(!!target.battle && target.battle.attacker === 'superEarth', 'битва началась');

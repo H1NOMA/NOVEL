@@ -1,5 +1,6 @@
 import { fleetsAt, isHuman, pushChronicle, pushLog, type GameState } from './state';
 import { buildDepot } from './supply';
+import { beginBuild, hasOrBuilding } from './construction';
 import { DIVISION_COST, DIVISION_SIZE, FACTORY_DEFS, SHIP_CLASSES, troopDef, type ShipClassId } from '../data/troops';
 import { SPECIALS } from '../data/factions';
 import { spawnFleet } from './state';
@@ -162,15 +163,9 @@ export function buildFactory(state: GameState, faction: FactionId, planetId: str
   const def = FACTORY_DEFS.find((f) => f.id === kind);
   const p = state.galaxy.planets.get(planetId);
   const fs = state.factions[faction];
-  if (!def || !p || p.owner !== faction || p.buildings.includes(kind) || fs.production < def.cost) return false;
+  if (!def || !p || p.owner !== faction || p.build || hasOrBuilding(p, kind) || fs.production < def.cost) return false;
   fs.production -= def.cost;
-  p.buildings.push(kind);
-  pushLog(state, {
-    faction,
-    text: `На ${p.name} построена ${def.name.toLowerCase()}.`,
-    tone: 'info',
-  });
-  return true;
+  return beginBuild(state, p, kind, def.cost);
 }
 
 /** Развернуть добычу Е-711 (Супер-Земля, разовое решение). */
@@ -252,15 +247,9 @@ export function installTermicide(state: GameState, planetId: string): boolean {
   const se = state.factions.superEarth;
   if (!se.flags.termicide || se.production < TERMICIDE_COST) return false;
   const p = state.galaxy.planets.get(planetId);
-  if (!p || p.owner !== 'superEarth' || p.buildings.includes('termicide')) return false;
+  if (!p || p.owner !== 'superEarth' || p.build || hasOrBuilding(p, 'termicide')) return false;
   se.production -= TERMICIDE_COST;
-  p.buildings.push('termicide');
-  pushLog(state, {
-    faction: 'superEarth',
-    text: `На ${p.name} развёрнута система распространения термицида. Рой здесь ждёт смерть.`,
-    tone: 'good',
-  });
-  return true;
+  return beginBuild(state, p, 'termicide', TERMICIDE_COST);
 }
 
 export const SPECIAL_REBUILD_COST = 300;
@@ -282,32 +271,20 @@ export function buildSpecialDock(state: GameState, faction: FactionId, planetId:
   const fs = state.factions[faction];
   const p = state.galaxy.planets.get(planetId);
   if (!fs.specialUnlocked || !p || p.owner !== faction || !p.supplied) return false;
-  if (p.buildings.includes('specialDock') || specialDockWorld(state, faction)) return false;
+  if (p.build || hasOrBuilding(p, 'specialDock') || specialDockWorld(state, faction)) return false;
   if (fs.production < SPECIAL_DOCK_COST) return false;
   fs.production -= SPECIAL_DOCK_COST;
-  p.buildings.push('specialDock');
-  pushLog(state, {
-    faction,
-    text: `На ${p.name} развёрнуты особая верфь и сервисный док супероружия. Восстановление ${SPECIALS[faction].name} здесь обойдётся вдвое дешевле.`,
-    tone: faction === state.player ? 'good' : 'alert',
-  });
-  return true;
+  return beginBuild(state, p, 'specialDock', SPECIAL_DOCK_COST);
 }
 
 /** Станция добычи Е-711 на жучьем мире-марионетке (только Супер-Земля). */
 export function buildE711Station(state: GameState, planetId: string): boolean {
   const se = state.factions.superEarth;
   const p = state.galaxy.planets.get(planetId);
-  if (!p || p.puppetOf !== 'superEarth' || p.buildings.includes('e711Station')) return false;
+  if (!p || p.puppetOf !== 'superEarth' || p.build || hasOrBuilding(p, 'e711Station')) return false;
   if (se.production < E711_STATION_COST) return false;
   se.production -= E711_STATION_COST;
-  p.buildings.push('e711Station');
-  pushLog(state, {
-    faction: 'superEarth',
-    text: `На ${p.name} развёрнута станция добычи Е-711: жучьи залежи теперь работают на Демократию.`,
-    tone: 'good',
-  });
-  return true;
+  return beginBuild(state, p, 'e711Station', E711_STATION_COST);
 }
 
 /** Дней до готовности планетарного залпа (0 = заряжен). */

@@ -6,7 +6,7 @@ import type { FactionId, GameSpeed } from '../core/types';
 // правды о формате сообщений — этот файл.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const DEFAULT_PORT = 47624;
 
 /**
@@ -27,8 +27,13 @@ export type Cmd =
   | { k: 'garrison'; fleet: string }
   | { k: 'takeStored'; fleet: string }
   | { k: 'formFleet'; planet: string }
+  /** Редактор соединений: сборка флота и десанта по заданному составу. */
+  | { k: 'composeFleet'; planet: string; ships: number; dreadnoughts: number;
+      battleships: number; transports: number; troops: Record<string, number> }
   | { k: 'queueShip'; planet: string; cls: string }
   | { k: 'cancelQueue'; planet: string }
+  /** Свернуть стройку на планете (возврат половины вложенного). */
+  | { k: 'cancelBuild'; planet: string }
   | { k: 'buildShipyard'; planet: string }
   | { k: 'buildDepot'; planet: string }
   | { k: 'buildShield'; planet: string }

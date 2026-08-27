@@ -1,5 +1,6 @@
 import type { FactionId, Planet } from '../core/types';
 import { pushLog, type GameState } from './state';
+import { beginBuild } from './construction';
 
 export const DEPOT_COST = 60;
 
@@ -70,15 +71,9 @@ export function recomputeSupply(state: GameState): void {
 export function buildDepot(state: GameState, faction: FactionId, planetId: string): boolean {
   const p = state.galaxy.planets.get(planetId);
   const fs = state.factions[faction];
-  if (!p || p.owner !== faction || p.depot || fs.production < DEPOT_COST) return false;
+  if (!p || p.owner !== faction || p.depot || p.build || fs.production < DEPOT_COST) return false;
   fs.production -= DEPOT_COST;
-  p.depot = true;
-  pushLog(state, {
-    faction,
-    text: `На ${p.name} развёрнута точка снабжения.`,
-    tone: faction === state.player ? 'good' : 'info',
-  });
-  return true;
+  return beginBuild(state, p, 'depot', DEPOT_COST);
 }
 
 /** Есть ли рядом (эта или соседняя своя планета) точка снабжения. */

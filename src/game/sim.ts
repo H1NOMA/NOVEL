@@ -5,19 +5,19 @@ import { fleetsOf, isHuman, planetsOf, pushChronicle, pushLog, snapshotControl, 
 import { collectTribute, stepRelations } from './relations';
 import { careerFinish, careerSync } from './career';
 import { stepAiDiplomacy, stepDiploEvents } from './diploEvents';
-import { runAI, runEconomy } from './ai';
+import { aiBuild, runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
-import { resolveGround, resolveOrbital } from './combat';
+import { resolveBombardment, resolveGround, resolveOrbital } from './combat';
 import { garrisonReinforce, stepFleets } from './units';
 import { recomputeSupply } from './supply';
 import { stepDecisions } from './decisions';
 import { stepShipyards } from './shipyards';
+import { stepConstruction } from './construction';
 import { stepEvents } from './events';
 import { stepTruces } from './diplomacy';
 import { checkObjectives } from './objectives';
 import { autosaveTick } from './persist';
 import { stepRecons } from './specops';
-import { aiBuildDefenses } from './defense';
 import { orderFleetTo } from './units';
 import { hostileNow } from './diplomacy';
 
@@ -65,7 +65,11 @@ export function advanceDay(state: GameState): void {
 
   recomputeSupply(state);
   stepShipyards(state);
+  stepConstruction(state);
   resolveOrbital(state);
+  // Обстрел непрокрытых миров идёт ДО наземного боя: гарнизон, по которому
+  // всю ночь работали с орбиты, встречает десант уже поредевшим.
+  resolveBombardment(state);
   resolveGround(state);
   stepDecisions(state);
   stepEvents(state);
@@ -77,9 +81,9 @@ export function advanceDay(state: GameState): void {
   stepRecons(state);
   checkObjectives(state);
 
-  // ИИ строит щиты и станции на столицах и ценных мирах.
+  // ИИ строит: верфи в тылу, щиты и станции на фронте, точки снабжения в узлах.
   for (const fid of activeFactions) {
-    if (!isHuman(state, fid) && state.day % 9 === 0) aiBuildDefenses(state, fid);
+    if (!isHuman(state, fid) && state.day % 6 === 0) aiBuild(state, fid);
   }
 
   // Обломки на орбитах постепенно тают.

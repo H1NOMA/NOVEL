@@ -1,4 +1,4 @@
-import type { FactionId, Planet } from '../core/types';
+import type { FactionId, Planet, Shipyard } from '../core/types';
 import { bus } from '../core/emitter';
 import { FACTIONS, FACTION_GEN, FACTION_IDS, SPECIALS, factionColor, fleetTitle, homeworldFaction, FLEET_NOUN } from '../data/factions';
 import { RESOURCE_ICON, RESOURCE_LABEL, resourceReport, type ResourceId } from '../game/economy';
@@ -7,12 +7,12 @@ import { BIOMES } from '../data/biomes';
 import { canSelectFocus, cyberstanLost } from '../game/focus';
 import { focusIconURL } from '../render/focusIcons';
 import { lockedInBattle } from '../game/units';
-import { storedHulls, yardsOf, SHIPYARD_COST } from '../game/shipyards';
+import { landableInfantry, storedHulls, yardsOf, SHIPYARD_COST, type FleetSpec } from '../game/shipyards';
 import { canEnter } from '../game/supply';
 import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { DEPOT_COST } from '../game/supply';
 import { E711_STATION_COST, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
-import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES } from '../data/troops';
+import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, TRANSPORT_LIFT, shipClassesFor } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
 import { careerFinish } from '../game/career';
@@ -23,6 +23,7 @@ import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { objectiveKey, objectivesFor } from '../game/objectives';
 import { commanderOf } from '../game/commanders';
 import { PHASE_LABEL } from '../game/combat';
+import { buildDef } from '../game/construction';
 import { canSabotage, canUprising, opReadyIn, reconActive, SPEC_OPS } from '../game/specops';
 import { SHIELD_COST, STATION_COST } from '../game/defense';
 import { nextRankIn, rankOf } from '../game/veterancy';
@@ -57,6 +58,62 @@ const SPECIAL_SHORT: Record<string, string> = {
 /** Экранирование для подсказок: в описаниях встречаются кавычки. */
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// --- Шаблоны соединений ------------------------------------------------------
+//
+// Шаблон — вещь сугубо местная: это привычка ИГРОКА собирать ударную группу
+// именно так, а не факт о мире. Поэтому он живёт в localStorage, а не в
+// состоянии партии: пересылать его хосту и другим участникам незачем.
+
+interface FleetTemplate { name: string; spec: FleetSpec }
+
+const TPL_KEY = 'sgw2_fleet_templates_';
+
+export function emptySpec(): FleetSpec {
+  return { ships: 0, dreadnoughts: 0, battleships: 0, transports: 0, troops: {} };
+}
+
+function loadTemplates(faction: FactionId): FleetTemplate[] {
+  try {
+    const raw = localStorage.getItem(TPL_KEY + faction);
+    return raw ? (JSON.parse(raw) as FleetTemplate[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeTemplates(faction: FactionId, list: FleetTemplate[]): void {
+  try {
+    localStorage.setItem(TPL_KEY + faction, JSON.stringify(list.slice(0, 8)));
+  } catch {
+    // Приватный режим браузера — шаблоны просто не переживут перезапуск.
+  }
+}
+
+/** Имя шаблона выводится из состава: «6 ЭСМ · 2 ДРД · 24 деc.». */
+function specName(spec: FleetSpec): string {
+  const troops = Object.values(spec.troops).reduce((a, b) => a + b, 0);
+  const parts = [
+    spec.ships ? `${spec.ships} ЭСМ` : '',
+    spec.dreadnoughts ? `${spec.dreadnoughts} ДРД` : '',
+    spec.battleships ? `${spec.battleships} ЛКР` : '',
+    spec.transports ? `${spec.transports} ТРН` : '',
+    troops ? `${troops} дес.` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'пустой';
+}
+
+function saveTemplate(faction: FactionId, spec: FleetSpec): void {
+  const list = loadTemplates(faction);
+  list.unshift({ name: specName(spec), spec: { ...spec, troops: { ...spec.troops } } });
+  storeTemplates(faction, list);
+}
+
+function deleteTemplate(faction: FactionId, index: number): void {
+  const list = loadTemplates(faction);
+  list.splice(index, 1);
+  storeTemplates(faction, list);
 }
 import { portraitDataURL, RULERS } from '../render/portraits';
 import type { GameClock } from '../game/clock';
@@ -106,6 +163,12 @@ export class UI {
   private toastTimer = 0;
   private decisionsEl!: HTMLElement;
   private productionEl!: HTMLElement;
+  /** Редактор соединений: сборка флота и десанта по составу. */
+  private composeEl!: HTMLElement;
+  /** Верфь, для которой открыт редактор (null — закрыт). */
+  private composeYard: string | null = null;
+  /** Текущий состав в редакторе. */
+  private composeSpec: FleetSpec = emptySpec();
   private menuEl!: HTMLElement;
   private bannerEl!: HTMLElement;
   private bannerTimer = 0;
@@ -253,6 +316,7 @@ export class UI {
     this.toastEl = el('div'); this.toastEl.id = 'toast';
     this.decisionsEl = el('div'); this.decisionsEl.id = 'decisions'; this.decisionsEl.classList.add('hidden');
     this.productionEl = el('div'); this.productionEl.id = 'production'; this.productionEl.classList.add('hidden');
+    this.composeEl = el('div'); this.composeEl.id = 'compose'; this.composeEl.classList.add('hidden');
     this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
     this.bannerEl = el('div'); this.bannerEl.id = 'defeat-banner'; this.bannerEl.classList.add('hidden');
     this.eventEl = el('div'); this.eventEl.id = 'event-banner'; this.eventEl.classList.add('hidden');
@@ -279,7 +343,7 @@ export class UI {
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
     this.sideBtns.querySelector('#chronicle-btn')!.addEventListener('click', () => this.toggleChronicle());
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.resourceEl, this.factionEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.resourceEl, this.factionEl, this.composeEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -370,7 +434,7 @@ export class UI {
       this.closeFaction();
       return true;
     }
-    for (const e of [this.chronicleEl, this.resourceEl, this.focusOverlay, this.dossierEl,
+    for (const e of [this.composeEl, this.chronicleEl, this.resourceEl, this.focusOverlay, this.dossierEl,
       this.decisionsEl, this.productionEl, this.fleetDetailEl]) {
       if (!e.classList.contains('hidden')) {
         e.classList.add('hidden');
@@ -1172,7 +1236,18 @@ export class UI {
       const qdef = q ? SHIP_CLASSES.find((c) => c.id === q.cls) : null;
       html += `<div class="pp-stat"><span>⚓ Верфь</span><b>${q && qdef ? `${qdef.name} · ${q.daysLeft} дн` : storedHulls(p.shipyard) > 0 ? `Склад: ${storedHulls(p.shipyard)} корп.` : 'Стапель свободен'}</b></div>`;
     }
-    if (p.owner === s.player && !p.depot) {
+    // Стройплощадка: что возводится, сколько осталось, и кнопка свернуть.
+    if (p.build) {
+      const bd = buildDef(p.build.id);
+      const pct = Math.round((1 - p.build.daysLeft / Math.max(1, p.build.total)) * 100);
+      html += `<div class="pp-stat"><span>🏗 Стройка</span><b>${bd?.name ?? p.build.id} · ${
+        Math.ceil(p.build.daysLeft)} дн${p.supplied ? '' : ' <span style="color:var(--fed)">⛔ работы стоят</span>'}</b></div>
+        <div class="build-bar"><i style="width:${pct}%"></i></div>`;
+      if (p.owner === s.player) {
+        html += `<button class="mini-btn wide" data-act="cancelbuild">✕ Свернуть стройку (возврат 50%)</button>`;
+      }
+    }
+    if (p.owner === s.player && !p.depot && !p.build) {
       const can = s.factions[s.player].production >= DEPOT_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="depot" ${can ? '' : 'disabled'}>▣ Построить точку снабжения (${DEPOT_COST} пр. · есть ${s.factions[s.player].production.toFixed(0)})</button>`;
       // Добровольная передача мира: дорогой, но сильный дипломатический жест.
@@ -1186,16 +1261,16 @@ export class UI {
         }
       }
     }
-    if (p.owner === s.player && !p.shipyard && p.supplied) {
+    if (p.owner === s.player && !p.shipyard && p.supplied && !p.build) {
       const can = s.factions[s.player].production >= SHIPYARD_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="yard" ${can ? '' : 'disabled'}>⚓ Построить верфь (${SHIPYARD_COST} пр.)</button>`;
     }
     // Оборонительные сооружения: щит и орбитальная станция.
-    if (p.owner === s.player && p.supplied && !p.buildings.includes('shieldGen')) {
+    if (p.owner === s.player && p.supplied && !p.build && !p.buildings.includes('shieldGen')) {
       const can = s.factions[s.player].production >= SHIELD_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="shield" ${can ? '' : 'disabled'}>🛡 Планетарный щит (${SHIELD_COST} пр.) — вторжение вязнет вдвое</button>`;
     }
-    if (p.owner === s.player && p.supplied && !p.buildings.includes('orbStation')) {
+    if (p.owner === s.player && p.supplied && !p.build && !p.buildings.includes('orbStation')) {
       const can = s.factions[s.player].production >= STATION_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="station" ${can ? '' : 'disabled'}>🛰 Орбитальная станция (${STATION_COST} пр.) — бьёт по чужим флотам</button>`;
     }
@@ -1210,13 +1285,13 @@ export class UI {
       html += `<button class="mini-btn wide" data-act="op-uprising" style="border-color:var(--gold)">✊ АГИТАЦИЯ: поднять восстание на ${p.name}</button>`;
     }
     // Сервисный док супероружия: нужны чертежи, единственный на фракцию.
-    if (p.owner === s.player && s.factions[s.player].specialUnlocked && p.supplied
+    if (p.owner === s.player && s.factions[s.player].specialUnlocked && p.supplied && !p.build
         && !specialDockWorld(s, s.player) && !p.buildings.includes('specialDock')) {
       const can = s.factions[s.player].production >= SPECIAL_DOCK_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="specialdock" ${can ? '' : 'disabled'}>◆ Особая верфь и сервисный док (${SPECIAL_DOCK_COST} пр.) — восстановление супероружия вдвое дешевле</button>`;
     }
     // Станция добычи Е-711 на жучьей марионетке.
-    if (s.player === 'superEarth' && p.puppetOf === 'superEarth' && !p.buildings.includes('e711Station')) {
+    if (s.player === 'superEarth' && p.puppetOf === 'superEarth' && !p.build && !p.buildings.includes('e711Station')) {
       const can = s.factions.superEarth.production >= E711_STATION_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="e711station" ${can ? '' : 'disabled'}>⛽ Станция добычи Е-711 (${E711_STATION_COST} пр. · +0.7/д)</button>`;
     }
@@ -1226,7 +1301,7 @@ export class UI {
     if (this.gloomMode && s.player === 'terminids' && p.owner === 'terminids' && !p.gloom && sectorFullyOwned(s, p.id, 'terminids')) {
       html += `<button class="mini-btn wide" data-act="gloomseed">☁ Заронить зачаток Мрака (60 дн)</button>`;
     }
-    if (this.termicideMode && s.player === 'superEarth' && p.owner === 'superEarth' && !p.buildings.includes('termicide')) {
+    if (this.termicideMode && s.player === 'superEarth' && p.owner === 'superEarth' && !p.build && !p.buildings.includes('termicide')) {
       html += `<button class="mini-btn wide" data-act="termicide">☠ Установить термицид (${TERMICIDE_COST} пр.)</button>`;
     }
     // Планетарный залп: своя станция на орбите чужой планеты.
@@ -1278,7 +1353,9 @@ export class UI {
       const rank = rankOf(f);
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}</div>
-          <div style="color:var(--muted);font-size:0.7rem">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}</div></div>
+          <div style="color:var(--muted);font-size:0.7rem">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}${f.transports ? ' · ТРН ' + f.transports.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}${
+            f.faction === 'superEarth' && landableInfantry(f) < f.infantry - 0.5
+              ? ` <span style="color:var(--fed)">(ссадит ${landableInfantry(f).toFixed(0)})</span>` : ''}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
         ${(p.owner === s.player || (p.battle && p.battle.attacker === s.player)) && f.infantry > 0 ? `<button class="mini-btn" data-act="deploy" data-fleet="${f.id}">ВЫСАДИТЬ</button>` : ''}
         ${p.owner === s.player && p.shipyard && storedHulls(p.shipyard) > 0 ? `<button class="mini-btn" data-act="takeyard" data-fleet="${f.id}">⚓ С ВЕРФИ</button>` : ''}
@@ -1415,9 +1492,17 @@ export class UI {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const act = btn.dataset.act;
+        if (act === 'cancelbuild') {
+          if (this.act({ k: 'cancelBuild', planet: p.id })) {
+            this.toast('СТРОЙКА СВЁРНУТА · ВОЗВРАТ 50%');
+            this.renderPanel();
+            this.renderHud();
+          }
+          return;
+        }
         if (act === 'depot') {
           if (this.act({ k: 'buildDepot', planet: p.id })) {
-            this.toast('ТОЧКА СНАБЖЕНИЯ РАЗВЁРНУТА');
+            this.toast('ТОЧКА СНАБЖЕНИЯ ЗАЛОЖЕНА');
             this.renderPanel();
             this.renderStability();
           }
@@ -1425,14 +1510,14 @@ export class UI {
         }
         if (act === 'yard') {
           if (this.act({ k: 'buildShipyard', planet: p.id })) {
-            this.toast('ВЕРФЬ РАЗВЁРНУТА · ЗАКАЗЫ — В «⚒ ПРОИЗВОДСТВО»');
+            this.toast('ВЕРФЬ ЗАЛОЖЕНА · РАБОТЫ НАЧАТЫ');
             this.renderPanel();
           }
           return;
         }
         if (act === 'shield') {
           if (this.act({ k: 'buildShield', planet: p.id })) {
-            this.toast('ПЛАНЕТАРНЫЙ ЩИТ РАЗВЁРНУТ');
+            this.toast('ПЛАНЕТАРНЫЙ ЩИТ ЗАЛОЖЕН');
             this.renderPanel();
             this.renderHud();
           }
@@ -1440,7 +1525,7 @@ export class UI {
         }
         if (act === 'station') {
           if (this.act({ k: 'buildStation', planet: p.id })) {
-            this.toast('ОРБИТАЛЬНАЯ СТАНЦИЯ СОБРАНА');
+            this.toast('ОРБИТАЛЬНАЯ СТАНЦИЯ ЗАЛОЖЕНА');
             this.renderPanel();
             this.renderHud();
           }
@@ -1772,7 +1857,9 @@ export class UI {
         <div class="pp-stat"><span>Супер-эсминцы</span><b>${f.ships.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Дредноуты</span><b>${f.dreadnoughts.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Линкоры-флагманы</span><b>${f.battleships.toFixed(0)}</b></div>
-        <div class="pp-stat"><span>Пехота на борту</span><b>${f.infantry.toFixed(0)}</b></div>
+        ${f.faction === 'superEarth' ? `<div class="pp-stat"><span>Транспорты ВССЗ</span><b>${(f.transports ?? 0).toFixed(0)} · подъём ${((f.transports ?? 0) * TRANSPORT_LIFT).toFixed(0)}</b></div>` : ''}
+        <div class="pp-stat"><span>Пехота на борту</span><b>${f.infantry.toFixed(0)}${
+          landableInfantry(f) < f.infantry - 0.5 ? ` <span style="color:var(--fed)">· ссадит ${landableInfantry(f).toFixed(0)}</span>` : ''}</b></div>
         ${f.special ? `<div class="hint">◆ Несёт супероружие фракции.</div>` : ''}
         ${(() => {
           const rank = rankOf(f);
@@ -2279,7 +2366,7 @@ export class UI {
     // --- Верфи: корабли строятся только здесь и только вручную. ---
     const yards = yardsOf(s, s.player);
     html += `<div class="dec-item"><b>⚓ Верфи (${yards.length})</b>
-      <div class="hint">Верфь строится через карточку своей планеты (${SHIPYARD_COST} пр.). Один стапель — один заказ. Готовые корпуса ждут на складе: их забирает флот с орбиты, либо формируется новое соединение.</div>`;
+      <div class="hint">Верфь строится через карточку своей планеты (${SHIPYARD_COST} пр.). Один стапель — один заказ. Готовые корпуса ждут на складе: их забирает флот с орбиты, либо из них собирается соединение в редакторе.</div>`;
     if (!yards.length) {
       html += `<div class="hint" style="color:var(--fed)">Верфей нет. Откройте карточку своей планеты и постройте первую.</div>`;
     }
@@ -2292,14 +2379,16 @@ export class UI {
         <div class="yard-status">${q && qdef
           ? `Стапель: ${qdef.name} — ещё ${q.daysLeft} дн <button class="mini-btn" data-cancel="${p.id}">ОТМЕНИТЬ</button>`
           : 'Стапель свободен'}</div>
-        <div class="yard-status">Склад: ЭСМ ${y.stored.ships} · ДРД ${y.stored.dreadnoughts} · ЛКР ${y.stored.battleships}</div>
+        <div class="yard-status">Склад: ЭСМ ${y.stored.ships} · ДРД ${y.stored.dreadnoughts} · ЛКР ${y.stored.battleships}${
+          s.player === 'superEarth' ? ` · ТРН ${y.stored.transports ?? 0}` : ''}</div>
         <div class="yard-btns">`;
-      for (const c of SHIP_CLASSES) {
+      for (const c of shipClassesFor(s.player)) {
         const can = !q && fs.production >= c.cost && fs.resources.minerals >= c.minerals;
         html += `<button class="mini-btn ${can ? '' : 'off'}" data-queue="${p.id}:${c.id}" ${can ? '' : 'disabled'} title="${c.desc} · ${c.days} дн · ${c.cost} пр. + ${c.minerals} ⛏">${c.name.split(' ')[0]} ${c.cost}·⛏${c.minerals}</button>`;
       }
       if (storedHulls(y) > 0) {
         html += `<button class="mini-btn" data-form="${p.id}">➕ СОЕДИНЕНИЕ</button>`;
+        html += `<button class="mini-btn" data-compose="${p.id}" style="border-color:var(--gold)">⚙ РЕДАКТОР</button>`;
       }
       html += `<button class="mini-btn ${y.repeat ? 'sel' : ''}" data-repeat="${p.id}" title="Автоматически закладывать ту же серию, пока хватает ресурсов">${y.repeat ? '🔁 ПОВТОР: ВКЛ' : '🔁 ПОВТОР'}</button>`;
       html += `</div></div>`;
@@ -2347,6 +2436,162 @@ export class UI {
           this.renderForces();
         } else this.toast('НЕВОЗМОЖНО: ЛИМИТ ФЛОТОВ ИЛИ ПУСТОЙ СКЛАД');
       }));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-compose]').forEach((b) =>
+      b.addEventListener('click', () => this.openCompose(b.dataset.compose!)));
+  }
+
+  // ---------------- Редактор соединений ----------------
+  //
+  // Кнопка «➕ СОЕДИНЕНИЕ» ссыпает в новый флот всё, что нашлось на складе, и
+  // случайную пехоту из пулов. Для быстрой пересылки подкреплений этого хватает,
+  // для операции — нет: ударная группа и конвой снабжения собираются по-разному.
+  // Здесь состав задаётся явно — корпуса, транспорты, части десанта поимённо, —
+  // а удачную раскладку можно сохранить шаблоном и повторить в следующий раз.
+
+  private openCompose(planetId: string): void {
+    this.composeYard = planetId;
+    this.composeSpec = emptySpec();
+    this.composeEl.classList.remove('hidden');
+    this.renderCompose();
+  }
+
+  private closeCompose(): void {
+    this.composeYard = null;
+    this.composeEl.classList.add('hidden');
+  }
+
+  /** Пределы редактора: склад верфи и пулы войск фракции. */
+  private composeLimits(): { yard: Shipyard; troops: { id: string; name: string; have: number }[] } | null {
+    const s = this.state;
+    const p = this.composeYard ? s.galaxy.planets.get(this.composeYard) : null;
+    if (!p?.shipyard || p.owner !== s.player) return null;
+    const fs = s.factions[s.player];
+    return {
+      yard: p.shipyard,
+      troops: troopsOf(s.player).map((t) => ({ id: t.id, name: t.name, have: Math.floor(fs.units[t.id] ?? 0) })),
+    };
+  }
+
+  private renderCompose(): void {
+    const s = this.state;
+    const lim = this.composeLimits();
+    const p = this.composeYard ? s.galaxy.planets.get(this.composeYard) : null;
+    if (!lim || !p) { this.closeCompose(); return; }
+    const spec = this.composeSpec;
+    const st = lim.yard.stored;
+
+    // Сколько десанта поднимут выбранные транспорты (у не-СЗ — сколько угодно).
+    const lift = s.player === 'superEarth' ? spec.transports * TRANSPORT_LIFT : Infinity;
+    const loaded = Object.values(spec.troops).reduce((a, b) => a + b, 0);
+    const hulls = spec.ships + spec.dreadnoughts * 3 + spec.battleships * 6;
+    const over = loaded > lift;
+
+    const row = (key: keyof FleetSpec & string, label: string, have: number, val: number) =>
+      `<div class="cmp-row"><span class="cmp-name">${label}</span>
+        <span class="cmp-have">склад ${have}</span>
+        <button class="mini-btn" data-dec="${key}">−</button>
+        <b class="cmp-val">${val}</b>
+        <button class="mini-btn" data-inc="${key}">+</button>
+        <button class="mini-btn" data-max="${key}">MAX</button></div>`;
+
+    let html = `<div class="pc-head"><span class="pc-title">⚙ СОСТАВ СОЕДИНЕНИЯ · ${p.name}</span>
+      <button class="pc-close" id="cmp-close">✕</button></div><div class="pc-body">
+      <div class="pp-section">Корабли</div>
+      ${row('ships', 'Супер-эсминцы', st.ships, spec.ships)}
+      ${row('dreadnoughts', 'Дредноуты', st.dreadnoughts, spec.dreadnoughts)}
+      ${row('battleships', 'Линкоры', st.battleships, spec.battleships)}
+      ${s.player === 'superEarth' ? row('transports', 'Транспорты ВССЗ', st.transports ?? 0, spec.transports) : ''}
+      <div class="pp-section">Десант</div>`;
+    for (const t of lim.troops) {
+      const val = Math.floor(spec.troops[t.id] ?? 0);
+      html += `<div class="cmp-row"><span class="cmp-name">${t.name}</span>
+        <span class="cmp-have">в пуле ${t.have}</span>
+        <button class="mini-btn" data-tdec="${t.id}">−</button>
+        <b class="cmp-val">${val}</b>
+        <button class="mini-btn" data-tinc="${t.id}">+</button>
+        <button class="mini-btn" data-tmax="${t.id}">MAX</button></div>`;
+    }
+    html += `<div class="pp-stat"><span>Огневая мощь</span><b>${hulls.toFixed(0)}</b></div>
+      <div class="pp-stat"><span>Десант на борту</span><b style="color:${over ? 'var(--fed)' : 'var(--gold)'}">${loaded}${
+        Number.isFinite(lift) ? ` / ${lift}` : ''}</b></div>
+      <div class="cmp-actions">
+        <button class="mini-btn wide" id="cmp-build">СФОРМИРОВАТЬ</button>
+        <button class="mini-btn" id="cmp-save">💾 ШАБЛОН</button>
+      </div>`;
+
+    const tpls = loadTemplates(s.player);
+    if (tpls.length) {
+      html += `<div class="pp-section">Шаблоны</div>`;
+      tpls.forEach((t, i) => {
+        html += `<div class="cmp-row"><span class="cmp-name">${t.name}</span>
+          <button class="mini-btn" data-tpl="${i}">ПРИМЕНИТЬ</button>
+          <button class="mini-btn" data-tpldel="${i}">✕</button></div>`;
+      });
+    }
+    html += `</div>`;
+    this.paint(this.composeEl, html);
+    this.placePanel(this.composeEl);
+    this.wireDrag(this.composeEl);
+    this.wireCompose(lim);
+  }
+
+  private wireCompose(lim: NonNullable<ReturnType<UI['composeLimits']>>): void {
+    const st = lim.yard.stored;
+    const capOf = (k: string): number =>
+      k === 'ships' ? st.ships : k === 'dreadnoughts' ? st.dreadnoughts
+      : k === 'battleships' ? st.battleships : (st.transports ?? 0);
+    const bump = (k: string, d: number) => {
+      const cur = (this.composeSpec as unknown as Record<string, number>)[k] ?? 0;
+      (this.composeSpec as unknown as Record<string, number>)[k] =
+        Math.max(0, Math.min(Math.floor(capOf(k)), cur + d));
+      this.renderCompose();
+    };
+    const bumpTroop = (id: string, d: number) => {
+      const have = lim.troops.find((t) => t.id === id)?.have ?? 0;
+      const cur = this.composeSpec.troops[id] ?? 0;
+      this.composeSpec.troops[id] = Math.max(0, Math.min(have, cur + d));
+      this.renderCompose();
+    };
+    const q = <T extends HTMLElement>(sel: string) => this.composeEl.querySelectorAll<T>(sel);
+
+    this.composeEl.querySelector('#cmp-close')?.addEventListener('click', () => this.closeCompose());
+    q<HTMLButtonElement>('[data-inc]').forEach((b) => b.addEventListener('click', () => bump(b.dataset.inc!, 1)));
+    q<HTMLButtonElement>('[data-dec]').forEach((b) => b.addEventListener('click', () => bump(b.dataset.dec!, -1)));
+    q<HTMLButtonElement>('[data-max]').forEach((b) => b.addEventListener('click', () => bump(b.dataset.max!, 9999)));
+    q<HTMLButtonElement>('[data-tinc]').forEach((b) => b.addEventListener('click', () => bumpTroop(b.dataset.tinc!, 5)));
+    q<HTMLButtonElement>('[data-tdec]').forEach((b) => b.addEventListener('click', () => bumpTroop(b.dataset.tdec!, -5)));
+    q<HTMLButtonElement>('[data-tmax]').forEach((b) => b.addEventListener('click', () => bumpTroop(b.dataset.tmax!, 99999)));
+
+    this.composeEl.querySelector('#cmp-build')?.addEventListener('click', () => {
+      const c = this.composeSpec;
+      if (!this.composeYard) return;
+      const okDone = this.act({
+        k: 'composeFleet', planet: this.composeYard,
+        ships: c.ships, dreadnoughts: c.dreadnoughts, battleships: c.battleships,
+        transports: c.transports, troops: { ...c.troops },
+      });
+      if (okDone) {
+        this.toast('СОЕДИНЕНИЕ СОБРАНО');
+        this.closeCompose();
+        this.renderProduction();
+        this.renderForces();
+      } else this.toast('НЕВОЗМОЖНО: ЛИМИТ ФЛОТОВ ИЛИ ПУСТОЙ СОСТАВ');
+    });
+    this.composeEl.querySelector('#cmp-save')?.addEventListener('click', () => {
+      saveTemplate(this.state.player, this.composeSpec);
+      this.toast('ШАБЛОН СОХРАНЁН');
+      this.renderCompose();
+    });
+    q<HTMLButtonElement>('[data-tpl]').forEach((b) => b.addEventListener('click', () => {
+      const t = loadTemplates(this.state.player)[Number(b.dataset.tpl)];
+      if (!t) return;
+      this.composeSpec = { ...t.spec, troops: { ...t.spec.troops } };
+      this.renderCompose();
+    }));
+    q<HTMLButtonElement>('[data-tpldel]').forEach((b) => b.addEventListener('click', () => {
+      deleteTemplate(this.state.player, Number(b.dataset.tpldel));
+      this.renderCompose();
+    }));
   }
 
   // ---------------- Главное меню (Escape) ----------------

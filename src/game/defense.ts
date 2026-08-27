@@ -1,5 +1,6 @@
 import type { FactionId } from '../core/types';
-import { pushLog, type GameState } from './state';
+import { type GameState } from './state';
+import { beginBuild, hasOrBuilding } from './construction';
 
 // ---------------------------------------------------------------------------
 // Оборонительные сооружения:
@@ -7,6 +8,7 @@ import { pushLog, type GameState } from './state';
 //   • Орбитальная станция — ежедневно бьёт по вражеским флотам на орбите,
 //     даже когда своих кораблей рядом нет.
 // Оба гибнут при захвате планеты — победителю достаются руины.
+// Оба СТРОЯТСЯ: заказ списывает производство, объект встаёт в строй позже.
 // ---------------------------------------------------------------------------
 
 export const SHIELD_COST = 90;
@@ -18,47 +20,16 @@ export function buildShield(state: GameState, faction: FactionId, planetId: stri
   const p = state.galaxy.planets.get(planetId);
   const fs = state.factions[faction];
   if (!p || p.owner !== faction || !p.supplied || p.shattered || p.abyss) return false;
-  if (p.buildings.includes('shieldGen') || fs.production < SHIELD_COST) return false;
+  if (hasOrBuilding(p, 'shieldGen') || p.build || fs.production < SHIELD_COST) return false;
   fs.production -= SHIELD_COST;
-  p.buildings.push('shieldGen');
-  pushLog(state, {
-    faction,
-    text: `Над ${p.name} развёрнут планетарный щит. Вторжение здесь захлебнётся в помехах.`,
-    tone: faction === state.player ? 'good' : 'info',
-  });
-  return true;
+  return beginBuild(state, p, 'shieldGen', SHIELD_COST);
 }
 
 export function buildStation(state: GameState, faction: FactionId, planetId: string): boolean {
   const p = state.galaxy.planets.get(planetId);
   const fs = state.factions[faction];
   if (!p || p.owner !== faction || !p.supplied || p.shattered || p.abyss) return false;
-  if (p.buildings.includes('orbStation') || fs.production < STATION_COST) return false;
+  if (hasOrBuilding(p, 'orbStation') || p.build || fs.production < STATION_COST) return false;
   fs.production -= STATION_COST;
-  p.buildings.push('orbStation');
-  pushLog(state, {
-    faction,
-    text: `На орбите ${p.name} собрана боевая станция. Незваные гости встретят шквал огня.`,
-    tone: faction === state.player ? 'good' : 'info',
-  });
-  return true;
-}
-
-/** Оборонительные сооружения гибнут при смене владельца планеты. */
-export function demolishDefenses(planet: { buildings: string[] }): void {
-  planet.buildings = planet.buildings.filter((b) => b !== 'shieldGen' && b !== 'orbStation');
-}
-
-/** ИИ: столица и ценные фронтовые миры получают щит и станцию. */
-export function aiBuildDefenses(state: GameState, faction: FactionId): void {
-  const fs = state.factions[faction];
-  if (!fs.alive || fs.production < STATION_COST + 120) return;
-  const worlds = state.galaxy.order
-    .map((id) => state.galaxy.planets.get(id)!)
-    .filter((p) => p.owner === faction && p.supplied && !p.shattered && !p.abyss)
-    .sort((a, b) => (b.isCapital ? 100 : b.value) - (a.isCapital ? 100 : a.value));
-  for (const p of worlds.slice(0, 3)) {
-    if (!p.buildings.includes('shieldGen')) { buildShield(state, faction, p.id); return; }
-    if (!p.buildings.includes('orbStation')) { buildStation(state, faction, p.id); return; }
-  }
+  return beginBuild(state, p, 'orbStation', STATION_COST);
 }

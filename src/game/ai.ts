@@ -1,20 +1,19 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
 import { FACTIONS } from '../data/factions';
-import { isHuman, fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
+import { fleetCap, isHuman, fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
 import { orderFleetTo } from './units';
-import { canEnter } from './supply';
+import { buildDepot, canEnter, DEPOT_COST } from './supply';
+import { buildShipyard, liftCapacity, SHIPYARD_COST } from './shipyards';
+import { buildShield, buildStation, SHIELD_COST, STATION_COST } from './defense';
 import { hostileNow } from './diplomacy';
+import { SE_MASS_TROOPS } from './combat';
 import { drawUnits, mineE711, mineMinerals, replenishUnits, totalUnits } from './troops';
+import { TRANSPORT_LIFT } from '../data/troops';
 import { accruePower } from './politics';
 import { bus } from '../core/emitter';
 
 const FLEET_COST = 45;
 const INFANTRY_CAP = 45;
-
-export function fleetCap(state: GameState, faction: FactionId): number {
-  const base = faction === 'superEarth' ? 7 : 5;
-  return base + state.factions[faction].bonuses.shipCap;
-}
 
 /** Daily economy for every faction: production, manpower, fleet building, reload. */
 export function runEconomy(state: GameState, faction: FactionId): void {
@@ -73,7 +72,10 @@ export function runEconomy(state: GameState, faction: FactionId): void {
     fs.production -= FLEET_COST;
     const crew = drawUnits(fs, 20);
     const yard = worlds.find((p) => p.isCapital) ?? worlds[0]!;
-    spawnFleet(state, faction, yard.id, { ships: 6, infantry: crew });
+    // Соединение Супер-Земли комплектуется транспортами под весь свой десант:
+    // без аппарелей ВССЗ на планету не сойдут (см. liftCapacity).
+    const transports = faction === 'superEarth' ? Math.ceil(crew / TRANSPORT_LIFT) : 0;
+    spawnFleet(state, faction, yard.id, { ships: 6, infantry: crew, transports });
   }
 
   // Флоты на своих планетах докомплектовывают пехоту из пулов.
@@ -84,7 +86,10 @@ export function runEconomy(state: GameState, faction: FactionId): void {
     if (f.transit) continue;
     const p = state.galaxy.planets.get(f.at);
     if (p && p.owner === faction && f.infantry < infantryCap) {
-      const load = drawUnits(fs, Math.min(4, infantryCap - f.infantry));
+      // Потолок погрузки — по транспортам: лишний батальон некуда сажать.
+      const room = Math.min(infantryCap, liftCapacity(f)) - f.infantry;
+      if (room <= 0) continue;
+      const load = drawUnits(fs, Math.min(4, room));
       f.infantry += load;
     }
   }
@@ -204,7 +209,14 @@ function nearestDist(worlds: Planet[], p: Planet): number {
  *    а не берётся просто ближайшая;
  *  • без достаточного перевеса сил ИИ копит войска, а не бросается в бой;
  *  • при угрозе своим мирам флоты отзываются на оборону;
- *  • потрёпанные соединения отходят в тыл на переформирование.
+ *  • потрёпанные соединения отходят в тыл на переформирование;
+ *  • НАСТУПЛЕНИЕ ИДЁТ НЕСКОЛЬКИМИ ОСЯМИ. Раньше все соединения фракции
+ *    считали лучшую цель по одной и той же формуле и, разумеется, находили
+ *    одну и ту же: весь флот собирался над единственной планетой, остальной
+ *    фронт стоял. Теперь занятые цели помечаются, и на одну планету идёт не
+ *    больше того, что нужно для её взятия, — следующее соединение ищет
+ *    следующую ось. Оборона считается так же: два флота на один горящий мир
+ *    не отправляются.
  */
 export function runAI(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
@@ -212,6 +224,20 @@ export function runAI(state: GameState, faction: FactionId): void {
   // Пересмотр стратегического плана раз в 12 дней.
   if (!fs.aiPlan || state.day % 12 === 0) {
     updatePlan(state, faction);
+  }
+
+  // Сколько десанта уже нацелено на каждую планету — свои же соединения,
+  // летящие или штурмующие. Это и есть учёт осей наступления.
+  const committed = new Map<string, number>();
+  const commit = (target: string, troops: number) =>
+    committed.set(target, (committed.get(target) ?? 0) + troops);
+  for (const f of fleetsOf(state, faction)) {
+    const dest = f.transit ? f.transit.to : f.at;
+    const here = state.galaxy.planets.get(dest);
+    if (!here) continue;
+    if (here.owner !== faction || (here.battle && here.battle.defender === faction)) {
+      commit(dest, f.infantry);
+    }
   }
 
   for (const f of fleetsOf(state, faction)) {
@@ -231,11 +257,14 @@ export function runAI(state: GameState, faction: FactionId): void {
     if (here.owner !== faction && hostileNow(state, faction, here.owner)) continue;
 
     // Оборона прежде всего: если наш мир под серьёзным ударом — на выручку.
-    const threat = mostThreatenedWorld(state, faction);
+    // Но только если там ещё не хватает своих: спасать втроём один мир, пока
+    // горят три, — ровно та ошибка, из-за которой ИИ сбивался в кучу.
+    const threat = mostThreatenedWorld(state, faction, committed);
     if (threat) {
       const tp = state.galaxy.planets.get(threat)!;
       if (tp.battle && tp.battle.liberation > 25 && threat !== f.at) {
         orderFleetTo(state, f, threat, false);
+        commit(threat, f.infantry);
         continue;
       }
     }
@@ -244,15 +273,109 @@ export function runAI(state: GameState, faction: FactionId): void {
     // Рой не копит резервы поколениями — бросается в атаку раньше прочих.
     const minInfantry = faction === 'terminids' ? 7 : 12;
     if (f.infantry >= minInfantry) {
-      const target = bestInvasionTarget(state, faction, f);
+      const target = bestInvasionTarget(state, faction, f, committed);
       if (target) {
         orderFleetTo(state, f, target, true);
+        commit(target, f.infantry);
         continue;
       }
     }
     // Сил маловато — копим на месте (докомплектация идёт в runEconomy),
     // а тем временем прикрываем самый ценный фронтовой мир.
-    if (threat && threat !== f.at) orderFleetTo(state, f, threat, false);
+    if (threat && threat !== f.at) {
+      orderFleetTo(state, f, threat, false);
+      commit(threat, f.infantry);
+    }
+  }
+}
+
+/**
+ * Стройка ИИ: не «щит на самый ценный мир», а разумная очередь по ролям.
+ *
+ * Мир получает сооружение по тому, чем он является для фракции:
+ *   • столица и фронтовые ценные миры — щит и станция;
+ *   • тыловые промышленные — верфь, чтобы флот вообще было где строить;
+ *   • узлы на стыке своих секторов — точка снабжения (она ускоряет
+ *     пополнение гарнизонов вокруг, а не только у себя).
+ * Стройка теперь занимает дни, поэтому ИИ проверяет, что площадка свободна,
+ * и НЕ пытается заложить второй объект на том же мире.
+ */
+export function aiBuild(state: GameState, faction: FactionId): void {
+  const fs = state.factions[faction];
+  if (!fs.alive) return;
+  const worlds = planetsOf(state, faction)
+    .filter((p) => p.supplied && !p.shattered && !p.abyss && !p.build);
+  if (!worlds.length) return;
+
+  const frontier = (p: Planet) =>
+    p.links.some((lid) => {
+      const n = state.galaxy.planets.get(lid);
+      return !!n && n.owner !== faction && hostileNow(state, faction, n.owner);
+    });
+
+  // Считаем ВСЁ, что есть и что уже строится, по всей территории — иначе ИИ
+  // закладывает пятый щит подряд, потому что каждый следующий вызов видит
+  // очередной непокрытый фронтовой мир и не помнит про четыре предыдущих.
+  const all = planetsOf(state, faction);
+  const owned = (kind: string): number => all.filter((p) =>
+    p.build?.id === kind || (kind === 'shipyard' ? !!p.shipyard : kind === 'depot' ? p.depot : p.buildings.includes(kind))).length;
+
+  const front = all.filter(frontier).length;
+  // Сколько чего фракции вообще нужно при её нынешних размерах.
+  //
+  // Потолки РАСТУТ С ТЕРРИТОРИЕЙ, и это не мелочь. Прежние жёсткие «не больше
+  // трёх станций» имели смысл для фракции из пяти миров, но Супер-Земля с её
+  // двумя сотнями планет упиралась в тот же потолок: к первому году у неё
+  // копилось двадцать тысяч производства, которые некуда было деть, а миры
+  // при этом стояли без орбитального прикрытия. Гегемон обязан обстраиваться
+  // соразмерно себе — иначе он платит за размер, ничего не получая взамен.
+  const want: Record<string, number> = {
+    shipyard: Math.min(8, 1 + Math.floor(all.length / 10)),
+    shieldGen: Math.min(16, Math.ceil(front / 2)),
+    orbStation: Math.min(20, 1 + Math.floor(all.length / 12)),
+    depot: Math.min(12, Math.floor(all.length / 6)),
+  };
+  const cost: Record<string, number> = {
+    shipyard: SHIPYARD_COST, shieldGen: SHIELD_COST, orbStation: STATION_COST, depot: DEPOT_COST,
+  };
+
+  // Строим то, чего не хватает СИЛЬНЕЕ ВСЕГО, а не то, что стоит первым в
+  // списке приоритетов: так фракция развивается вширь, а не заваливает фронт
+  // одними щитами.
+  const gaps = Object.keys(want)
+    .map((kind) => ({ kind, gap: want[kind]! - owned(kind) }))
+    .filter((g) => g.gap > 0 && fs.production >= cost[g.kind]! + 60)
+    .sort((a, b) => b.gap - a.gap);
+
+  for (const { kind } of gaps) {
+    // Верфь ставится в ТЫЛУ: фронтовую снесут вместе с планетой при первом же
+    // захвате, а вместе с ней — весь склад корпусов.
+    if (kind === 'shipyard') {
+      const site = worlds.filter((p) => !p.shipyard && !frontier(p))
+        .sort((a, b) => (b.isCapital ? 60 : b.value) - (a.isCapital ? 60 : a.value))[0];
+      if (site && buildShipyard(state, faction, site.id)) return;
+      continue;
+    }
+    // Щит — туда, где уже дерутся или вот-вот начнут.
+    if (kind === 'shieldGen') {
+      const hot = worlds.filter((p) => frontier(p) && !p.buildings.includes('shieldGen'))
+        .sort((a, b) => ((b.battle ? 40 : 0) + b.value) - ((a.battle ? 40 : 0) + a.value))[0];
+      if (hot && buildShield(state, faction, hot.id)) return;
+      continue;
+    }
+    // Станция — на столицу и на ценные узлы: она бьёт и по пустой орбите.
+    if (kind === 'orbStation') {
+      const site = worlds.filter((p) => !p.buildings.includes('orbStation'))
+        .sort((a, b) => ((b.isCapital ? 80 : 0) + b.value) - ((a.isCapital ? 80 : 0) + a.value))[0];
+      if (site && buildStation(state, faction, site.id)) return;
+      continue;
+    }
+    // Точка снабжения — в глубине, где больше всего своих соседей: такой узел
+    // кормит пополнением целую гроздь миров, а не только себя.
+    const hub = worlds.filter((p) => !p.depot)
+      .map((p) => ({ p, n: p.links.filter((lid) => state.galaxy.planets.get(lid)?.owner === faction).length }))
+      .sort((a, b) => b.n - a.n)[0];
+    if (hub && hub.n >= 2 && buildDepot(state, faction, hub.p.id)) return;
   }
 }
 
@@ -261,9 +384,16 @@ export function runAI(state: GameState, faction: FactionId): void {
  * защищённые миры ценятся выше, столицы — лакомая добыча, а главный вес
  * получает цель ТЕКУЩЕГО СТРАТЕГИЧЕСКОГО ПЛАНА и её сектор.
  */
-function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): string | null {
+function bestInvasionTarget(
+  state: GameState,
+  faction: FactionId,
+  f: Fleet,
+  committed: Map<string, number>,
+): string | null {
   const fs = state.factions[faction];
   const myPower = f.infantry * (1 + fs.bonuses.combat);
+  // Супер-Земля воюет кулаком, остальные — фронтом. Разница видна ниже.
+  const fist = faction === 'superEarth';
   const plan = fs.aiPlan;
   const planSector = plan?.target ? state.galaxy.planets.get(plan.target)?.sector : undefined;
   // Гегемон: фракция, держащая больше 38% живых планет галактики.
@@ -301,10 +431,28 @@ function bestInvasionTarget(state: GameState, faction: FactionId, f: Fleet): str
     if (!onFrontier) continue;
 
     const defence = p.garrison * (1 + p.fortification * 0.12) * (p.supplied ? 1 : 0.55);
+    const already = committed.get(id) ?? 0;
+    // Ось наступления уже насыщена: над этой планетой достаточно своих сил,
+    // и лишнее соединение здесь — не удар, а толчея. Пусть ищет другую цель.
+    const saturated = fist
+      ? already >= SE_MASS_TROOPS * 1.6
+      : already > defence * 1.6;
+    if (saturated) continue;
     // Без перевеса ИИ не лезет — копит силы (рой безрассуднее прочих).
-    if (myPower < defence * (faction === 'terminids' ? 0.45 : 0.66) * desperation) continue;
+    if (myPower + already < defence * (faction === 'terminids' ? 0.45 : 0.66) * desperation) continue;
 
     let score = myPower / (defence + 10);
+    if (fist) {
+      // Доктрина гегемона — КУЛАК. Супер-Земля не размазывает силы по фронту:
+      // пока на оси нет полноценной группировки, следующее соединение идёт
+      // туда же. Иначе она платит за рассредоточенность (оголённые тылы,
+      // тонкие гарнизоны), но никогда не получает того, ради чего платит.
+      if (already > 0 && already < SE_MASS_TROOPS) score += 5;
+    } else if (already > 0) {
+      // Уже начатую соседями операцию поддержать полезно, но чем плотнее там
+      // свои, тем меньше смысла добавлять ещё: убывающая отдача от кучи.
+      score -= (already / (defence + 10)) * 1.5;
+    }
     score += p.value * 0.35;
     // Все фракции рвутся к Супер-Земле и центру галактики — важные точки.
     score += (1 - p.radius / state.galaxy.radiusMax) * 2.5;
@@ -358,11 +506,21 @@ function nearestOwnedWorld(state: GameState, faction: FactionId, from: string): 
   return bfsFind(state, from, (p) => canEnter(state, faction, p), (p) => p.owner === faction);
 }
 
-function mostThreatenedWorld(state: GameState, faction: FactionId): string | null {
+/**
+ * Самый угрожаемый свой мир — с поправкой на уже направленную туда помощь.
+ * Без этой поправки все свободные соединения фракции летели спасать одну и ту
+ * же планету, а соседние горящие миры оставались без единого корабля.
+ */
+function mostThreatenedWorld(
+  state: GameState,
+  faction: FactionId,
+  committed: Map<string, number>,
+): string | null {
   let best: Planet | null = null;
   let bestScore = 0;
   for (const p of planetsOf(state, faction)) {
-    const score = (p.battle ? p.battle.liberation : 0) + (p.isCapital ? 20 : 0);
+    const help = committed.get(p.id) ?? 0;
+    const score = (p.battle ? p.battle.liberation : 0) + (p.isCapital ? 20 : 0) - help * 0.6;
     if (score > bestScore) {
       bestScore = score;
       best = p;

@@ -97,7 +97,8 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 
   // Клиент-иллюминат строит у себя — и это применяется, хотя экран хоста за СЗ.
   ok(applyCommand(s, 'illuminate', { k: 'buildDepot', planet: ill.id }), 'клиент строит на своём мире');
-  ok(ill.depot, 'постройка действительно появилась');
+  // Стройка занимает дни (раунд 53): приказ ставит площадку, а не готовый объект.
+  ok(ill.build?.id === 'depot', 'на мире клиента заложена стройка');
   // И не может строить на чужом.
   const se = planetsOf(s, 'superEarth')[0]!;
   ok(!applyCommand(s, 'illuminate', { k: 'buildDepot', planet: se.id }), 'на чужом мире строить нельзя');

@@ -2,8 +2,9 @@ import type { FactionId } from '../core/types';
 import type { GameState } from '../game/state';
 import { disbandFleet, garrisonReinforce, mergeFleets, orderFleetTo, splitFleet } from '../game/units';
 import {
-  buildShipyard, cancelQueue, formFleetFromYard, queueShip, takeStoredShips,
+  buildShipyard, cancelQueue, composeFleet, formFleetFromYard, queueShip, takeStoredShips,
 } from '../game/shipyards';
+import { cancelBuild } from '../game/construction';
 import { buildDepot } from '../game/supply';
 import { buildShield, buildStation } from '../game/defense';
 import { selectFocus } from '../game/focus';
@@ -95,11 +96,20 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
     }
     case 'formFleet':
       return !!ownPlanet(state, actor, c.planet) && !!formFleetFromYard(state, actor, c.planet);
+    case 'composeFleet':
+      // Состав приходит от клиента, поэтому ему не верят: composeFleet сам
+      // урезает всё до наличия на складе и в пулах фракции-исполнителя.
+      return !!ownPlanet(state, actor, c.planet) && !!composeFleet(state, actor, c.planet, {
+        ships: c.ships, dreadnoughts: c.dreadnoughts, battleships: c.battleships,
+        transports: c.transports, troops: c.troops ?? {},
+      });
     case 'queueShip':
       return !!ownPlanet(state, actor, c.planet) &&
         queueShip(state, actor, c.planet, c.cls as Parameters<typeof queueShip>[3]);
     case 'cancelQueue':
       return cancelQueue(state, actor, c.planet);
+    case 'cancelBuild':
+      return cancelBuild(state, actor, c.planet);
     case 'buildShipyard':
       return !!ownPlanet(state, actor, c.planet) && buildShipyard(state, actor, c.planet);
     case 'buildDepot':

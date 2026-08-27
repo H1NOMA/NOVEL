@@ -64,6 +64,18 @@ export function drawUnits(fs: FactionState, amount: number): number {
 }
 
 /**
+ * Списать бойцов КОНКРЕТНОГО типа: редактор соединений собирает десант
+ * поимённо, а не «сколько-нибудь пехоты». Возвращает фактически списанное.
+ */
+export function drawUnitsOf(fs: FactionState, troop: string, amount: number): number {
+  const have = fs.units[troop] ?? 0;
+  const take = Math.max(0, Math.min(have, amount));
+  if (take <= 0) return 0;
+  fs.units[troop] = have - take;
+  return take;
+}
+
+/**
  * Ежедневная добыча ископаемых: каждая СНАБЖАЕМАЯ планета с залежами даёт
  * доход по уровню залежей. Автоматоны копают быстрее — машинам не нужен сон.
  */

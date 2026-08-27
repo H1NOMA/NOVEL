@@ -3,6 +3,7 @@ import { RNG } from '../core/rng';
 import type { Sector } from './galaxy';
 import { pairKey, type Relation } from './relations';
 import { FACTION_IDS } from '../data/factions';
+import { TRANSPORT_LIFT } from '../data/troops';
 
 /** Старые сохранения не знают об отношениях: восстанавливаем всеобщую войну. */
 function legacyRelations(): Relation[] {
@@ -152,6 +153,14 @@ export function deserializeState(json: string): GameState {
   for (const f of b.fleets) {
     f.dreadnoughts = f.dreadnoughts ?? 0;
     f.battleships = f.battleships ?? 0;
+    // …и о транспортах. Соединениям Супер-Земли из старой партии выдаём
+    // аппарели под уже погруженный десант: иначе загруженный сейв внезапно
+    // теряет способность высаживаться, хотя игрок ничего не менял.
+    f.transports = f.transports ?? (f.faction === 'superEarth' ? Math.ceil(f.infantry / TRANSPORT_LIFT) : 0);
+  }
+  // Склады верфей из старых сейвов не знают о транспортах.
+  for (const p of b.planets) {
+    if (p.shipyard) p.shipyard.stored.transports = p.shipyard.stored.transports ?? 0;
   }
   // …и о политической власти.
   for (const fs of Object.values(b.factions)) {

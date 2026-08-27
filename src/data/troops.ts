@@ -59,14 +59,28 @@ export const FACTORY_DEFS = [
   { id: 'jetFactory', name: 'Фабрика реактивного батальона', unlocks: 'jets', cost: 80 },
 ] as const;
 
-/** Классы кораблей: базовые эсминцы, тяжёлые дредноуты, линкоры-флагманы. */
+/**
+ * Классы кораблей: базовые эсминцы, тяжёлые дредноуты, линкоры-флагманы и
+ * десантные транспорты. Транспорт огня не ведёт (power 0) — он возит пехоту.
+ * Поле `only` ограничивает класс одной фракцией: транспорты — доктрина
+ * Супер-Земли, у которой пехота летит вниз, а не отращивается на месте.
+ */
 export const SHIP_CLASSES = [
   { id: 'destroyer', name: 'Супер-эсминцы', count: 4, power: 1, cost: 45, minerals: 6, days: 12, desc: '+4 базовых корабля' },
   { id: 'dreadnought', name: 'Дредноут', count: 1, power: 3, cost: 120, minerals: 18, days: 30, desc: 'Тяжёлый корабль: сила ×3' },
   { id: 'battleship', name: 'Линкор-флагман', count: 1, power: 6, cost: 250, minerals: 42, days: 55, desc: 'Флагман: сила ×6' },
+  { id: 'transport', name: 'Транспорты ВССЗ', count: 2, power: 0, cost: 30, minerals: 4, days: 9, only: 'superEarth', desc: 'Десантные корабли: без них ВССЗ не сойдут на планету' },
 ] as const;
 
 export type ShipClassId = (typeof SHIP_CLASSES)[number]['id'];
+
+/** Сколько пехоты поднимает один транспорт. */
+export const TRANSPORT_LIFT = 12;
+
+/** Классы, доступные фракции на верфи. */
+export function shipClassesFor(faction: FactionId): typeof SHIP_CLASSES[number][] {
+  return SHIP_CLASSES.filter((c) => !('only' in c) || c.only === faction);
+}
 
 /** Стоимость производства одной пехотной дивизии (+15 в пул типа). */
 export const DIVISION_SIZE = 15;

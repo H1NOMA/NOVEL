@@ -11,6 +11,7 @@ import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { generateGalaxy, type Galaxy } from './galaxy';
 import { DEFAULT_SHAPE, type GalaxyShape } from './galaxyShapes';
 import { initUnits } from './troops';
+import { TRANSPORT_LIFT } from '../data/troops';
 import { RNG } from '../core/rng';
 import { initRelations, type Relation } from './relations';
 import { rollFocusVariants } from './trophies';
@@ -171,14 +172,18 @@ export function createGame(
     const cap = homeworlds.find((p) => p.isCapital) ?? homeworlds[0];
     if (!cap) continue;
     // Столичный мир каждой фракции начинает с готовой верфью.
-    cap.shipyard = { queue: null, stored: { ships: 0, dreadnoughts: 0, battleships: 0 } };
+    cap.shipyard = { queue: null, stored: { ships: 0, dreadnoughts: 0, battleships: 0, transports: 0 } };
     const isEnemy = fid !== 'superEarth';
     const fleetCount = fid === 'superEarth' ? 3 : 3;
     for (let i = 0; i < fleetCount; i++) {
       const home = homeworlds[(i * 3) % homeworlds.length] ?? cap;
+      const infantry = (isEnemy ? 32 : 20) + Math.floor(state.rng.range(0, 15));
       spawnFleet(state, fid, home.id, {
         ships: (isEnemy ? 9 : 6) + Math.floor(state.rng.range(0, 4)),
-        infantry: (isEnemy ? 32 : 20) + Math.floor(state.rng.range(0, 15)),
+        infantry,
+        // Стартовые соединения Супер-Земли укомплектованы транспортами под
+        // весь свой десант: доктрина ВССЗ работает с первого дня войны.
+        transports: fid === 'superEarth' ? Math.ceil(infantry / TRANSPORT_LIFT) : 0,
       });
     }
   }
@@ -216,7 +221,7 @@ export function spawnFleet(
   state: GameState,
   faction: FactionId,
   at: string,
-  opts: { ships: number; infantry: number; special?: string; dreadnoughts?: number; battleships?: number }
+  opts: { ships: number; infantry: number; special?: string; dreadnoughts?: number; battleships?: number; transports?: number }
 ): Fleet {
   const id = `f_${state.fleetCounter++}`;
   const fleet: Fleet = {
@@ -226,6 +231,7 @@ export function spawnFleet(
     ships: opts.ships,
     dreadnoughts: opts.dreadnoughts ?? 0,
     battleships: opts.battleships ?? 0,
+    transports: opts.transports ?? 0,
     infantry: opts.infantry,
     special: opts.special,
     order: { kind: 'idle' },
@@ -283,6 +289,16 @@ export function fleetsOf(state: GameState, faction: FactionId): Fleet[] {
     .filter((f) => f && f.faction === faction);
 }
 
+
+/**
+ * Потолок числа соединений у фракции. Живёт здесь, а не в ai.ts: его читают и
+ * верфи, и редактор соединений, и сам ИИ, — а держать общий предел в модуле
+ * ИИ означало бы кольцо импортов «верфи ↔ ИИ».
+ */
+export function fleetCap(state: GameState, faction: FactionId): number {
+  const base = faction === 'superEarth' ? 7 : 5;
+  return base + state.factions[faction].bonuses.shipCap;
+}
 
 /** Управляет ли фракцией живой игрок (в одиночной партии — только свой). */
 export function isHuman(state: GameState, faction: FactionId): boolean {

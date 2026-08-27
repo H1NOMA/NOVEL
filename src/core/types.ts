@@ -96,6 +96,11 @@ export interface Planet {
   minerals: number;
   /** Построенные сооружения (точки снабжения учитываются отдельно флагом depot). */
   buildings: string[];
+  /**
+   * Стройплощадка: сооружение возводится не мгновенно, а за дни. Одна на мир —
+   * планета не может тянуть две стройки разом.
+   */
+  build?: { id: string; daysLeft: number; total: number; cost: number };
   /** Богатые залежи Е-711 — остаются после освобождения мира из Мрака. */
   e711Rich: boolean;
   /** Планета уничтожена орбитальным залпом супероружия — осталось поле обломков. */
@@ -116,7 +121,7 @@ export interface Shipyard {
   /** Повторять заказ автоматически, пока хватает ресурсов. */
   repeat?: string;
   /** Готовые корпуса, ожидающие передачи соединению. */
-  stored: { ships: number; dreadnoughts: number; battleships: number };
+  stored: { ships: number; dreadnoughts: number; battleships: number; transports?: number };
 }
 
 export interface City {
@@ -153,6 +158,11 @@ export interface Fleet {
   dreadnoughts: number;
   /** Линкоры-флагманы (сила ×6 за корпус). */
   battleships: number;
+  /**
+   * Десантные транспорты. Огня не ведут — возят пехоту. Для Супер-Земли это
+   * обязательное условие высадки: ВССЗ без транспортов остаются на орбите.
+   */
+  transports?: number;
   /** Infantry troops carried aboard, deployable to planets. */
   infantry: number;
   /** If set, this fleet carries the faction's special unit. */

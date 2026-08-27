@@ -75,12 +75,16 @@ async function transport(): Promise<void> {
   let sent = 0;
   let skipped = 0;
   let maxQueue = 0;
+  // Срезы идут ПАЧКОЙ, без пауз между ними: именно так выглядит хост на
+  // тройной скорости против клиента, который не успевает читать. С паузой на
+  // setImmediate после каждого кадра петля успевала сливать сокет и очередь не
+  // добиралась до порога — тест ловил не затор, а скорость петли.
   for (let i = 0; i < 300; i++) {
     const r = gameNet.broadcastVolatile(payload);
     sent += r.sent;
     skipped += r.skipped;
     maxQueue = Math.max(maxQueue, Object.values(gameNet.peerBacklog())[0] ?? 0);
-    await new Promise((r2) => setImmediate(r2));
+    if (i % 50 === 49) await new Promise((r2) => setImmediate(r2));
   }
   ok(skipped > 0, `при заторе срезы пропускаются (пропущено ${skipped} из 300)`);
   // Без сброса очередь выросла бы на 300 кадров; проверяем, что потолок близок

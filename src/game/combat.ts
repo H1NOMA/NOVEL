@@ -4,11 +4,12 @@ import { fleetsAt, modActive, pushChronicle, pushLog, removeFleet, type GameStat
 import { depotBonus } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
-import { scuttleYard } from './shipyards';
+import { landableInfantry, liftCapacity } from './shipyards';
+import { razeBuildings } from './construction';
 import { hostileNow } from './diplomacy';
 import { adjustRelation, onCapitalCaptured, onCapitalLiberated } from './relations';
 import { commanderOf } from './commanders';
-import { demolishDefenses, STATION_POWER } from './defense';
+import { STATION_POWER } from './defense';
 import { gainXp, rankOf } from './veterancy';
 import { originBlockaded } from './specops';
 import { bus } from '../core/emitter';
@@ -29,9 +30,83 @@ function combatMult(state: GameState, faction: FactionId): number {
   return 1 + fs.bonuses.combat + (fs.warSupport - 50) / 200 + eliteShare(fs) * 0.25 + fervor;
 }
 
-/** Суммарная корабельная мощь: эсминцы ×1, дредноуты ×3, линкоры ×6. */
+/** Суммарная корабельная мощь: эсминцы ×1, дредноуты ×3, линкоры ×6.
+ *  Транспорты сюда не входят: у них нет орудий, только аппарели. */
 export function hullPower(f: Fleet): number {
   return f.ships + f.dreadnoughts * 3 + f.battleships * 6;
+}
+
+// ---------------------------------------------------------------------------
+// Доктрина Супер-Земли
+//
+// Супер-Земля — гегемон: миров у неё больше, чем она способна прикрыть флотом.
+// Отсюда две противоположные черты, и обе описаны здесь.
+//
+//  • КОНЦЕНТРАЦИЯ. Собранный кулак — армада с полным десантом — решает вопрос
+//    о планете до начала боя: орбитальное превосходство, непрерывный сброс,
+//    Сладкая Свобода. То же в обороне: над миром с таким кулаком штурм не
+//    развивается вовсе.
+//  • РАССРЕДОТОЧЕННОСТЬ. Мир без своих кораблей на орбите — это гарнизон под
+//    открытым небом. Он держится ровно до того дня, когда его увидели.
+//
+// Пороги взяты от реальных величин партии: 24 корпуса — это три-четыре серии
+// эсминцев или пара тяжёлых групп, 60 десанта — потолок пехоты двух
+// соединений. Собрать такое можно, но не везде и не одновременно — в этом и
+// смысл: за концентрацию Супер-Земля платит оголёнными тылами.
+// ---------------------------------------------------------------------------
+
+/** Корпусов боевой мощи в «большом соединении». */
+export const SE_MASS_HULLS = 24;
+/** Десанта (или гарнизона в обороне) в «большом соединении». */
+export const SE_MASS_TROOPS = 60;
+/** Во сколько раз сильнее массированный удар Супер-Земли. */
+export const SE_DOCTRINE_ATTACK = 2.2;
+/** Во сколько раз крепче массированная оборона Супер-Земли. */
+export const SE_DOCTRINE_DEFENCE = 2.2;
+/** Насколько слабее гарнизон Супер-Земли без кораблей на орбите. */
+export const SE_UNCOVERED = 0.6;
+
+/** Боевая мощь кораблей фракции, стоящих сейчас на орбите планеты. */
+export function orbitPower(state: GameState, planetId: string, faction: FactionId): number {
+  return fleetsAt(state, planetId)
+    .filter((f) => f.faction === faction)
+    .reduce((s, f) => s + hullPower(f), 0);
+}
+
+/** Прикрыт ли мир собственными кораблями (или орбитальной станцией). */
+export function orbitCovered(state: GameState, planet: Planet): boolean {
+  if (planet.buildings.includes('orbStation')) return true;
+  return fleetsAt(state, planet.id).some((f) => f.faction === planet.owner);
+}
+
+/**
+ * Степень концентрации: во сколько раз группировка перекрывает пороги. Берётся
+ * ХУДШЕЕ из двух отношений — армада без десанта планету не берёт, десант без
+ * прикрытия не долетает.
+ */
+export function seConcentration(hulls: number, troops: number): number {
+  return Math.min(hulls / SE_MASS_HULLS, troops / SE_MASS_TROOPS);
+}
+
+/** Массированный удар Супер-Земли: и корпуса, и десант взяли порог. */
+export function seMassedAttack(faction: FactionId, hulls: number, troops: number): boolean {
+  return faction === 'superEarth' && seConcentration(hulls, troops) >= 1;
+}
+
+/**
+ * Множитель доктрины — НЕПРЕРЫВНЫЙ, и это принципиально.
+ *
+ * Первая версия была ступенькой: взял порог — ×2.2, потерял двадцать бойцов —
+ * снова ×1. На третий день штурма группировка проседала чуть ниже порога, сила
+ * удара обваливалась вдвое, и массированная атака заканчивалась хуже обычной.
+ * Поэтому здесь плавная кривая: заметный прирост появляется уже на подходе к
+ * порогу, полная сила — при полуторном перекрытии. Убыль десанта теперь
+ * ослабляет удар постепенно, как ей и положено.
+ */
+export function seDoctrine(faction: FactionId, hulls: number, troops: number, full: number): number {
+  if (faction !== 'superEarth') return 1;
+  const t = Math.max(0, Math.min(1, (seConcentration(hulls, troops) - 0.6) / 0.9));
+  return 1 + (full - 1) * t;
 }
 
 /** Фаза наземной операции по прогрессу освобождения. */
@@ -47,9 +122,9 @@ export const PHASE_LABEL: Record<BattlePhase, string> = {
   assault: 'Генеральный штурм',
 };
 
-/** Общее число корпусов в соединении (для стека на карте). */
+/** Общее число корпусов в соединении, включая безоружные транспорты. */
 export function hullCount(f: Fleet): number {
-  return f.ships + f.dreadnoughts + f.battleships;
+  return f.ships + f.dreadnoughts + f.battleships + (f.transports ?? 0);
 }
 
 function fleetPower(state: GameState, f: Fleet): number {
@@ -110,16 +185,23 @@ function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, p
   planet.wreckage = (planet.wreckage ?? 0) + Math.min(totalLoss, totalShips);
   for (const f of fleets) {
     let share = (hullCount(f) / totalShips) * totalLoss;
-    // Первыми гибнут эсминцы, затем дредноуты, линкоры — последними.
-    const eatFrom = (key: 'ships' | 'dreadnoughts' | 'battleships', weight: number) => {
+    // Первыми гибнут эсминцы — они и есть охранение. Следом безоружные
+    // транспорты: как только экран прорван, десант жгут в первую очередь.
+    // Тяжёлые корпуса уходят последними.
+    const eatFrom = (key: 'ships' | 'dreadnoughts' | 'battleships' | 'transports', weight: number) => {
       if (share <= 0) return;
-      const hulls = Math.min(f[key], share / weight);
-      f[key] = Math.max(0, f[key] - hulls);
+      const have = f[key] ?? 0;
+      const hulls = Math.min(have, share / weight);
+      f[key] = Math.max(0, have - hulls);
       share -= hulls * weight;
     };
     eatFrom('ships', 1);
+    eatFrom('transports', 1);
     eatFrom('dreadnoughts', 3);
     eatFrom('battleships', 6);
+    // Потопленный транспорт уносит с собой десант, который вёз.
+    const lift = liftCapacity(f);
+    if (f.infantry > lift) f.infantry = lift;
     if (hullCount(f) < 0.5) {
       if (f.special) {
         state.factions[f.faction].lostSpecial = true;
@@ -130,6 +212,39 @@ function applyShipLosses(state: GameState, fleets: Fleet[], totalLoss: number, p
         });
       }
       removeFleet(state, f.id);
+    }
+  }
+}
+
+/**
+ * Орбитальный обстрел непрокрытых миров.
+ *
+ * Планета, над которой висит враг, а своих кораблей и станции нет, каждый день
+ * получает по гарнизону и укреплениям — просто потому, что по ней бьют с
+ * орбиты и ответить нечем. Для Супер-Земли это стоит вдвое дороже: её миры
+ * рассчитаны на флотское прикрытие, а не на автономную оборону.
+ *
+ * Это и есть обратная сторона доктрины гегемона: собранный в кулак флот
+ * решает планету за неделю, но каждая планета, оставшаяся без кораблей,
+ * начинает осыпаться сама.
+ */
+export function resolveBombardment(state: GameState): void {
+  for (const id of state.galaxy.order) {
+    const planet = state.galaxy.planets.get(id)!;
+    if (planet.shattered || planet.puppetOf || planet.garrison <= 0) continue;
+    if (orbitCovered(state, planet)) continue;
+    let guns = 0;
+    for (const f of fleetsAt(state, id)) {
+      if (hostileNow(state, f.faction, planet.owner)) guns += hullPower(f);
+    }
+    if (guns <= 0) continue;
+    const exposed = planet.owner === 'superEarth' ? 2 : 1;
+    const shield = planet.buildings.includes('shieldGen') ? 0.4 : 1;
+    const loss = guns * 0.018 * exposed * shield;
+    planet.garrison = Math.max(0, planet.garrison - Math.min(planet.garrison, loss));
+    // Затяжной обстрел ровняет укрепления: раз в 40 корпусо-дней — на ступень.
+    if (planet.fortification > 0 && guns * shield > 40 && state.day % 6 === 0) {
+      planet.fortification--;
     }
   }
 }
@@ -220,9 +335,12 @@ export function resolveGround(state: GameState): void {
     }
 
     // Determine the lead attacking faction (strongest present).
+    // Считается ТОЛЬКО тот десант, который есть чем ссадить: у Супер-Земли
+    // ВССЗ без транспортов остаются на орбите зрителями.
     const attackPower = new Map<FactionId, number>();
     for (const f of attackers) {
-      attackPower.set(f.faction, (attackPower.get(f.faction) ?? 0) + f.infantry * combatMult(state, f.faction) * (commanderOf(f)?.combat ?? 1));
+      const troops = landableInfantry(f);
+      attackPower.set(f.faction, (attackPower.get(f.faction) ?? 0) + troops * combatMult(state, f.faction) * (commanderOf(f)?.combat ?? 1));
     }
     let lead: FactionId = attackers[0]!.faction;
     let leadVal = 0;
@@ -242,6 +360,18 @@ export function resolveGround(state: GameState): void {
     // Тень Бездны: миры иллюминатов рядом с погруженными обороняются упорнее.
     if (planet.owner === 'illuminate' &&
         planet.links.some((lid) => state.galaxy.planets.get(lid)!.abyss)) defBonus *= 1.3;
+
+    // --- Доктрина Супер-Земли ---
+    // Оборона держится флотом. Мир, над которым нет ни своих кораблей, ни
+    // станции, обороняется вполсилы, а для Супер-Земли — вдвое хуже того:
+    // её гарнизоны рассчитаны на орбитальную поддержку, а не на окопы.
+    const covered = orbitCovered(state, planet);
+    if (!covered) defBonus *= planet.owner === 'superEarth' ? SE_UNCOVERED : 0.85;
+    // Зато собранный над своим миром кулак Супер-Земли делает штурм безнадёжным.
+    if (planet.owner === 'superEarth' &&
+        seMassedAttack('superEarth', orbitPower(state, planet.id, 'superEarth'), planet.garrison)) {
+      defBonus *= SE_DOCTRINE_DEFENCE;
+    }
     // Снабжение атаки идёт С ПЛАЦДАРМА: планеты, с которой флот вторгся.
     // Если плацдарм потерян/отрезан, не смежен с целью — или его орбиту
     // блокирует вражеский рейдер, — атакующий получает штраф.
@@ -255,6 +385,14 @@ export function resolveGround(state: GameState): void {
     if (!hasSupplyLine) attackerForce *= modActive(state, 'longSupply') ? 0.6 : 0.75;
     // Термицид выкашивает атакующий рой.
     if (lead === 'terminids' && planet.buildings.includes('termicide')) attackerForce *= 0.45;
+    // Массированный удар Супер-Земли: армада плюс полноценный десант — и
+    // планета берётся почти наверняка. Это её единственный способ воевать
+    // за пределами своих секторов, и стоит он всех сил разом.
+    const seHulls = orbitPower(state, planet.id, lead);
+    const seTroops = attackers.filter((f) => f.faction === lead)
+      .reduce((s, f) => s + landableInfantry(f), 0) + landedGround;
+    const doctrine = seDoctrine(lead, seHulls, seTroops, SE_DOCTRINE_ATTACK);
+    attackerForce *= doctrine;
     let defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
 
     if (!planet.battle || planet.battle.attacker !== lead) {
@@ -316,7 +454,9 @@ export function resolveGround(state: GameState): void {
     const vetCapture = Math.max(1, ...attackers.filter((f) => f.faction === lead).map((f) => rankOf(f).mult));
     const captureRate = (1 + massShare(state.factions[lead]) * (phase === 'assault' ? 0.5 : 0.3))
       * (hasSuperweapon ? 1.4 : 1)
-      * cmdCapture * vetCapture * (shielded ? 0.55 : 1);
+      * cmdCapture * vetCapture * (shielded ? 0.55 : 1)
+      // Массированная высадка не топчется на плацдарме: сброс идёт волнами.
+      * doctrine;
     b.liberation = clamp(b.liberation + (ratio - 0.5) * 22 * captureRate + citiesHeld * 0.9, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
@@ -337,7 +477,10 @@ export function resolveGround(state: GameState): void {
     const gLoss = Math.min(planet.garrison, attackerForce * 0.04 * gLossMult);
     planet.garrison = Math.max(0, planet.garrison - gLoss);
     for (const f of attackers) {
-      const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15);
+      // Подавляющее превосходство бережёт своих: под сплошным орбитальным
+      // огнём защитники отвечают куда реже, и десант тает медленнее.
+      const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15)
+        / (f.faction === lead ? doctrine : 1);
       f.infantry = Math.max(0, f.infantry - iLoss);
       // День наземных боёв закаляет десант.
       if (f.faction === lead) gainXp(f, 1.2 * (modActive(state, 'veteranWar') ? 1.5 : 1));
@@ -390,10 +533,11 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   }
   // Захват мира — прямое оскорбление: симпатия к захватчику падает у всех.
   adjustRelation(state, prev, attacker, -6);
-  // Верфь достаётся победителю, но склад и стапель защитники уничтожают.
-  scuttleYard(planet);
-  // Щит и орбитальная станция гибнут вместе с обороной.
-  demolishDefenses(planet);
+  // ВСЁ ПОСТРОЕННОЕ ГИБНЕТ. Отступая, защитники подрывают верфь, щит, станцию,
+  // фабрики и точку снабжения; недостроенное сгорает на площадке. Победителю
+  // достаётся голая планета — и это главный тормоз блицкрига: захваченный мир
+  // ещё десятки дней ничего не даёт и ничего не прикрывает.
+  razeBuildings(planet);
   // Победный штурм — главная школа десанта.
   const victoryXp = modActive(state, 'veteranWar') ? 18 : 12;
   for (const f of attackers) if (f.faction === attacker) gainXp(f, victoryXp);
@@ -411,11 +555,13 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     harvestPopulation(state, planet.name, garrisonLost, planet.cities.length);
   }
   // Landed infantry becomes the new garrison; ships stay in orbit.
+  // Ссаживается только то, что подняли транспорты: остальное едет дальше.
   let landed = groundForce;
   for (const f of attackers) {
     if (f.faction === attacker) {
-      landed += f.infantry * 0.6;
-      f.infantry *= 0.4;
+      const put = landableInfantry(f) * 0.6;
+      landed += put;
+      f.infantry = Math.max(0, f.infantry - put);
     }
   }
   planet.garrison = Math.max(8, landed);
@@ -519,9 +665,14 @@ function regrowGarrison(state: GameState, planet: Planet): void {
     planet.garrison = Math.max(1, planet.garrison - 0.5);
     return;
   }
+  // Супер-Земля держит гарнизоны ВЕЗДЕ — их много, и восполняются они быстро:
+  // мобилизационная машина гегемона работает без остановки. Слабость её миров
+  // не в численности постов, а в том, что они рассчитаны на флот над головой
+  // (см. SE_UNCOVERED в наземном бою и обстрел непрокрытых миров).
+  const se = planet.owner === 'superEarth' && !planet.isCapital;
   const cap = planet.isCapital ? 140 : 40 + planet.value * 8;
   if (planet.garrison < cap) {
-    let growth = 0.4 + state.factions[planet.owner].bonuses.recruitment * 0.04;
+    let growth = (se ? 0.55 : 0.4) + state.factions[planet.owner].bonuses.recruitment * 0.04;
     // Город-академия готовит пополнение быстрее.
     if (planet.cities.some((cc) => cc.spec === 'academy' && cc.holder === planet.owner)) growth *= 1.35;
     // Точка снабжения здесь или на соседней своей планете ускоряет пополнение.
