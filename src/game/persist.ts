@@ -162,6 +162,14 @@ export function deserializeState(json: string): GameState {
   for (const p of b.planets) {
     if (p.shipyard) p.shipyard.stored.transports = p.shipyard.stored.transports ?? 0;
   }
+  // …а соединения — о штате. Заводим его по нынешнему составу: пополнение из
+  // резерва начнёт работать с того, что у соединения есть на момент загрузки.
+  for (const f of b.fleets) {
+    f.establishment = f.establishment ?? {
+      ships: Math.round(f.ships), dreadnoughts: Math.round(f.dreadnoughts),
+      battleships: Math.round(f.battleships), transports: Math.round(f.transports ?? 0),
+    };
+  }
   // …и о политической власти.
   for (const fs of Object.values(b.factions)) {
     fs.politicalPower = fs.politicalPower ?? 0;

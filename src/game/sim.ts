@@ -11,7 +11,7 @@ import { resolveBombardment, resolveGround, resolveOrbital } from './combat';
 import { garrisonReinforce, stepFleets } from './units';
 import { recomputeSupply } from './supply';
 import { stepDecisions } from './decisions';
-import { stepShipyards } from './shipyards';
+import { reinforceFleets, stepShipyards } from './shipyards';
 import { stepConstruction } from './construction';
 import { stepEvents } from './events';
 import { stepTruces } from './diplomacy';
@@ -65,6 +65,8 @@ export function advanceDay(state: GameState): void {
 
   recomputeSupply(state);
   stepShipyards(state);
+  // Резерв догоняет фронт: соединения на своих верфях добирают потери до штата.
+  reinforceFleets(state);
   stepConstruction(state);
   resolveOrbital(state);
   // Обстрел непрокрытых миров идёт ДО наземного боя: гарнизон, по которому
@@ -214,7 +216,7 @@ function checkVictory(state: GameState): void {
       const fs = state.factions[f];
       if (!fs.alive) return false;
       if (f === 'automatons' && fs.flags.arkPrepared && !fs.flags.arkDone) return true;
-      return planetsOf(state, f).some((p) => !p.abyss);
+      return planetsOf(state, f).length > 0;
     });
 
   if (contenders.length === 1) {

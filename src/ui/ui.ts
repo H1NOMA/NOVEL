@@ -9,10 +9,10 @@ import { focusIconURL } from '../render/focusIcons';
 import { lockedInBattle } from '../game/units';
 import { landableInfantry, storedHulls, yardsOf, SHIPYARD_COST, type FleetSpec } from '../game/shipyards';
 import { canEnter } from '../game/supply';
-import { fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
+import { availableSides, fleetsAt, fleetsOf, planetsOf, type GameState } from '../game/state';
 import { DEPOT_COST } from '../game/supply';
 import { E711_STATION_COST, sectorFullyOwned, SPECIAL_DOCK_COST, SPECIAL_REBUILD_COST, specialDockWorld, superShotReadyIn, TERMICIDE_COST } from '../game/decisions';
-import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, TRANSPORT_LIFT, shipClassesFor } from '../data/troops';
+import { DIVISION_COST, DIVISION_SIZE, SHIP_CLASSES, SHIP_CLASS_TAG, TRANSPORT_LIFT, shipClassName, shipClassesFor } from '../data/troops';
 import { troopsOf } from '../data/troops';
 import { AUTOSAVE_SLOT, MANUAL_SLOTS, requestLoad, saveGame, saveMeta, setAutosaveDays } from '../game/persist';
 import { careerFinish } from '../game/career';
@@ -31,7 +31,7 @@ import { nextRankIn, rankOf } from '../game/veterancy';
 import { SoundEngine } from './sound';
 import { Hotkeys } from './hotkeys';
 import { partyCodeBlock, rosterList } from './party';
-import { currentRole, getPartyCode, getPartyMembers, isClient, kickPeer, sendCommand } from '../net/session';
+import { currentRole, getPartyCode, getPartyMembers, isClient, kickPeer, leave as leaveNet, sendCommand } from '../net/session';
 import { applyCommand } from '../net/commands';
 import type { Cmd } from '../net/protocol';
 import { SettingsPanel } from './settingsPanel';
@@ -1241,7 +1241,7 @@ export class UI {
     if (p.shipyard) {
       const q = p.shipyard.queue;
       const qdef = q ? SHIP_CLASSES.find((c) => c.id === q.cls) : null;
-      html += `<div class="pp-stat"><span>⚓ Верфь</span><b>${q && qdef ? `${qdef.name} · ${q.daysLeft} дн` : storedHulls(p.shipyard) > 0 ? `Склад: ${storedHulls(p.shipyard)} корп.` : 'Стапель свободен'}</b></div>`;
+      html += `<div class="pp-stat"><span>⚓ Верфь</span><b>${q && qdef ? `${shipClassName(p.owner, qdef.id)} · ${q.daysLeft} дн` : storedHulls(p.shipyard) > 0 ? `Склад: ${storedHulls(p.shipyard)} корп.` : 'Стапель свободен'}</b></div>`;
     }
     // Стройплощадка: что возводится, сколько осталось, и кнопка свернуть.
     if (p.build) {
@@ -1371,11 +1371,11 @@ export class UI {
     if (playerFleets.length === 0) html += `<div class="hint">Ваших флотов на орбите нет.</div>`;
     playerFleets.forEach((f) => {
       const selCls = s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? 'sel' : '';
-      const badge = f.special ? `<span style="color:var(--gold)">◆ ${f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name}</span>` : '🚀 Супер-эсминец';
+      const badge = f.special ? `<span style="color:var(--gold)">◆ ${f.special === 'ark' ? 'Ковчег автоматонов' : SPECIALS[f.faction].name}</span>` : `🚀 ${shipClassName(f.faction, 'destroyer')}`;
       const rank = rankOf(f);
       html += `<div class="fleet-row ${selCls}" data-fleet="${f.id}">
         <div class="grow"><div>${badge}${rank.badge ? ` <span style="color:var(--gold)" title="${rank.name}">${rank.badge}</span>` : ''}</div>
-          <div style="color:var(--muted);font-size:0.7rem">Эсминцы ${f.ships.toFixed(0)}${f.dreadnoughts ? ' · ДРД ' + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ' · ЛКР ' + f.battleships.toFixed(0) : ''}${f.transports ? ' · ТРН ' + f.transports.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}${
+          <div style="color:var(--muted);font-size:0.7rem">${SHIP_CLASS_TAG.destroyer} ${f.ships.toFixed(0)}${f.dreadnoughts ? ` · ${SHIP_CLASS_TAG.dreadnought} ` + f.dreadnoughts.toFixed(0) : ''}${f.battleships ? ` · ${SHIP_CLASS_TAG.battleship} ` + f.battleships.toFixed(0) : ''}${f.transports ? ` · ${SHIP_CLASS_TAG.transport} ` + f.transports.toFixed(0) : ''} · Пехота ${f.infantry.toFixed(0)}${
             f.faction === 'superEarth' && landableInfantry(f) < f.infantry - 0.5
               ? ` <span style="color:var(--fed)">(ссадит ${landableInfantry(f).toFixed(0)})</span>` : ''}</div></div>
         <button class="mini-btn" data-act="select" data-fleet="${f.id}">${s.selectedFleet === f.id || this.selectedFleets.has(f.id) ? '✓ ВЫБРАН' : 'ВЫБРАТЬ'}</button>
@@ -1894,9 +1894,9 @@ export class UI {
         <button class="pc-close" id="fd-close">✕</button></div>
       <div class="pc-body">
         <div class="pp-sub">${f.transit ? `В пути → ${at?.name ?? '?'}` : `На орбите: ${at?.name ?? '?'}`}${lockedInBattle(s, f) ? ' · <span style="color:var(--fed)">⚔ СКОВАНО БОЕМ</span>' : ''}</div>
-        <div class="pp-stat"><span>Супер-эсминцы</span><b>${f.ships.toFixed(0)}</b></div>
-        <div class="pp-stat"><span>Дредноуты</span><b>${f.dreadnoughts.toFixed(0)}</b></div>
-        <div class="pp-stat"><span>Линкоры-флагманы</span><b>${f.battleships.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>${shipClassName(f.faction, 'destroyer')}</span><b>${f.ships.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>${shipClassName(f.faction, 'dreadnought')}</span><b>${f.dreadnoughts.toFixed(0)}</b></div>
+        <div class="pp-stat"><span>${shipClassName(f.faction, 'battleship')}</span><b>${f.battleships.toFixed(0)}</b></div>
         ${f.faction === 'superEarth' ? `<div class="pp-stat"><span>Транспорты ВССЗ</span><b>${(f.transports ?? 0).toFixed(0)} · подъём ${((f.transports ?? 0) * TRANSPORT_LIFT).toFixed(0)}</b></div>` : ''}
         <div class="pp-stat"><span>Пехота на борту</span><b>${f.infantry.toFixed(0)}${
           landableInfantry(f) < f.infantry - 0.5 ? ` <span style="color:var(--fed)">· ссадит ${landableInfantry(f).toFixed(0)}</span>` : ''}</b></div>
@@ -2493,21 +2493,37 @@ export class UI {
       html += `<div class="yard-row">
         <div class="yard-head"><b>⚓ ${p.name}</b>${p.supplied ? '' : ' <span style="color:var(--fed)">⛔ без снабжения</span>'}</div>
         <div class="yard-status">${q && qdef
-          ? `Стапель: ${qdef.name} — ещё ${q.daysLeft} дн <button class="mini-btn" data-cancel="${p.id}">ОТМЕНИТЬ</button>`
+          ? `Стапель: ${shipClassName(s.player, qdef.id)} — ещё ${q.daysLeft} дн <button class="mini-btn" data-cancel="${p.id}">ОТМЕНИТЬ</button>`
           : 'Стапель свободен'}</div>
-        <div class="yard-status">Склад: ЭСМ ${y.stored.ships} · ДРД ${y.stored.dreadnoughts} · ЛКР ${y.stored.battleships}${
-          s.player === 'superEarth' ? ` · ТРН ${y.stored.transports ?? 0}` : ''}</div>
+        <div class="yard-status">Склад: ${SHIP_CLASS_TAG.destroyer} ${y.stored.ships} · ${SHIP_CLASS_TAG.dreadnought} ${y.stored.dreadnoughts} · ${SHIP_CLASS_TAG.battleship} ${y.stored.battleships}${
+          s.player === 'superEarth' ? ` · ${SHIP_CLASS_TAG.transport} ${y.stored.transports ?? 0}` : ''}</div>
         <div class="yard-btns">`;
       for (const c of shipClassesFor(s.player)) {
         const can = !q && fs.production >= c.cost && fs.resources.minerals >= c.minerals;
-        html += `<button class="mini-btn ${can ? '' : 'off'}" data-queue="${p.id}:${c.id}" ${can ? '' : 'disabled'} title="${c.desc} · ${c.days} дн · ${c.cost} пр. + ${c.minerals} ⛏">${c.name.split(' ')[0]} ${c.cost}·⛏${c.minerals}</button>`;
+        const cname = shipClassName(s.player, c.id);
+        html += `<button class="mini-btn ${can ? '' : 'off'}" data-queue="${p.id}:${c.id}" ${can ? '' : 'disabled'} title="${cname} · ${c.desc} · ${c.days} дн · ${c.cost} пр. + ${c.minerals} ⛏">${cname.split(' ')[0]} ${c.cost}·⛏${c.minerals}</button>`;
       }
       if (storedHulls(y) > 0) {
         html += `<button class="mini-btn" data-form="${p.id}">➕ СОЕДИНЕНИЕ</button>`;
         html += `<button class="mini-btn" data-compose="${p.id}" style="border-color:var(--gold)">⚙ РЕДАКТОР</button>`;
       }
       html += `<button class="mini-btn ${y.repeat ? 'sel' : ''}" data-repeat="${p.id}" title="Автоматически закладывать ту же серию, пока хватает ресурсов">${y.repeat ? '🔁 ПОВТОР: ВКЛ' : '🔁 ПОВТОР'}</button>`;
-      html += `</div></div>`;
+      html += `</div>`;
+      // Приписка верфи: готовые корпуса уходят прямо в выбранное соединение.
+      const mine = fleetsOf(s, s.player).filter((f) => !f.special);
+      if (mine.length) {
+        const bound = y.assigned ? s.fleets.get(y.assigned) : undefined;
+        html += `<div class="yard-status">Приписка: <b style="color:${bound ? 'var(--gold)' : 'var(--muted)'}">${
+          bound ? this.fleetName(bound.id) : 'нет — корпуса идут на склад'}</b></div>
+          <div class="yard-btns">`;
+        for (const f of mine) {
+          const on = y.assigned === f.id;
+          html += `<button class="mini-btn ${on ? 'sel' : ''}" data-assign="${p.id}:${f.id}">${
+            on ? '✓ ' : ''}${this.fleetName(f.id)}</button>`;
+        }
+        html += `</div>`;
+      }
+      html += `</div>`;
     }
     html += `</div></div>`;
     this.paint(this.productionEl, html);
@@ -2554,6 +2570,15 @@ export class UI {
       }));
     this.productionEl.querySelectorAll<HTMLButtonElement>('[data-compose]').forEach((b) =>
       b.addEventListener('click', () => this.openCompose(b.dataset.compose!)));
+    this.productionEl.querySelectorAll<HTMLButtonElement>('[data-assign]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const [pid, fid] = b.dataset.assign!.split(':');
+        if (this.act({ k: 'assignYard', planet: pid!, fleet: fid! })) {
+          const yard = this.state.galaxy.planets.get(pid!)?.shipyard;
+          this.toast(yard?.assigned ? 'ВЕРФЬ ПРИПИСАНА К СОЕДИНЕНИЮ' : 'ПРИПИСКА СНЯТА');
+          this.renderProduction();
+        }
+      }));
   }
 
   // ---------------- Редактор соединений ----------------
@@ -2613,10 +2638,10 @@ export class UI {
     let html = `<div class="pc-head"><span class="pc-title">⚙ СОСТАВ СОЕДИНЕНИЯ · ${p.name}</span>
       <button class="pc-close" id="cmp-close">✕</button></div><div class="pc-body">
       <div class="pp-section">Корабли</div>
-      ${row('ships', 'Супер-эсминцы', st.ships, spec.ships)}
-      ${row('dreadnoughts', 'Дредноуты', st.dreadnoughts, spec.dreadnoughts)}
-      ${row('battleships', 'Линкоры', st.battleships, spec.battleships)}
-      ${s.player === 'superEarth' ? row('transports', 'Транспорты ВССЗ', st.transports ?? 0, spec.transports) : ''}
+      ${row('ships', shipClassName(s.player, 'destroyer'), st.ships, spec.ships)}
+      ${row('dreadnoughts', shipClassName(s.player, 'dreadnought'), st.dreadnoughts, spec.dreadnoughts)}
+      ${row('battleships', shipClassName(s.player, 'battleship'), st.battleships, spec.battleships)}
+      ${s.player === 'superEarth' ? row('transports', shipClassName(s.player, 'transport'), st.transports ?? 0, spec.transports) : ''}
       <div class="pp-section">Десант</div>`;
     for (const t of lim.troops) {
       const val = Math.floor(spec.troops[t.id] ?? 0);
@@ -2788,11 +2813,22 @@ export class UI {
           <div class="menu-title">Партия</div>
           <button class="menu-btn" id="menu-continue">Продолжить</button>
           <button class="menu-btn" id="menu-new">Новая игра</button>
+          ${(() => {
+            // Разгром — не конец участия: выбывший берёт другую живую сторону.
+            if (!this.state.playerDefeated) return '';
+            const sides = availableSides(this.state, this.state.player);
+            if (!sides.length) return '';
+            return `<div class="menu-title">Принять другую сторону</div>
+              <div class="menu-sides">${sides.map((f) => `
+                <button class="mini-btn" data-side="${f}" style="border-color:${factionColor(f)}">
+                  ${FACTIONS[f].name}</button>`).join('')}</div>`;
+          })()}
           <div class="menu-title">Сохранения</div>
           <div class="save-list">
             ${slotRow(AUTOSAVE_SLOT, false)}
             ${MANUAL_SLOTS.map((sl) => slotRow(sl, true)).join('')}
           </div>
+          <button class="menu-btn" id="menu-tomenu">Выйти в главное меню</button>
           <button class="menu-quit" id="menu-quit">Выйти из игры</button>
         </div>
         <div class="menu-right">
@@ -2815,7 +2851,25 @@ export class UI {
 
     this.menuEl.querySelector('#menu-continue')!.addEventListener('click', () => this.toggleMenu());
     this.menuEl.querySelector('#menu-new')!.addEventListener('click', () => location.reload());
+    // Выход в меню и выход из игры — разные вещи, и раньше была только вторая.
+    // Игра стартует в главном меню, поэтому перезагрузка страницы туда и ведёт;
+    // сетевую сессию перед этим закрываем, чтобы не оставить висящий сокет.
+    this.menuEl.querySelector('#menu-tomenu')!.addEventListener('click', () => {
+      leaveNet();
+      location.reload();
+    });
     this.menuEl.querySelector('#menu-quit')!.addEventListener('click', () => window.close());
+    this.menuEl.querySelectorAll<HTMLButtonElement>('[data-side]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const side = b.dataset.side as FactionId;
+        if (this.act({ k: 'takeOverFaction', faction: side })) {
+          this.toast(`ПРИНЯТО КОМАНДОВАНИЕ: ${FACTIONS[side].name.toUpperCase()}`);
+          this.bannerEl.classList.add('hidden');
+          this.scene.refreshOwners();
+          this.renderMenu();
+          this.renderDynamic();
+        } else this.toast('СТОРОНА НЕДОСТУПНА');
+      }));
     this.menuEl.querySelectorAll<HTMLButtonElement>('[data-save]').forEach((b) =>
       b.addEventListener('click', () => {
         const slot = b.dataset.save!;

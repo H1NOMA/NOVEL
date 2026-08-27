@@ -138,6 +138,11 @@ export interface Shipyard {
   repeat?: string;
   /** Готовые корпуса, ожидающие передачи соединению. */
   stored: { ships: number; dreadnoughts: number; battleships: number; transports?: number };
+  /**
+   * Верфь приписана к соединению: готовые корпуса идут прямо к нему, а не на
+   * склад. Соединение может быть где угодно — корабли доходят своим ходом.
+   */
+  assigned?: string;
 }
 
 export interface City {
@@ -189,6 +194,12 @@ export interface Fleet {
   commander?: string;
   /** Боевой опыт соединения — растёт в сражениях, даёт ранги и бонусы. */
   xp?: number;
+  /**
+   * ШТАТ соединения: состав, к которому оно стремится. Заполняется по
+   * наибольшему, что у соединения когда-либо было, и по нему идёт пополнение
+   * из резерва — потери восполняются со склада верфи, пока штат не закрыт.
+   */
+  establishment?: { ships: number; dreadnoughts: number; battleships: number; transports: number };
   /** Очередь приказов: цели, к которым флот пойдёт после текущего приказа. */
   orderQueue?: { target: string }[];
   /** Player/AI order the fleet is executing. */

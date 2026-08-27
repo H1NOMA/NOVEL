@@ -97,8 +97,12 @@ function initFaction(id: FactionId): FactionState {
     id,
     warSupport: 50,
     manpower: Object.values(units).reduce((s, n) => s + n, 0),
-    industry: id === 'superEarth' ? 8 : 6,
-    production: 0,
+    // Промбаза врагов выше: у них мало миров, и весь их вес — в ядре державы.
+    industry: id === 'superEarth' ? 8 : 11,
+    // Стартовая казна. Супер-Земля живёт с двухсот планет и копить ей незачем,
+    // а вот у остальных без начального запаса первые полсотни дней уходили
+    // впустую: ни верфи, ни щита, ни дивизии.
+    production: id === 'superEarth' ? 0 : 220,
     completedFocus: [],
     activeFocus: undefined,
     bonuses: { combat: 0, recruitment: 0, industry: 0, shipCap: 0, fortify: 0 },
@@ -108,7 +112,7 @@ function initFaction(id: FactionId): FactionState {
     superShotDay: -100000,
     flags: {},
     units,
-    resources: { minerals: 0, e711: 0 },
+    resources: { minerals: id === 'superEarth' ? 0 : 60, e711: 0 },
     politicalPower: id === 'superEarth' ? 30 : 0,
     purchasedBonuses: [],
     opsUsed: {},
@@ -234,6 +238,15 @@ export function spawnFleet(
     transports: opts.transports ?? 0,
     infantry: opts.infantry,
     special: opts.special,
+    // Штат соединения — его состав при рождении. Без этого пополнение из
+    // резерва не работало бы для стартовых и автосборных групп: им просто
+    // нечего было бы догонять.
+    establishment: {
+      ships: Math.round(opts.ships),
+      dreadnoughts: Math.round(opts.dreadnoughts ?? 0),
+      battleships: Math.round(opts.battleships ?? 0),
+      transports: Math.round(opts.transports ?? 0),
+    },
     order: { kind: 'idle' },
   };
   state.fleets.set(id, fleet);
@@ -298,6 +311,56 @@ export function fleetsOf(state: GameState, faction: FactionId): Fleet[] {
 export function fleetCap(state: GameState, faction: FactionId): number {
   const base = faction === 'superEarth' ? 7 : 5;
   return base + state.factions[faction].bonuses.shipCap;
+}
+
+/**
+ * Выбывший игрок берёт другую сторону.
+ *
+ * Поражение раньше означало «смотрите, чем всё кончится»: игрок оставался
+ * наблюдателем до конца партии, иногда на несколько игровых лет. Теперь
+ * разгром — не выход из игры, а смена шинели: место в списке людей
+ * освобождается за павшей фракцией и занимается за новой.
+ *
+ * Правила жёсткие и очевидные: перейти можно ТОЛЬКО из мёртвой фракции и
+ * ТОЛЬКО в живую, за которой не сидит другой человек. Иначе это была бы
+ * не смена стороны, а способ бросить проигранную позицию — или отобрать
+ * фракцию у соседа по столу.
+ */
+export function takeOverFaction(state: GameState, from: FactionId, to: FactionId): boolean {
+  if (from === to) return false;
+  const old = state.factions[from];
+  const next = state.factions[to];
+  if (!old || !next) return false;
+  // Уходить можно только с погибшей стороны.
+  if (old.alive && planetsOf(state, from).length > 0) return false;
+  if (!next.alive || planetsOf(state, to).length === 0) return false;
+  // Занятое место не отнимают.
+  if (state.humans.includes(to)) return false;
+
+  state.humans = state.humans.filter((f) => f !== from).concat(to);
+  // Экран смотрит новой стороной только у того, кто перешёл; в сетевой партии
+  // остальные видят свои — их `player` задаётся локально и снапшотом не едет.
+  if (state.player === from) {
+    state.player = to;
+    state.playerDefeated = false;
+    state.selectedFleet = null;
+    state.selectedPlanet = null;
+  }
+  pushLog(state, {
+    faction: to,
+    text: `Командование переходит к новой стороне: «${FACTIONS[from].name}» пала, война продолжается за «${FACTIONS[to].name}».`,
+    tone: 'alert',
+  });
+  pushChronicle(state, `Выбывший игрок принимает командование фракцией «${FACTIONS[to].name}».`);
+  return true;
+}
+
+/** Живые стороны, за которые может встать выбывший игрок. */
+export function availableSides(state: GameState, forPlayer: FactionId): FactionId[] {
+  return (Object.keys(state.factions) as FactionId[]).filter((f) =>
+    f !== forPlayer && state.factions[f].alive &&
+    planetsOf(state, f).length > 0 && !state.humans.includes(f) &&
+    (f !== 'superFederation' || state.superFederationRisen));
 }
 
 /** Управляет ли фракцией живой игрок (в одиночной партии — только свой). */

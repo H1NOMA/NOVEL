@@ -217,7 +217,7 @@ export function produceShips(state: GameState, faction: FactionId, cls: ShipClas
   fs.resources.minerals -= def.minerals;
   const worlds = state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
-    .filter((p) => p.owner === faction && !p.shattered && !p.abyss);
+    .filter((p) => p.owner === faction && !p.shattered);
   const yard = worlds.find((p) => p.isCapital) ?? worlds[0];
   if (!yard) return false;
   fs.production -= def.cost;
@@ -374,7 +374,7 @@ export function rebuildSpecial(state: GameState, faction: FactionId): boolean {
   if (!fs.specialUnlocked || !fs.lostSpecial || fs.production < cost) return false;
   const worlds = state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
-    .filter((p) => p.owner === faction && !p.abyss);
+    .filter((p) => p.owner === faction);
   const home = (dockId ? state.galaxy.planets.get(dockId) : undefined)
     ?? worlds.find((p) => p.isCapital) ?? worlds[0];
   if (!home) return false;

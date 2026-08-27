@@ -2,9 +2,11 @@ import type { FactionId } from '../core/types';
 import type { GameState } from '../game/state';
 import { disbandFleet, garrisonReinforce, mergeFleets, orderFleetTo, splitFleet } from '../game/units';
 import {
-  buildShipyard, cancelQueue, composeFleet, formFleetFromYard, queueShip, takeStoredShips,
+  assignYard, buildShipyard, cancelQueue, composeFleet, formFleetFromYard, queueShip,
+  takeStoredShips,
 } from '../game/shipyards';
 import { cancelBuild } from '../game/construction';
+import { takeOverFaction } from '../game/state';
 import { warpFleet } from '../game/illuminate';
 import { buildDepot } from '../game/supply';
 import { buildShield, buildStation } from '../game/defense';
@@ -111,6 +113,10 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
       return cancelQueue(state, actor, c.planet);
     case 'cancelBuild':
       return cancelBuild(state, actor, c.planet);
+    case 'assignYard':
+      return assignYard(state, actor, c.planet, c.fleet);
+    case 'takeOverFaction':
+      return takeOverFaction(state, actor, c.faction);
     case 'buildShipyard':
       return !!ownPlanet(state, actor, c.planet) && buildShipyard(state, actor, c.planet);
     case 'buildDepot':

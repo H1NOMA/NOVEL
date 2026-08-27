@@ -45,12 +45,23 @@ export function massShare(fs: FactionState): number {
 }
 
 /**
- * Списать `amount` бойцов из пулов (масса → спец → элита; элиту берегут).
+ * Списать `amount` бойцов из пулов (масса → спец → элита).
  * Возвращает фактически списанное число.
+ *
+ * `sparElite` защищает элиту от рутины, и по умолчанию она включена — иначе
+ * происходило вот что. Гарнизоны двух сотен миров Супер-Земли просят
+ * пополнения каждый день; ВССЗ на эти запросы не хватает уже к середине дня,
+ * и дальше в дело шли ХЕЛЛДАЙВЕРЫ — по капле, зато безостановочно. За двести
+ * дней мирной партии их оставалось семеро из шестидесяти, а у машин Легионы
+ * киборгов подъедали ВСА до нуля. Со стороны это выглядело так, будто пехота
+ * тратится сама по себе: игрок ничего не приказывал, а элита исчезала.
+ *
+ * Элита теперь тратится только там, где её выбирают осознанно — в редакторе
+ * соединений, поимённо (см. drawUnitsOf).
  */
-export function drawUnits(fs: FactionState, amount: number): number {
+export function drawUnits(fs: FactionState, amount: number, sparElite = true): number {
   let need = amount;
-  const order = ['mass', 'special', 'elite'] as const;
+  const order = sparElite ? (['mass', 'special'] as const) : (['mass', 'special', 'elite'] as const);
   for (const role of order) {
     if (need <= 0) break;
     for (const t of troopsOf(fs.id)) {

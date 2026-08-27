@@ -2,6 +2,7 @@ import type { FactionId, Fleet, Planet, Vec2 } from '../core/types';
 import { findPath, type Galaxy } from './galaxy';
 import { pushLog, removeFleet, type GameState } from './state';
 import { canEnter, nearestFriendly } from './supply';
+import { noteEstablishment } from './shipyards';
 import { FLEET_NOUN } from '../data/factions';
 
 /** World units a fleet travels per game-day. */
@@ -190,6 +191,8 @@ export function mergeFleets(state: GameState, target: Fleet, sources: Fleet[]): 
   }
 
   target.xp = hulls > 0 ? xpWeighted / hulls : (target.xp ?? 0);
+  // Сводное соединение получает новый штат по своему нынешнему составу.
+  noteEstablishment(target);
   // Очередь приказов приёмника сохраняется, но текущий приказ сбрасывается:
   // состав изменился, и лететь дальше «как было» — не то, чего ждёт игрок.
   target.order = { kind: 'idle' };
@@ -232,6 +235,11 @@ export function splitFleet(state: GameState, fleet: Fleet): Fleet | null {
     xp: fleet.xp,
     order: { kind: 'idle' },
   };
+  // У обеих половин штат СВОЙ и по факту раздела: иначе каждая тут же
+  // потребовала бы пополнения до состава целого соединения.
+  fleet.establishment = undefined;
+  noteEstablishment(fleet);
+  noteEstablishment(nf);
   state.fleets.set(nf.id, nf);
   state.fleetOrder.push(nf.id);
   pushLog(state, {

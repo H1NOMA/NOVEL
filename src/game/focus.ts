@@ -190,7 +190,7 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
     }
     case 'freeDefenses': {
       const worlds = planetsOf(state, faction)
-        .filter((p) => p.supplied && !p.abyss)
+        .filter((p) => p.supplied)
         .sort((a, b) => (b.isCapital ? 100 : b.value) - (a.isCapital ? 100 : a.value))
         .slice(0, eff.count);
       for (const p of worlds) {

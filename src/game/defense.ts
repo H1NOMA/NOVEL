@@ -19,7 +19,7 @@ export const STATION_POWER = 16;
 export function buildShield(state: GameState, faction: FactionId, planetId: string): boolean {
   const p = state.galaxy.planets.get(planetId);
   const fs = state.factions[faction];
-  if (!p || p.owner !== faction || !p.supplied || p.shattered || p.abyss) return false;
+  if (!p || p.owner !== faction || !p.supplied || p.shattered) return false;
   if (hasOrBuilding(p, 'shieldGen') || p.build || fs.production < SHIELD_COST) return false;
   fs.production -= SHIELD_COST;
   return beginBuild(state, p, 'shieldGen', SHIELD_COST);
@@ -28,7 +28,7 @@ export function buildShield(state: GameState, faction: FactionId, planetId: stri
 export function buildStation(state: GameState, faction: FactionId, planetId: string): boolean {
   const p = state.galaxy.planets.get(planetId);
   const fs = state.factions[faction];
-  if (!p || p.owner !== faction || !p.supplied || p.shattered || p.abyss) return false;
+  if (!p || p.owner !== faction || !p.supplied || p.shattered) return false;
   if (hasOrBuilding(p, 'orbStation') || p.build || fs.production < STATION_COST) return false;
   fs.production -= STATION_COST;
   return beginBuild(state, p, 'orbStation', STATION_COST);

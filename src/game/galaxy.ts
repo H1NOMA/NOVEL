@@ -467,6 +467,25 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
     }
   }
 
+  // --- ЯДРО ДЕРЖАВЫ: миры врагов богаче рядовых ---------------------------
+  //
+  // Супер-Земля начинает с двух сотен планет, остальные — с горсти. При равной
+  // ценности мира это означало, что машины, иллюминаты и рой выходили на старт
+  // с производством, которого не хватало ни на верфь, ни на щит: первые
+  // полсотни дней они просто копили. Их немногочисленные миры должны быть
+  // действительно ядром державы — вдвое ценнее рядового мира и с
+  // гарантированными залежами.
+  //
+  // Проход идёт ПОСЛЕ всех раздач — минимального плацдарма и Малевелон Крика
+  // тоже: иначе миры, доставшиеся фракции последними, оставались нищими.
+  for (const id of order) {
+    const p = planets.get(id)!;
+    if (p.owner === 'superEarth') continue;
+    p.value = Math.max(p.value, 6) + 2;
+    p.minerals = Math.max(p.minerals, 1);
+    if (p.isCapital) p.minerals = Math.max(p.minerals, 2);
+  }
+
   // --- Supply lines: relative neighbourhood graph (true neighbours only) ---
   buildSupplyLines(planets, order);
 

@@ -1,5 +1,5 @@
 import type { FactionId, Fleet, Planet, Shipyard } from '../core/types';
-import { SHIP_CLASSES, TRANSPORT_LIFT, shipClassesFor, type ShipClassId } from '../data/troops';
+import { SHIP_CLASSES, TRANSPORT_LIFT, shipClassName, shipClassesFor, type ShipClassId } from '../data/troops';
 import { drawUnits, drawUnitsOf, totalUnits } from './troops';
 import { beginBuild, hasOrBuilding } from './construction';
 import { fleetCap, fleetsOf, pushLog, spawnFleet, type GameState } from './state';
@@ -21,14 +21,14 @@ export function emptyYard(): Shipyard {
 export function yardsOf(state: GameState, faction: FactionId): Planet[] {
   return state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
-    .filter((p) => p.owner === faction && p.shipyard && !p.shattered && !p.abyss);
+    .filter((p) => p.owner === faction && p.shipyard && !p.shattered);
 }
 
 /** Построить верфь на своей снабжаемой планете (работы занимают дни). */
 export function buildShipyard(state: GameState, faction: FactionId, planetId: string): boolean {
   const fs = state.factions[faction];
   const p = state.galaxy.planets.get(planetId);
-  if (!p || p.owner !== faction || p.shipyard || !p.supplied || p.shattered || p.abyss) return false;
+  if (!p || p.owner !== faction || p.shipyard || !p.supplied || p.shattered) return false;
   if (p.build || hasOrBuilding(p, 'shipyard') || fs.production < SHIPYARD_COST) return false;
   fs.production -= SHIPYARD_COST;
   return beginBuild(state, p, 'shipyard', SHIPYARD_COST);
@@ -75,13 +75,33 @@ export function stepShipyards(state: GameState): void {
       const def = SHIP_CLASSES.find((c) => c.id === yard.queue!.cls);
       yard.queue = null;
       if (!def) continue;
-      if (def.id === 'destroyer') yard.stored.ships += def.count;
-      else if (def.id === 'dreadnought') yard.stored.dreadnoughts += def.count;
-      else if (def.id === 'transport') yard.stored.transports = (yard.stored.transports ?? 0) + def.count;
-      else yard.stored.battleships += def.count;
+      // Приписанное соединение получает корпуса ПРЯМО СО СТАПЕЛЯ: верфь
+      // работает на него, а не на общий склад. Приписка гаснет сама, если
+      // соединения не стало.
+      const target = yard.assigned ? state.fleets.get(yard.assigned) : undefined;
+      const toFleet = target && target.faction === p.owner;
+      if (!target && yard.assigned) yard.assigned = undefined;
+      const sink = toFleet
+        ? {
+            add: (k: 'ships' | 'dreadnoughts' | 'battleships' | 'transports', n: number) => {
+              target![k] = (target![k] ?? 0) + n;
+            },
+          }
+        : {
+            add: (k: 'ships' | 'dreadnoughts' | 'battleships' | 'transports', n: number) => {
+              yard.stored[k] = (yard.stored[k] ?? 0) + n;
+            },
+          };
+      if (def.id === 'destroyer') sink.add('ships', def.count);
+      else if (def.id === 'dreadnought') sink.add('dreadnoughts', def.count);
+      else if (def.id === 'transport') sink.add('transports', def.count);
+      else sink.add('battleships', def.count);
+      if (toFleet) noteEstablishment(target!);
       pushLog(state, {
         faction: p.owner,
-        text: `Верфь ${p.name}: ${def.name.toLowerCase()} сходит со стапелей и встаёт на прикол.`,
+        text: toFleet
+          ? `Верфь ${p.name}: ${shipClassName(p.owner, def.id).toLowerCase()} уходит в приписанное соединение.`
+          : `Верфь ${p.name}: ${shipClassName(p.owner, def.id).toLowerCase()} сходит со стапелей и встаёт на прикол.`,
         tone: p.owner === state.player ? 'good' : 'info',
       });
       // Повтор заказа: та же серия закладывается снова, пока хватает ресурсов.
@@ -106,6 +126,7 @@ export function takeStoredShips(state: GameState, fleet: Fleet): boolean {
   fleet.battleships += yard.stored.battleships;
   fleet.transports = (fleet.transports ?? 0) + (yard.stored.transports ?? 0);
   yard.stored = { ships: 0, dreadnoughts: 0, battleships: 0, transports: 0 };
+  noteEstablishment(fleet);
   pushLog(state, {
     faction: fleet.faction,
     text: `Соединение у ${p.name} принимает корабли с верфи в свой состав.`,
@@ -135,6 +156,7 @@ export function formFleetFromYard(state: GameState, faction: FactionId, planetId
     transports,
     infantry: crew,
   });
+  noteEstablishment(fleet);
   yard.stored = { ships: 0, dreadnoughts: 0, battleships: 0, transports: 0 };
   pushLog(state, {
     faction,
@@ -142,6 +164,86 @@ export function formFleetFromYard(state: GameState, faction: FactionId, planetId
     tone: faction === state.player ? 'good' : 'info',
   });
   return fleet;
+}
+
+/**
+ * Запомнить штат соединения: состав, к которому оно будет стремиться.
+ *
+ * Штат — это ВЫСШАЯ ТОЧКА состава, а не пожелание игрока: собрали группу из
+ * восьми корпусов — восемь и есть норма, и потери до неё будут восполняться.
+ * Отдельного экрана «задать штат» нет намеренно: он не нужен, а лишний экран
+ * стоил бы игроку внимания.
+ */
+export function noteEstablishment(f: Fleet): void {
+  const e = f.establishment ?? { ships: 0, dreadnoughts: 0, battleships: 0, transports: 0 };
+  f.establishment = {
+    ships: Math.max(e.ships, Math.round(f.ships)),
+    dreadnoughts: Math.max(e.dreadnoughts, Math.round(f.dreadnoughts)),
+    battleships: Math.max(e.battleships, Math.round(f.battleships)),
+    transports: Math.max(e.transports, Math.round(f.transports ?? 0)),
+  };
+}
+
+/**
+ * Пополнение соединений из резерва.
+ *
+ * Раньше выбитые корпуса приходилось возвращать вручную: подвести соединение
+ * к верфи, открыть карточку, нажать «принять корабли». На фронте из десятка
+ * групп это превращалось в рутину, и соединения воевали дырявыми просто
+ * потому, что до них не дошли руки.
+ *
+ * Теперь так: соединение, стоящее на своём снабжаемом мире с верфью, само
+ * добирает со склада недостающее ДО ШТАТА — не больше. Излишек остаётся на
+ * складе: резерв не растаскивается по группам сверх нормы, и его по-прежнему
+ * можно пустить на новое соединение в редакторе.
+ */
+export function reinforceFleets(state: GameState): void {
+  for (const id of state.fleetOrder) {
+    const f = state.fleets.get(id);
+    if (!f || f.transit) continue;
+    const p = state.galaxy.planets.get(f.at);
+    if (!p || p.owner !== f.faction || !p.shipyard || !p.supplied || p.shattered) continue;
+    const want = f.establishment;
+    if (!want) continue;
+    const yard = p.shipyard;
+    let took = 0;
+    const pull = (k: 'ships' | 'dreadnoughts' | 'battleships' | 'transports') => {
+      const need = want[k] - (f[k] ?? 0);
+      if (need <= 0) return;
+      const have = yard.stored[k] ?? 0;
+      const take = Math.min(need, have);
+      if (take <= 0) return;
+      f[k] = (f[k] ?? 0) + take;
+      yard.stored[k] = have - take;
+      took += take;
+    };
+    pull('ships');
+    pull('dreadnoughts');
+    pull('battleships');
+    pull('transports');
+    if (took > 0) {
+      pushLog(state, {
+        faction: f.faction,
+        text: `${p.name}: соединение принимает пополнение из резерва (${took.toFixed(0)} корп.).`,
+        tone: f.faction === state.player ? 'good' : 'info',
+      });
+    }
+  }
+}
+
+/** Приписать верфь к соединению (или снять приписку, если оно уже приписано). */
+export function assignYard(state: GameState, faction: FactionId, planetId: string, fleetId: string | null): boolean {
+  const p = state.galaxy.planets.get(planetId);
+  if (!p || p.owner !== faction || !p.shipyard) return false;
+  if (!fleetId) {
+    if (!p.shipyard.assigned) return false;
+    p.shipyard.assigned = undefined;
+    return true;
+  }
+  const f = state.fleets.get(fleetId);
+  if (!f || f.faction !== faction) return false;
+  p.shipyard.assigned = p.shipyard.assigned === fleetId ? undefined : fleetId;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +328,7 @@ export function composeFleet(
   const fleet = spawnFleet(state, faction, planetId, {
     ships, dreadnoughts, battleships, transports, infantry,
   });
+  noteEstablishment(fleet);
   pushLog(state, {
     faction,
     text: `У ${p.name} собрано соединение по шаблону: ${(ships + dreadnoughts + battleships).toFixed(0)} боевых корп.${

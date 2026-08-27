@@ -110,7 +110,7 @@ export function buyBonus(state: GameState, faction: FactionId, id: string): bool
     case 'fortify':
       for (const pid of state.galaxy.order) {
         const p = state.galaxy.planets.get(pid)!;
-        if (p.owner === faction && !p.shattered && !p.abyss) {
+        if (p.owner === faction && !p.shattered) {
           p.fortification = Math.min(5, p.fortification + 1);
         }
       }

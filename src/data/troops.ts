@@ -74,6 +74,59 @@ export const SHIP_CLASSES = [
 
 export type ShipClassId = (typeof SHIP_CLASSES)[number]['id'];
 
+/**
+ * Как каждая сторона зовёт свои корпуса.
+ *
+ * «Супер-эсминцы», «дредноуты» и «линкоры» — слова из флотского словаря
+ * Супер-Земли, и слышать их от роя терминидов было по меньшей мере странно:
+ * у жуков нет верфей, у них есть матки. Названия классов теперь свои у
+ * каждой фракции, а игровые роли и цифры — общие: лёгкий корпус, тяжёлый,
+ * флагман, десантный.
+ */
+export const SHIP_CLASS_NAMES: Record<FactionId, Partial<Record<ShipClassId, string>>> = {
+  superEarth: {
+    destroyer: 'Супер-эсминцы',
+    dreadnought: 'Дредноут',
+    battleship: 'Линкор-флагман',
+    transport: 'Транспорты ВССЗ',
+  },
+  automatons: {
+    destroyer: 'Корветы-сенаторы',
+    dreadnought: 'Аннигилятор',
+    battleship: 'Флагман Прайма',
+  },
+  illuminate: {
+    destroyer: 'Дозоры Иерархии',
+    dreadnought: 'Гарпия Бездны',
+    battleship: 'Монолит-флагман',
+  },
+  terminids: {
+    destroyer: 'Стая спор',
+    dreadnought: 'Матка-носитель',
+    battleship: 'Левиафан улья',
+  },
+  superFederation: {
+    destroyer: 'Корветы Конкорда',
+    dreadnought: 'Тяжёлый рейдер',
+    battleship: 'Флагман Федерации',
+  },
+};
+
+/** Название класса корпуса так, как его зовёт эта фракция. */
+export function shipClassName(faction: FactionId, cls: ShipClassId): string {
+  const own = SHIP_CLASS_NAMES[faction]?.[cls];
+  if (own) return own;
+  return SHIP_CLASSES.find((c) => c.id === cls)?.name ?? cls;
+}
+
+/** Короткая метка класса для тесных мест (склад верфи, состав соединения). */
+export const SHIP_CLASS_TAG: Record<ShipClassId, string> = {
+  destroyer: 'ЛГК',
+  dreadnought: 'ТЖЛ',
+  battleship: 'ФЛГ',
+  transport: 'ТРН',
+};
+
 /** Сколько пехоты поднимает один транспорт. */
 export const TRANSPORT_LIFT = 12;
 

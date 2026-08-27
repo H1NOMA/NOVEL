@@ -6,7 +6,7 @@ import type { FactionId, GameSpeed } from '../core/types';
 // правды о формате сообщений — этот файл.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const DEFAULT_PORT = 47624;
 
 /**
@@ -34,6 +34,10 @@ export type Cmd =
   | { k: 'cancelQueue'; planet: string }
   /** Свернуть стройку на планете (возврат половины вложенного). */
   | { k: 'cancelBuild'; planet: string }
+  /** Приписать верфь к соединению (fleet = null снимает приписку). */
+  | { k: 'assignYard'; planet: string; fleet: string | null }
+  /** Выбывший игрок берёт под управление другую живую фракцию. */
+  | { k: 'takeOverFaction'; faction: FactionId }
   | { k: 'buildShipyard'; planet: string }
   | { k: 'buildDepot'; planet: string }
   | { k: 'buildShield'; planet: string }

@@ -346,7 +346,7 @@ export function aiBuild(state: GameState, faction: FactionId): void {
   const fs = state.factions[faction];
   if (!fs.alive) return;
   const worlds = planetsOf(state, faction)
-    .filter((p) => p.supplied && !p.shattered && !p.abyss && !p.build);
+    .filter((p) => p.supplied && !p.shattered && !p.build);
   if (!worlds.length) return;
 
   const frontier = (p: Planet) =>
