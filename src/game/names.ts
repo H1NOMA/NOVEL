@@ -158,6 +158,3 @@ export function cityName(rng: { pick<T>(a: readonly T[]): T; int(a: number, b: n
   }
   return `${rng.pick(CITY_NAMES)}-${rng.int(2, 99)}`;
 }
-
-/** Канон нужен генератору галактики: он резервирует Малевелон Крик заранее. */
-export const CANON_NAMES: readonly string[] = CANON;
