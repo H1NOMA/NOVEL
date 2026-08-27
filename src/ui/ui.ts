@@ -2308,40 +2308,74 @@ export class UI {
     });
   }
 
+  /**
+   * Ортогональная связь «родитель → потомок».
+   *
+   * Раньше линии были плавными кривыми Безье, и на плотном древе они
+   * сливались в клубок: глазом невозможно было проследить, откуда куда идёт
+   * ветка. Схема строится иначе — как на монтажной плате: вниз от родителя,
+   * горизонтальный перегон по общей шине ряда, вниз в потомка. Углы
+   * скруглены на пару пикселей, чтобы линия не резала глаз, но оставалась
+   * читаемой как схема, а не как рисунок.
+   */
+  private elbow(x1: number, y1: number, x2: number, y2: number, busY: number): string {
+    const R = 7;
+    if (Math.abs(x1 - x2) < 1) return `M${x1},${y1} L${x2},${y2}`;
+    const dir = x2 > x1 ? 1 : -1;
+    return [
+      `M${x1},${y1}`,
+      `L${x1},${busY - R}`,
+      `Q${x1},${busY} ${x1 + dir * R},${busY}`,
+      `L${x2 - dir * R},${busY}`,
+      `Q${x2},${busY} ${x2},${busY + R}`,
+      `L${x2},${y2}`,
+    ].join(' ');
+  }
+
   private renderFocus(): void {
     const nodes = FOCUS_TREES[this.focusTab];
     const maxX = Math.max(...nodes.map((n) => n.x));
     const maxY = Math.max(...nodes.map((n) => n.y));
-    const W = 126, H = 148;
-    const NW = 104; // ширина узла
-    const cw = (maxX + 1) * W + 40;
-    const ch = (maxY + 1) * H + 60;
+    // Шаг сетки и габарит узла. Ряд стал выше: между рядами теперь проходит
+    // горизонтальная шина связей, и ей нужно место, иначе линии лягут прямо
+    // на подписи.
+    const W = 132, H = 164;
+    const NW = 108;
+    const NH = 118;
+    const cw = (maxX + 1) * W + 48;
+    const ch = (maxY + 1) * H + 64;
     const fs = this.state.factions[this.focusTab];
 
     const tabs = FACTION_IDS.map((f) =>
       `<div class="focus-tab ${f === this.focusTab ? 'active' : ''}" data-fac="${f}" style="border-color:${factionColor(f)}">${FACTIONS[f].short}</div>`
     ).join('');
 
-    // connectors: от низа иконки родителя к верху узла-потомка.
-    // Дальние связи (через всё древо) НЕ рисуются — они остаются логическим
-    // требованием и показываются текстом в окне фокуса. Линии к скрытым
-    // узлам (ветка Ковчега до падения Киберстана) тоже не рисуются.
+    // Связи. Ближние (соседний ряд, не дальше колонки вбок) — сплошные;
+    // дальние требования из других веток рисуются ПУНКТИРОМ вместо того,
+    // чтобы не рисоваться вовсе: раньше такое требование существовало только
+    // текстом в окне фокуса, и на схеме узел выглядел висящим в воздухе.
     const arkShown = cyberstanLost(this.state);
     const hiddenNode = (m: { branch?: string }) => m.branch === 'ark' && !arkShown;
-    const cx = (n: { x: number }) => n.x * W + 20 + NW / 2;
+    const cx = (n: { x: number }) => n.x * W + 24 + NW / 2;
+    const top = (n: { y: number }) => n.y * H + 24;
+    const bottom = (n: { y: number }) => n.y * H + 24 + NH;
+
     let svg = `<svg class="focus-svg" width="${cw}" height="${ch}">`;
     for (const n of nodes) {
       if (hiddenNode(n)) continue;
       for (const req of n.requires) {
         const r = nodes.find((m) => m.id === req);
-        if (!r) continue;
-        if (hiddenNode(r)) continue;
-        if (this.isRemoteRequire(n, r)) continue;
-        const x1 = cx(r), y1 = r.y * H + 20 + 118;
-        const x2 = cx(n), y2 = n.y * H + 20;
+        if (!r || hiddenNode(r)) continue;
+        const far = this.isRemoteRequire(n, r);
+        // Шина проходит посередине промежутка между рядами. Для дальних
+        // связей её слегка смещаем, чтобы две линии не легли одна на другую.
+        const busY = far
+          ? bottom(r) + (H - NH) * 0.32
+          : bottom(r) + (H - NH) * 0.5;
         const done = fs.completedFocus.includes(req);
-        svg += `<path d="M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}"
-          fill="none" stroke="${done ? '#3ad07a' : '#3a4d6e'}" stroke-width="2"/>`;
+        const cls = `fx-link${done ? ' done' : ''}${far ? ' far' : ''}`;
+        svg += `<path class="${cls}" data-from="${r.id}" data-to="${n.id}"
+          d="${this.elbow(cx(r), bottom(r), cx(n), top(n), busY)}" fill="none"/>`;
       }
     }
     svg += `</svg>`;
@@ -2352,22 +2386,36 @@ export class UI {
       <button class="hud-btn" id="focus-close" style="margin-left:auto">✕ ЗАКРЫТЬ</button>
     </div><div class="focus-scroll"><div class="focus-canvas" style="width:${cw}px;height:${ch}px">${svg}`;
 
-    const arkVisible = cyberstanLost(this.state);
     for (const n of nodes) {
-      if (n.branch === 'ark' && !arkVisible) continue;
+      if (hiddenNode(n)) continue;
       const done = fs.completedFocus.includes(n.id);
       const active = fs.activeFocus?.id === n.id;
       const selectable = this.focusTab === this.state.player && canSelectFocus(this.state, this.focusTab, n);
       let cls = 'focus-node';
+      // Корни веток — крупнее и в венке: с них ветка начинается, и на схеме
+      // они должны читаться как заголовки, а не как рядовые узлы.
+      if (n.y === 0) cls += ' root';
       if (n.branch === 'federation') cls += ' fed';
+      if (n.branch === 'doctrine') cls += ' doctrine';
       if (done) cls += ' done';
       else if (active) cls += ' active';
       else if (selectable) cls += ' available';
       else cls += ' locked';
-      const left = n.x * W + 20, top = n.y * H + 20;
-      html += `<div class="${cls}" data-focus="${n.id}" style="left:${left}px;top:${top}px;width:${NW}px">
-        <div class="fn-badge">${done ? '✓' : active ? '▶' : ''}</div>
-        <img class="fn-icon" src="${focusIconURL(n)}" alt="" draggable="false">
+      const left = n.x * W + 24, t = n.y * H + 24;
+      const mark = done ? '✓' : active ? '▶' : '';
+      // У идущего фокуса под щитком — полоса хода. Точное число дней есть в
+      // окне описания; здесь важно видеть одним взглядом, далеко ли до конца.
+      const bar = active
+        ? `<div class="fn-bar"><i style="width:${
+            Math.max(0, Math.min(100, Math.round(
+              (1 - fs.activeFocus!.remaining / Math.max(1, n.cost)) * 100)))}%"></i></div>`
+        : '';
+      html += `<div class="${cls}" data-focus="${n.id}" style="left:${left}px;top:${t}px;width:${NW}px">
+        <div class="fn-plate">
+          <img class="fn-icon" src="${focusIconURL(n)}" alt="" draggable="false">
+          ${mark ? `<span class="fn-badge">${mark}</span>` : ''}
+        </div>
+        ${bar}
         <div class="fn-name">${n.title}</div>
       </div>`;
     }
@@ -2377,9 +2425,37 @@ export class UI {
     this.focusOverlay.querySelector('#focus-close')!.addEventListener('click', () => this.focusOverlay.classList.add('hidden'));
     this.focusOverlay.querySelectorAll<HTMLElement>('.focus-tab').forEach((t) =>
       t.addEventListener('click', () => { this.focusTab = t.dataset.fac as FactionId; this.renderFocus(); }));
-    // Клик по любому узлу открывает плавающее окно с описанием и кнопкой.
-    this.focusOverlay.querySelectorAll<HTMLElement>('.focus-node').forEach((node) =>
-      node.addEventListener('click', () => this.renderFocusInfo(node.dataset.focus!)));
+    this.focusOverlay.querySelectorAll<HTMLElement>('.focus-node').forEach((node) => {
+      node.addEventListener('click', () => this.renderFocusInfo(node.dataset.focus!));
+      // Наведение подсвечивает ВСЮ цепочку требований до корня: на плотном
+      // древе это единственный способ увидеть, что именно нужно взять до
+      // этого узла, не открывая по очереди каждое звено.
+      node.addEventListener('mouseenter', () => this.highlightChain(node.dataset.focus!));
+      node.addEventListener('mouseleave', () => this.highlightChain(null));
+    });
+  }
+
+  /** Подсветить путь требований от узла к корням древа. */
+  private highlightChain(focusId: string | null): void {
+    const canvas = this.focusOverlay.querySelector<HTMLElement>('.focus-canvas');
+    if (!canvas) return;
+    canvas.classList.toggle('tracing', !!focusId);
+    const chain = new Set<string>();
+    if (focusId) {
+      const nodes = FOCUS_TREES[this.focusTab];
+      const walk = (id: string): void => {
+        if (chain.has(id)) return;
+        chain.add(id);
+        const n = nodes.find((m) => m.id === id);
+        for (const r of n?.requires ?? []) walk(r);
+      };
+      walk(focusId);
+    }
+    canvas.querySelectorAll<HTMLElement>('.focus-node').forEach((el2) =>
+      el2.classList.toggle('lit', chain.has(el2.dataset.focus!)));
+    canvas.querySelectorAll<SVGPathElement>('.fx-link').forEach((path) =>
+      path.classList.toggle('lit',
+        chain.has(path.dataset.from!) && chain.has(path.dataset.to!)));
   }
 
   // ---------------- Производство ----------------

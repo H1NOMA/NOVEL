@@ -5,6 +5,7 @@ import { AUTOSAVE_SLOT, MANUAL_SLOTS, saveMeta } from '../game/persist';
 import { netAvailable } from '../net/bridge';
 import { careerLines, careerRank, loadCareer, resetCareer } from '../game/career';
 import { logoBlock } from './logo';
+import { playCredits } from './credits';
 import { SHAPE_ART } from './shapeArt';
 import { DEFAULT_SHAPE, GALAXY_SHAPES, type GalaxyShape } from '../game/galaxyShapes';
 import { SettingsPanel } from './settingsPanel';
@@ -141,6 +142,7 @@ export class MainMenu {
       ['load', 'ЗАГРУЗИТЬ', hasSaves],
       ['career', 'КАРЬЕРА', true],
       ['settings', 'НАСТРОЙКИ', true],
+      ['credits', 'ТИТРЫ', true],
       ['quit', 'ВЫЙТИ', true],
     ];
 
@@ -329,6 +331,10 @@ export class MainMenu {
           this.netInfo = '';
           this.go('net');
           void this.scanParties();
+        } else if (to === 'credits') {
+          // Титры идут поверх меню: экран гаснет, лента ползёт, затем всё
+          // возвращается на место — меню под ними так и остаётся открытым.
+          void playCredits(this.root);
         } else if (to === 'quit') {
           // В десктопной сборке окно закрывается, в браузере — просто нечего делать.
           window.close();
