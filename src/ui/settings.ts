@@ -57,7 +57,7 @@ export const QUALITY_PRESETS: Record<Quality, {
   label: string;
   pixelRatio: number;
   stars: number;
-  comets: boolean;
+  nebulae: boolean;
   bloomStrength: number;
   /**
    * Потолок октав шума поверхности планет. Детализация стоит дорого именно
@@ -73,9 +73,9 @@ export const QUALITY_PRESETS: Record<Quality, {
    */
   samples: number;
 }> = {
-  low: { label: 'Низкое', pixelRatio: 1.0, stars: 1200, comets: false, bloomStrength: 0.0, planetOct: 4, samples: 0 },
-  medium: { label: 'Среднее', pixelRatio: 1.5, stars: 2200, comets: true, bloomStrength: 0.14, planetOct: 6, samples: 2 },
-  high: { label: 'Высокое', pixelRatio: 2.0, stars: 3200, comets: true, bloomStrength: 0.2, planetOct: 7, samples: 4 },
+  low: { label: 'Низкое', pixelRatio: 1.0, stars: 1200, nebulae: false, bloomStrength: 0.0, planetOct: 4, samples: 0 },
+  medium: { label: 'Среднее', pixelRatio: 1.5, stars: 2200, nebulae: true, bloomStrength: 0.14, planetOct: 6, samples: 2 },
+  high: { label: 'Высокое', pixelRatio: 2.0, stars: 3200, nebulae: true, bloomStrength: 0.2, planetOct: 7, samples: 4 },
 };
 
 function storage(): Storage | null {

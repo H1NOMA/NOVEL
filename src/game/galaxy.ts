@@ -1,7 +1,7 @@
 import type { BiomeId, FactionId, Planet, SupplyLine, Vec2 } from '../core/types';
 import { RNG } from '../core/rng';
 import { FACTIONS } from '../data/factions';
-import { cityName, planetName, sectorName } from './names';
+import { cityName, nameSource, sectorName } from './names';
 import { DEFAULT_SHAPE, normAngle, shapeDef, type GalaxyShape } from './galaxyShapes';
 
 export interface Sector {
@@ -74,6 +74,9 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
   const used = new Set<string>();
   const usedCities = new Set<string>();
   const usedSectors = new Set<string>();
+  // Малевелон Крик раздаётся не случайно, а вручную — рядом с машинами.
+  used.add('Малевелон Крик');
+  const nextName = nameSource(rng, used);
   let idCounter = 0;
 
   const addPlanet = (p: Planet) => {
@@ -220,7 +223,7 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
         const id = `p_${idCounter++}`;
         addPlanet({
           id,
-          name: planetName(rng, used),
+          name: nextName(),
           biome: biomeFor(owner, rng),
           sector: sector.name,
           radius: rClamped,
@@ -311,18 +314,64 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
     }
   }
 
-  // --- Компактный старт врагов: каждой фракции остаётся ТОЛЬКО сектор её
-  // столицы (у терминидов — сектор Кеплер Прайма). Остальное — Супер-Земля,
-  // и войну враги начинают, распространяясь из своего домашнего сектора. ---
-  const homeSectors = new Map<FactionId, string>();
+  // --- Компактный старт врагов -------------------------------------------
+  //
+  // Каждой фракции остаётся ТОЛЬКО сектор её престола (у терминидов —
+  // сектор Кеплер Прайма), остальное — Супер-Земля, и войну враги начинают,
+  // распространяясь из своего дома.
+  //
+  // Исключение — РОЙ. Терминиды не государство, а биомасса: у них нет столицы,
+  // которую можно взять, чтобы всё кончилось, — их надо выжигать мир за миром.
+  // С одним сектором рой на это просто не тянул: его сносили раньше, чем он
+  // успевал расползтись. Поэтому улей начинается с ДВУХ смежных секторов.
+  const sectorCentre = (sec: Sector): Vec2 => {
+    const ps = sec.planets.map((id) => planets.get(id)!);
+    if (!ps.length) return { x: 0, y: 0 };
+    return {
+      x: ps.reduce((s2, p) => s2 + p.pos.x, 0) / ps.length,
+      y: ps.reduce((s2, p) => s2 + p.pos.y, 0) / ps.length,
+    };
+  };
+  const sectorByName = new Map<string, Sector>();
+  for (const sec of sectors.values()) sectorByName.set(sec.name, sec);
+
+  /** Сколько секторов достаётся фракции на старте. */
+  const HOME_SECTORS: Partial<Record<FactionId, number>> = { terminids: 2 };
+
+  const sectorOwner = new Map<string, FactionId>();
+  const homeSectors = new Map<FactionId, string[]>();
+  // Сначала за КАЖДОЙ фракцией закрепляется сектор её престола, и только
+  // потом раздаются довески. Иначе рой, идущий по списку вторым, успевал
+  // забрать себе ещё не заявленный домашний сектор иллюминатов.
+  const seats = new Map<FactionId, Planet>();
   for (const w of WEDGES) {
     const seat = order
       .map((id) => planets.get(id)!)
       .find((p) => p.owner === w.faction && (p.isCapital || p.name === 'Кеплер Прайм'));
-    if (seat) homeSectors.set(w.faction, seat.sector);
+    if (!seat) continue;
+    seats.set(w.faction, seat);
+    sectorOwner.set(seat.sector, w.faction);
+    homeSectors.set(w.faction, [seat.sector]);
   }
-  const sectorOwner = new Map<string, FactionId>();
-  for (const [fac, sec] of homeSectors) sectorOwner.set(sec, fac);
+  // Добираем смежные сектора по близости центров — соседний по кольцу или
+  // через кольцо, но всегда рядом с престолом, а не на другом краю карты.
+  for (const [faction, seat] of seats) {
+    const want = HOME_SECTORS[faction] ?? 1;
+    if (want <= 1) continue;
+    const home = sectorByName.get(seat.sector);
+    const from = home ? sectorCentre(home) : seat.pos;
+    const near = [...sectors.values()]
+      .filter((sec) => sec.id !== 'sector_core' && sec.planets.length > 0 && !sectorOwner.has(sec.name))
+      .sort((a, b) => dist2(sectorCentre(a), from) - dist2(sectorCentre(b), from));
+    // Из ближайших берём не первый попавшийся, а самый населённый: сектор в
+    // полторы планеты не даёт рою ничего, а именно ради плацдарма всё и
+    // затевалось.
+    const pool = near.slice(0, 5).sort((a, b) => b.planets.length - a.planets.length);
+    for (const sec of pool.slice(0, want - 1)) {
+      homeSectors.get(faction)!.push(sec.name);
+      sectorOwner.set(sec.name, faction);
+    }
+  }
   for (const id of order) {
     const p = planets.get(id)!;
     const homeFaction = sectorOwner.get(p.sector);
@@ -339,6 +388,56 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
     }
   }
 
+  // --- Домашние приметы автоматонов ---------------------------------------
+  //
+  // Машинам нужна руда: без платины Киберстан не строит ни корпусов, ни
+  // особой верфи. Поэтому в их секторе гарантированно есть хотя бы один
+  // магмовый мир с богатыми залежами — если сид такого не дал, ближайший к
+  // Киберстану мир переплавляется в лаву.
+  const autoHome = homeSectors.get('automatons')?.[0];
+  if (autoHome) {
+    const homeWorlds = order.map((id) => planets.get(id)!).filter((p) => p.sector === autoHome);
+    const cyberstan = homeWorlds.find((p) => p.isCapital) ?? homeWorlds[0];
+    if (cyberstan && !homeWorlds.some((p) => p.biome === 'magma' && p.minerals >= 2)) {
+      const forge = homeWorlds
+        .filter((p) => !p.isCapital)
+        .sort((a, b) => dist2(a.pos, cyberstan.pos) - dist2(b.pos, cyberstan.pos))[0]
+        ?? cyberstan;
+      forge.biome = 'magma';
+      forge.minerals = 2;
+      forge.value = Math.max(forge.value, 6);
+    }
+
+    // Малевелон Крик — не рядовой мир, а место, где машины перемололи целые
+    // дивизии. Джунгли в СОСЕДНЕМ секторе: не в глубине владений машин, а на
+    // расстоянии одного удара — как и было в той войне.
+    const homeSec = sectorByName.get(autoHome);
+    const from = homeSec ? sectorCentre(homeSec) : (cyberstan?.pos ?? { x: 0, y: 0 });
+    const neighbour = [...sectors.values()]
+      // Только ничейный сектор: Крик — форпост машин во владениях Супер-Земли,
+      // а не отнятый у роя или у иллюминатов мир.
+      .filter((sec) => sec.id !== 'sector_core' && sec.planets.length > 0 && !sectorOwner.has(sec.name))
+      .sort((a, b) => dist2(sectorCentre(a), from) - dist2(sectorCentre(b), from))[0];
+    if (neighbour) {
+      const creek = neighbour.planets
+        .map((id) => planets.get(id)!)
+        .filter((p) => !p.isCapital && p.name !== 'Кеплер Прайм')
+        .sort((a, b) => dist2(a.pos, from) - dist2(b.pos, from))[0];
+      if (creek) {
+        used.delete(creek.name);
+        creek.name = 'Малевелон Крик';
+        creek.biome = 'jungle';
+        creek.owner = 'automatons';
+        creek.origin = 'automatons';
+        creek.scale = Math.max(creek.scale, 1.1);
+        creek.garrison = Math.max(creek.garrison, 70);
+        creek.fortification = Math.max(creek.fortification, 3);
+        creek.value = Math.max(creek.value, 7);
+        creek.scarred = true;
+      }
+    }
+  }
+
   // --- Минимальный плацдарм ---
   //
   // Домашний сектор может оказаться крошечным: в спирали и скоплениях
@@ -346,17 +445,21 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
   // сносили в первую неделю, и партия превращалась в игру втроём. Поэтому у
   // каждого врага гарантированно не меньше трёх миров: недостающие берутся
   // ближайшие к столице.
-  const MIN_HOME = 3;
+  // Рою полагается больше прочих: у него нет столицы, падение которой решает
+  // войну, — его выжигают мир за миром, и на это нужна биомасса.
+  const MIN_HOME: Partial<Record<FactionId, number>> = { terminids: 7 };
+  const MIN_HOME_DEFAULT = 3;
   for (const w of WEDGES) {
     const seat = order.map((id) => planets.get(id)!)
       .find((p) => p.owner === w.faction && (p.isCapital || p.name === 'Кеплер Прайм'));
     if (!seat) continue;
+    const need = MIN_HOME[w.faction] ?? MIN_HOME_DEFAULT;
     const own = order.map((id) => planets.get(id)!).filter((p) => p.owner === w.faction);
-    if (own.length >= MIN_HOME) continue;
+    if (own.length >= need) continue;
     const spare = order.map((id) => planets.get(id)!)
       .filter((p) => p.owner === 'superEarth' && !p.isCapital)
       .sort((a, b) => dist2(a.pos, seat.pos) - dist2(b.pos, seat.pos));
-    for (const p of spare.slice(0, MIN_HOME - own.length)) {
+    for (const p of spare.slice(0, need - own.length)) {
       p.owner = w.faction;
       p.origin = w.faction;
       p.garrison = Math.max(p.garrison, 60);

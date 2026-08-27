@@ -1,6 +1,7 @@
 import type { FactionId, FactionState } from '../core/types';
 import { TROOPS, troopsOf } from '../data/troops';
 import { modActive, planetsOf, pushLog, type GameState } from './state';
+import { HARVEST_YIELD } from './illuminate';
 
 // ---------------------------------------------------------------------------
 // Людские (и не очень) ресурсы. Пулы войск — единственный источник пехоты:
@@ -156,9 +157,13 @@ export function replenishUnits(state: GameState, faction: FactionId): void {
     }
     case 'illuminate': {
       // Великий флот не восполняется — он пришёл из другого измерения.
-      // Массы растут от «урожая» на бывших мирах Супер-Земли.
+      // Массы растут от «урожая» на бывших мирах Супер-Земли, а ТОЧКИ
+      // ЛЮДСКОГО РЕСУРСА — миры, взятые варп-вторжением, — дают вдвое больше
+      // и поднимают потолок: ради них прыжок и совершается.
       const harvested = worlds.filter((p) => p.origin === 'superEarth').length;
-      grow('voteless', harvested * 0.45, 160 + harvested * 20);
+      const points = worlds.filter((p) => p.harvest).length;
+      grow('voteless', harvested * 0.45 + points * HARVEST_YIELD,
+        160 + harvested * 20 + points * 40);
       grow('confiscators', 0.09 * planetCount, 90);
       break;
     }

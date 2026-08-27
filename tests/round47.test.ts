@@ -149,7 +149,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(q.low.pixelRatio < q.medium.pixelRatio && q.medium.pixelRatio < q.high.pixelRatio,
     'плотность пикселей растёт от пресета к пресету');
   ok(q.low.stars < q.high.stars, 'звёзд на низком меньше');
-  ok(q.low.comets === false && q.high.comets === true, 'кометы отключены на низком');
+  ok(q.low.nebulae === false && q.high.nebulae === true, 'туманности отключены на низком');
   ok(q.low.bloomStrength === 0, 'на низком свечения нет вовсе');
 
   const scene = read('src', 'render', 'scene.ts');

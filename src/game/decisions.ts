@@ -1,5 +1,5 @@
 import { fleetsAt, isHuman, pushChronicle, pushLog, type GameState } from './state';
-import { buildDepot } from './supply';
+import { buildDepot, onOwnerChanged } from './supply';
 import { beginBuild, hasOrBuilding } from './construction';
 import { DIVISION_COST, DIVISION_SIZE, FACTORY_DEFS, SHIP_CLASSES, troopDef, type ShipClassId } from '../data/troops';
 import { SPECIALS } from '../data/factions';
@@ -355,6 +355,7 @@ function stepFederationDefection(state: GameState): void {
     if (guarded) continue;
     if (state.rng.chance(0.018)) {
       p.owner = 'superFederation';
+      onOwnerChanged(p);
       for (const c of p.cities) c.holder = 'superFederation';
       pushLog(state, {
         text: `${p.name} присягает СУПЕР-ФЕДЕРАЦИИ: стабильность пала, орбита пуста — колония сделала выбор.`,

@@ -61,9 +61,33 @@ export function recomputeSupply(state: GameState): void {
     else for (const c of components) if (c.length > anchor.length) anchor = c;
 
     for (const comp of components) {
-      const supplied = comp === anchor;
-      for (const p of comp) p.supplied = supplied;
+      const linked = comp === anchor;
+      for (const p of comp) {
+        p.cutOff = !linked;
+        // ИЛЛЮМИНАТЫ СНАБЖЕНИЯ НЕ ТЕРЯЮТ. Их миры связаны не линиями подвоза,
+        // а переходами Бездны: блокада ничего не перерезает. Отрезанность
+        // всё же чувствуется — но не голодом, а обороной (см. resolveGround):
+        // оторванный от роя разумов мир дерётся вяло.
+        p.supplied = linked || faction === 'illuminate';
+      }
     }
+  }
+}
+
+/**
+ * Мир сменил хозяина — привести флаги снабжения в согласие с новым владельцем
+ * ДО следующего пересчёта. Иначе есть окно в один день, когда только что
+ * взятый иллюминатами мир числится без снабжения (значение осталось от
+ * прежнего хозяина), а по правилам такого быть не может.
+ *
+ * Свежий трофей помечается отрезанным: в сеть Бездны он ещё не вплетён, и
+ * оборонять его до следующего пересчёта труднее. Это честно — и снимает
+ * противоречие в состоянии.
+ */
+export function onOwnerChanged(p: Planet): void {
+  if (p.owner === 'illuminate') {
+    p.supplied = true;
+    p.cutOff = true;
   }
 }
 

@@ -5,6 +5,7 @@ import {
   buildShipyard, cancelQueue, composeFleet, formFleetFromYard, queueShip, takeStoredShips,
 } from '../game/shipyards';
 import { cancelBuild } from '../game/construction';
+import { warpFleet } from '../game/illuminate';
 import { buildDepot } from '../game/supply';
 import { buildShield, buildStation } from '../game/defense';
 import { selectFocus } from '../game/focus';
@@ -212,6 +213,10 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
       cycleCommander(state, f);
       return true;
     }
+    case 'warpFleet':
+      // Право на прыжок и его цена проверяются внутри: клиент присылает
+      // только «кем и куда», фракция-исполнитель берётся у хоста.
+      return warpFleet(state, actor, c.fleet, c.target);
     case 'resolveChoice':
       return resolveChoice(state, actor, c.event, c.choice);
 

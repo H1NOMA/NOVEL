@@ -200,49 +200,6 @@ export function createNebulaField(worldRadius: number, count = 7): THREE.Group {
   return group;
 }
 
-export interface CometLayer {
-  group: THREE.Group;
-  update(t: number): void;
-}
-
-/** Редкие кометы, медленно чертящие фон за пределами карты. */
-export function createComets(worldRadius: number): CometLayer {
-  const group = new THREE.Group();
-  const comets: { head: THREE.Sprite; tail: THREE.Sprite; r: number; speed: number; phase: number; y: number }[] = [];
-  const headTex = blobTexture('220,240,255');
-  for (let i = 0; i < 3; i++) {
-    const head = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: headTex, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    head.scale.setScalar(0.5);
-    const tail = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: headTex, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    tail.scale.set(2.6, 0.32, 1);
-    group.add(head, tail);
-    comets.push({
-      head, tail,
-      r: worldRadius * (1.5 + i * 0.35),
-      speed: 0.014 + i * 0.006,
-      phase: i * 2.1,
-      y: -4 - i * 2,
-    });
-  }
-  return {
-    group,
-    update(t: number) {
-      for (const c of comets) {
-        const a = c.phase + t * c.speed;
-        c.head.position.set(Math.cos(a) * c.r, c.y, Math.sin(a) * c.r);
-        // хвост тянется против движения
-        const back = a - 0.045;
-        c.tail.position.set(Math.cos(back) * c.r, c.y, Math.sin(back) * c.r);
-        c.tail.material.rotation = -a - Math.PI / 2;
-      }
-    },
-  };
-}
-
 /** A soft nebula disc texture generated on a 2D canvas. */
 export function createNebulaDisc(worldRadius: number): THREE.Mesh {
   const size = 512;

@@ -1,11 +1,12 @@
 import type { BattlePhase, FactionId, Fleet, Planet } from '../core/types';
 import { FACTIONS, FACTION_GEN, SPECIALS } from '../data/factions';
 import { fleetsAt, modActive, pushChronicle, pushLog, removeFleet, type GameState } from './state';
-import { depotBonus } from './supply';
+import { depotBonus, onOwnerChanged } from './supply';
 import { retreatFleets } from './units';
 import { drawUnits, eliteShare, harvestPopulation, massShare } from './troops';
 import { landableInfantry, liftCapacity } from './shipyards';
 import { razeBuildings } from './construction';
+import { claimHarvestPoint } from './illuminate';
 import { hostileNow } from './diplomacy';
 import { adjustRelation, onCapitalCaptured, onCapitalLiberated } from './relations';
 import { commanderOf } from './commanders';
@@ -269,6 +270,7 @@ export function resolveGround(state: GameState): void {
       let defBonus = 1 + planet.fortification * 0.12 + state.factions[planet.owner].bonuses.fortify * 0.05;
       if (planet.buildings.includes('shieldGen') && !planet.puppetOf) defBonus *= 1.35;
       if (!planet.supplied) defBonus *= 0.55;
+      else if (planet.cutOff) defBonus *= 0.7;
       const defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
       b.attackerForce = attackerForce;
       b.defenderForce = defenderForce;
@@ -355,6 +357,9 @@ export function resolveGround(state: GameState): void {
     if (shielded) defBonus *= 1.35;
     // Планета в окружении (без снабжения) обороняется вполсилы.
     if (!planet.supplied) defBonus *= 0.55;
+    // Иллюминаты снабжения не теряют, но отрезанный от роя разумов мир всё
+    // равно дерётся хуже: блокада бьёт по ним не голодом, а связью.
+    else if (planet.cutOff) defBonus *= 0.7;
     // Мрак — стихия роя: оборона терминидов в споровом дыму сильнее.
     if (planet.gloom && planet.owner === 'terminids') defBonus *= 1.5;
     // Тень Бездны: миры иллюминатов рядом с погруженными обороняются упорнее.
@@ -519,6 +524,7 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   planet.owner = attacker;
   planet.battle = undefined;
   planet.puppetOf = undefined;
+  onOwnerChanged(planet);
 
   // Падение столицы — поворот всей партии. Родная столица делает победителя
   // хозяином технологий побеждённого; отбитая у поработителя чужая столица,
@@ -533,6 +539,12 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   }
   // Захват мира — прямое оскорбление: симпатия к захватчику падает у всех.
   adjustRelation(state, prev, attacker, -6);
+  // Варп-вторжение: мир, взятый иллюминатами с горящего маяка Бездны,
+  // обращается в точку людского ресурса. Смена владельца в любую другую
+  // сторону маяк и «урожайность» гасит — сырьё живо только под их рукой.
+  const warpTaken = attacker === 'illuminate' && !!planet.warpBeacon;
+  planet.warpBeacon = undefined;
+  planet.harvest = undefined;
   // ВСЁ ПОСТРОЕННОЕ ГИБНЕТ. Отступая, защитники подрывают верфь, щит, станцию,
   // фабрики и точку снабжения; недостроенное сгорает на площадке. Победителю
   // достаётся голая планета — и это главный тормоз блицкрига: захваченный мир
@@ -599,6 +611,7 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     }
     removeFleet(state, fid);
   }
+  if (warpTaken) claimHarvestPoint(state, planet);
   pushLog(state, {
     faction: attacker,
     text: `${planet.name} — планета захвачена силами ${FACTION_GEN[attacker]}${planet.isCapital ? '. Пала СТОЛИЦА!' : '.'}`,
@@ -636,6 +649,7 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
     const p = state.galaxy.planets.get(id)!;
     if (p.owner === loser) {
       p.owner = victor;
+      onOwnerChanged(p);
       p.garrison = Math.max(5, p.garrison * 0.5);
       p.battle = undefined;
       // С падением их владык миры Бездны возвращаются в реальность.
@@ -673,6 +687,8 @@ function regrowGarrison(state: GameState, planet: Planet): void {
   const cap = planet.isCapital ? 140 : 40 + planet.value * 8;
   if (planet.garrison < cap) {
     let growth = (se ? 0.55 : 0.4) + state.factions[planet.owner].bonuses.recruitment * 0.04;
+    // Мир иллюминатов, оторванный от роя разумов, восполняется вполсилы.
+    if (planet.cutOff) growth *= 0.5;
     // Город-академия готовит пополнение быстрее.
     if (planet.cities.some((cc) => cc.spec === 'academy' && cc.holder === planet.owner)) growth *= 1.35;
     // Точка снабжения здесь или на соседней своей планете ускоряет пополнение.

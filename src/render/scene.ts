@@ -3,7 +3,7 @@ import type { GameState } from '../game/state';
 import { factionColor } from '../data/factions';
 import { bus } from '../core/emitter';
 import { createPlanetVisual, SUN_UNIFORM, type PlanetVisual } from './planetMesh';
-import { createComets, createNebulaDisc, createNebulaField, createStarfield, type CometLayer, type Starfield } from './starfield';
+import { createNebulaDisc, createNebulaField, createStarfield, type Starfield } from './starfield';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -57,7 +57,6 @@ export class GalaxyScene {
   // Постобработка: мягкое свечение ярких элементов (bloom).
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
-  private comets!: CometLayer;
   private stars!: Starfield;
   private nebulae!: THREE.Group;
   /** Текущий пресет качества — bloom-тумблер не должен его затирать. */
@@ -147,9 +146,6 @@ export class GalaxyScene {
     // раньше всего, поэтому не лезут к планетам даже на подлёте к краю.
     this.nebulae = createNebulaField(this.radiusWorld);
     this.scene.add(this.nebulae);
-    // Живой фон: редкие кометы за краем карты.
-    this.comets = createComets(this.radiusWorld);
-    this.scene.add(this.comets.group);
     // Свет карты мягкий и объёмный: вместо плоской подсветки — полусферный
     // источник (холодное небо сверху, тёплый отсвет галактического диска
     // снизу), ключ приглушён и слегка тёплый, плюс холодная подсветка сзади,
@@ -530,7 +526,7 @@ export class GalaxyScene {
   }
 
   /**
-   * Пресет качества: плотность пикселей, число звёзд, кометы и сила свечения.
+   * Пресет качества: плотность пикселей, число звёзд, туманности и свечение.
    * Плотность ограничена сверху ещё и возможностями экрана — на обычном
    * мониторе «высокое» не станет рисовать вчетверо больше пикселей впустую.
    */
@@ -539,8 +535,7 @@ export class GalaxyScene {
     const p = QUALITY_PRESETS[q];
     this.renderer.setPixelRatio(Math.min(p.pixelRatio, window.devicePixelRatio));
     this.stars.points.geometry.setDrawRange(0, Math.min(STAR_MAX, p.stars));
-    this.comets.group.visible = p.comets;
-    this.nebulae.visible = p.comets;
+    this.nebulae.visible = p.nebulae;
     this.bloom.strength = p.bloomStrength;
     this.setBloomEnabled(this.bloomOn);
     // Смена пресета сразу меняет и потолок детализации поверхностей, и
@@ -910,7 +905,6 @@ export class GalaxyScene {
     this.syncAttackArrows();
     this.animateAttackArrows(t);
     this.syncRoute();
-    this.comets.update(t);
     this.updatePulses(dt);
     this.applyKeyPan(dt);
     this.updateCinema(dt);

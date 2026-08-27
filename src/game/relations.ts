@@ -1,5 +1,6 @@
 import type { FactionId } from '../core/types';
 import { FACTIONS, FACTION_IDS } from '../data/factions';
+import { onOwnerChanged } from './supply';
 import { pushChronicle, pushLog, type GameState } from './state';
 import { careerPeace } from './career';
 
@@ -222,6 +223,7 @@ export function cedePlanet(state: GameState, from: FactionId, to: FactionId, pla
   if (fs.politicalPower < CEDE_COST) return false;
   fs.politicalPower -= CEDE_COST;
   p.owner = to;
+  onOwnerChanged(p);
   adjustRelation(state, from, to, 18);
   pushLog(state, {
     faction: from,

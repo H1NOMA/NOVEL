@@ -23,6 +23,7 @@ import { GALAXY_MODIFIERS } from '../data/modifiers';
 import { objectiveKey, objectivesFor } from '../game/objectives';
 import { commanderOf } from '../game/commanders';
 import { PHASE_LABEL } from '../game/combat';
+import { harvestPoints, warpBlocker, WARP_COST } from '../game/illuminate';
 import { buildDef } from '../game/construction';
 import { canSabotage, canUprising, opReadyIn, reconActive, SPEC_OPS } from '../game/specops';
 import { SHIELD_COST, STATION_COST } from '../game/defense';
@@ -992,6 +993,7 @@ export class UI {
         <div class="pp-stat"><span>Миры под контролем</span><b>${worlds}</b></div>
         <div class="pp-stat"><span>Боевые соединения</span><b>${fleets}</b></div>
         <div class="pp-stat"><span>Резервы войск</span><b>${fs.manpower.toFixed(0)}</b></div>
+        ${s.player === 'illuminate' ? `<div class="pp-stat"><span>Точки людского ресурса</span><b style="color:var(--ill)">◉ ${harvestPoints(s).length}</b></div>` : ''}
         <div class="pp-stat"><span>Промышленность</span><b>${fs.industry.toFixed(0)}</b></div>
         <div class="pp-stat"><span>Политическая власть</span><b style="color:var(--gold)">⚖ ${fs.politicalPower.toFixed(0)}</b></div>
         <div class="pp-section">Экономика · в день</div>
@@ -1220,7 +1222,12 @@ export class UI {
         return '';
       })()}
 
-      <div class="pp-stat"><span>Снабжение</span><b>${p.supplied ? (p.depot ? '▣ Точка снабжения' : '✓ Обеспечено') : '<span style="color:var(--fed)">⛔ ОКРУЖЕНИЕ</span>'}</b></div>
+      <div class="pp-stat"><span>Снабжение</span><b>${
+        !p.supplied ? '<span style="color:var(--fed)">⛔ ОКРУЖЕНИЕ</span>'
+        : p.cutOff ? '<span style="color:var(--gold)">◈ Бездна · связь с ядром потеряна</span>'
+        : p.depot ? '▣ Точка снабжения' : '✓ Обеспечено'}</b></div>
+      ${p.harvest ? `<div class="pp-stat"><span>Людской ресурс</span><b style="color:var(--ill)">◉ Точка сбора</b></div>` : ''}
+      ${p.warpBeacon && p.owner !== 'illuminate' ? `<div class="pp-stat"><span>Бездна</span><b style="color:var(--ill)">◈ Маяк вторжения</b></div>` : ''}
       <div class="pp-stat"><span>Гарнизон</span><b>${p.garrison.toFixed(0)}</b></div>
       <div class="pp-stat"><span>Укрепления</span><b>${'▮'.repeat(p.fortification)}${'▯'.repeat(5 - p.fortification)}</b></div>
       <div class="pp-stat"><span>Стратегическая ценность</span><b>${p.value}</b></div>
@@ -1274,6 +1281,21 @@ export class UI {
       const can = s.factions[s.player].production >= STATION_COST;
       html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="station" ${can ? '' : 'disabled'}>🛰 Орбитальная станция (${STATION_COST} пр.) — бьёт по чужим флотам</button>`;
     }
+    // Варп-прыжок иллюминатов: выбранные соединения выходят из Бездны здесь.
+    if (s.player === 'illuminate') {
+      const picks = this.selectedFleets.size
+        ? [...this.selectedFleets]
+        : s.selectedFleet ? [s.selectedFleet] : [];
+      const ready = picks.filter((fid) => !warpBlocker(s, 'illuminate', fid, p.id));
+      const power = s.factions.illuminate.politicalPower;
+      if (picks.length) {
+        const cost = WARP_COST * ready.length;
+        const can = ready.length > 0 && power >= cost;
+        html += `<button class="mini-btn wide ${can ? '' : 'off'}" data-act="warp" ${can ? '' : 'disabled'} style="border-color:var(--ill)">◈ ВАРП-ПРЫЖОК СЮДА · ${
+          ready.length || picks.length} соед. · ${cost} ПВ (есть ${power.toFixed(0)})</button>`;
+      }
+    }
+
     // Спецоперации: активный режим подсвечивает пригодные цели.
     if (this.opMode === 'sabotage' && canSabotage(s, s.player, p)) {
       html += `<button class="mini-btn wide" data-act="op-sabotage" style="border-color:var(--gold)">🗡 ДИВЕРСИЯ: взорвать верфь ${p.name}</button>`;
@@ -1492,6 +1514,24 @@ export class UI {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const act = btn.dataset.act;
+        if (act === 'warp') {
+          const picks = this.selectedFleets.size
+            ? [...this.selectedFleets]
+            : this.state.selectedFleet ? [this.state.selectedFleet] : [];
+          let jumped = 0;
+          for (const fid of picks) {
+            if (this.act({ k: 'warpFleet', fleet: fid, target: p.id })) jumped++;
+          }
+          if (jumped) {
+            this.sound.chime();
+            this.toast(`◈ БЕЗДНА РАСКРЫТА · ВЫШЛО СОЕДИНЕНИЙ: ${jumped}`);
+            this.selectedFleets.clear();
+            this.renderPanel();
+            this.renderForces();
+            this.renderHud();
+          } else this.toast('ПРЫЖОК НЕВОЗМОЖЕН: НЕТ ПВ ИЛИ СОЕДИНЕНИЕ СКОВАНО');
+          return;
+        }
         if (act === 'cancelbuild') {
           if (this.act({ k: 'cancelBuild', planet: p.id })) {
             this.toast('СТРОЙКА СВЁРНУТА · ВОЗВРАТ 50%');

@@ -1,15 +1,16 @@
 import type { FactionId, Fleet, Planet } from '../core/types';
 import { FACTIONS } from '../data/factions';
 import { fleetCap, isHuman, fleetsOf, modActive, planetsOf, pushChronicle, pushLog, spawnFleet, type GameState } from './state';
-import { orderFleetTo } from './units';
+import { lockedInBattle, orderFleetTo } from './units';
 import { buildDepot, canEnter, DEPOT_COST } from './supply';
 import { buildShipyard, liftCapacity, SHIPYARD_COST } from './shipyards';
 import { buildShield, buildStation, SHIELD_COST, STATION_COST } from './defense';
 import { hostileNow } from './diplomacy';
-import { SE_MASS_TROOPS } from './combat';
+import { orbitCovered, SE_MASS_TROOPS } from './combat';
 import { drawUnits, mineE711, mineMinerals, replenishUnits, totalUnits } from './troops';
 import { TRANSPORT_LIFT } from '../data/troops';
 import { accruePower } from './politics';
+import { warpFleet, WARP_COST } from './illuminate';
 import { bus } from '../core/emitter';
 
 const FLEET_COST = 45;
@@ -287,6 +288,47 @@ export function runAI(state: GameState, faction: FactionId): void {
       commit(threat, f.infantry);
     }
   }
+}
+
+/**
+ * Бездна в руках ИИ.
+ *
+ * Варп — главное преимущество иллюминатов, и без этой процедуры оно
+ * досталось бы только живому игроку: машинный разум водил бы флоты по линиям
+ * снабжения, как все прочие, и способность существовала бы на бумаге.
+ *
+ * Логика намеренно скупая: прыгают, только когда набралось вдвое больше
+ * власти, чем стоит прыжок (иначе казна уходит в никуда), и только СВОБОДНЫМ
+ * соединением с настоящим десантом. Цель — жирный мир Супер-Земли без флота
+ * на орбите: именно за такими и ныряют в Бездну, а не за ближайшим окопом.
+ */
+export function aiWarp(state: GameState, faction: FactionId): void {
+  if (faction !== 'illuminate') return;
+  const fs = state.factions[faction];
+  if (!fs.alive || fs.politicalPower < WARP_COST * 2) return;
+
+  // Праздных соединений у ИИ не бывает — они всегда куда-то идут, поэтому
+  // ждать «свободного» флота бессмысленно: подойдёт любой с настоящим
+  // десантом, хоть на полпути. Нельзя только выдёргивать скованных боем.
+  const raider = fleetsOf(state, faction)
+    .filter((f) => f.infantry >= 20 && !lockedInBattle(state, f))
+    .sort((a, b) => b.infantry - a.infantry)[0];
+  if (!raider) return;
+
+  const prey = planetsOf(state, 'superEarth')
+    .filter((p) => !p.shattered && hostileNow(state, faction, p.owner) &&
+      canEnter(state, faction, p) && !orbitCovered(state, p))
+    // Чем больше городов и ценности — тем богаче будущая точка людского
+    // ресурса; слабый гарнизон означает, что мир возьмут, а не увязнут.
+    .sort((a, b) => (b.cities.length * 3 + b.value - b.garrison * 0.15)
+      - (a.cities.length * 3 + a.value - a.garrison * 0.15))[0];
+  if (!prey) return;
+  // Прыгать к соседу незачем — туда дойдут и так. Для летящего соединения
+  // соседство считается от точки назначения, а не от места вылета.
+  const whereFrom = raider.transit ? raider.transit.to : raider.at;
+  if (whereFrom === prey.id) return;
+  if (state.galaxy.planets.get(whereFrom)?.links.includes(prey.id)) return;
+  warpFleet(state, faction, raider.id, prey.id);
 }
 
 /**

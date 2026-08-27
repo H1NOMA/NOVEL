@@ -5,7 +5,7 @@ import { fleetsOf, isHuman, planetsOf, pushChronicle, pushLog, snapshotControl, 
 import { collectTribute, stepRelations } from './relations';
 import { careerFinish, careerSync } from './career';
 import { stepAiDiplomacy, stepDiploEvents } from './diploEvents';
-import { aiBuild, runAI, runEconomy } from './ai';
+import { aiBuild, aiWarp, runAI, runEconomy } from './ai';
 import { stepFocus } from './focus';
 import { resolveBombardment, resolveGround, resolveOrbital } from './combat';
 import { garrisonReinforce, stepFleets } from './units';
@@ -83,7 +83,10 @@ export function advanceDay(state: GameState): void {
 
   // ИИ строит: верфи в тылу, щиты и станции на фронте, точки снабжения в узлах.
   for (const fid of activeFactions) {
-    if (!isHuman(state, fid) && state.day % 6 === 0) aiBuild(state, fid);
+    if (isHuman(state, fid)) continue;
+    if (state.day % 6 === 0) aiBuild(state, fid);
+    // Бездна: иллюминаты присматривают жирный мир для варп-вторжения.
+    if (state.day % 8 === 0) aiWarp(state, fid);
   }
 
   // Обломки на орбитах постепенно тают.
