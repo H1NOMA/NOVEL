@@ -4,6 +4,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { CreateSphereVertexData } from '@babylonjs/core/Meshes/Builders/sphereBuilder';
 import { CreatePolyhedron } from '@babylonjs/core/Meshes/Builders/polyhedronBuilder';
 import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
@@ -19,6 +20,7 @@ import { factionColor } from '../data/factions';
 import { moonShape, reliefShape, ringShape } from './planetAssets';
 import { hexColor, mixColor, offsetHSL, SUN_DIR } from './engine';
 import { ATMO_UNIFORMS, SURFACE_ATTRS, SURFACE_UNIFORMS } from './planetShaders';
+import { HULL_ATTRS, HULL_UNIFORMS } from './hullShader';
 
 // ---------------------------------------------------------------------------
 // Один мир на карте: поверхность, атмосфера, кольца, луна, оболочки состояний
@@ -28,13 +30,30 @@ import { ATMO_UNIFORMS, SURFACE_ATTRS, SURFACE_UNIFORMS } from './planetShaders'
 // сборка узлов и вся логика состояний, которую дёргает сцена.
 // ---------------------------------------------------------------------------
 
-/** Геометрия сферы общая на все миры: 200+ планет не должны её дублировать. */
-let sphereVD: VertexData | null = null;
+// ---------------------------------------------------------------------------
+// Геометрия миров: три уровня детализации на общих данных.
+//
+// Одна сфера на все двести миров была компромиссом не в ту сторону: на общем
+// плане её сегментов заведомо больше, чем нужно, а вблизи лимб планеты
+// оставался заметным многоугольником — сфера в 48 сегментов на полэкрана
+// показывает грани. Теперь их три, и переключаются они по дистанции (см.
+// setDetail): вблизи силуэт гладкий, издали не тратится ни одного лишнего
+// треугольника.
+//
+// Данные общие: меши клонируют одни и те же VertexData, поэтому три уровня
+// стоят ровно столько же памяти, сколько раньше стоил один.
+// ---------------------------------------------------------------------------
+
+/** Сегменты сферы по уровням: общий план → средний → вплотную. */
+export const SPHERE_LOD = [32, 64, 112] as const;
+
+const sphereVD: (VertexData | null)[] = [null, null, null];
 let shellVD: VertexData | null = null;
 
-function sphereData(): VertexData {
-  if (!sphereVD) sphereVD = CreateSphereVertexData({ segments: 48, diameter: 2 });
-  return sphereVD;
+function sphereData(level: number): VertexData {
+  const i = Math.max(0, Math.min(SPHERE_LOD.length - 1, level));
+  if (!sphereVD[i]) sphereVD[i] = CreateSphereVertexData({ segments: SPHERE_LOD[i]!, diameter: 2 });
+  return sphereVD[i]!;
 }
 function shellData(): VertexData {
   if (!shellVD) shellVD = CreateSphereVertexData({ segments: 20, diameter: 2 });
@@ -61,6 +80,34 @@ function shellMaterial(
   m.alpha = alpha;
   m.disableDepthWrite = true;
   if (additive) m.alphaMode = Constants.ALPHA_ADD;
+  return m;
+}
+
+/**
+ * Материал планетарного сооружения — тот же процедурный корпус, что у флота.
+ *
+ * Станция и верфь на орбите стоят рядом с кораблями и рядом с самой планетой:
+ * если у флота обшивка со швами и потёртостями, а у станции ровная заливка,
+ * она выглядит заглушкой. Параметры чуть другие: сооружения крупнее, плиты у
+ * них шире, а износ сильнее — они висят на орбите годами и их никто не моет.
+ */
+function structureMaterial(
+  name: string, scene: Scene, base: Color3, accent: Color3,
+  opts: { metal?: number; rough?: number; emissive?: number; panel?: number; wear?: number } = {},
+): ShaderMaterial {
+  const m = new ShaderMaterial(name, scene, 'hull', {
+    attributes: HULL_ATTRS,
+    uniforms: HULL_UNIFORMS,
+  });
+  m.setColor3('uBase', base);
+  m.setColor3('uAccent', accent);
+  m.setVector3('uSun', SUN_DIR);
+  m.setFloat('uMetal', opts.metal ?? 0.55);
+  m.setFloat('uRough', opts.rough ?? 0.45);
+  m.setFloat('uEmissive', opts.emissive ?? 0);
+  m.setFloat('uPanel', opts.panel ?? 0.03);
+  m.setFloat('uWear', opts.wear ?? 0.9);
+  m.setFloat('uOrganic', 0);
   return m;
 }
 
@@ -123,14 +170,18 @@ export interface PlanetVisual {
   setScar(on: boolean): void;
   /** Обломки погибших флотов на орбите (0 — чисто). */
   setWreckage(amount: number): void;
-  /** Уровень детализации шейдера: октавы шума (5 — вблизи, 7 — рядом). */
+  /** Уровень детализации шейдера: октавы шума (5 — вблизи, 9 — рядом). */
   setLod(octaves: number): void;
+  /** Плотность сетки сферы: 0 — общий план, 2 — вплотную. */
+  setDetail(level: number): void;
   /** Вблизи — рельефная геометрия из Blender, издали — гладкая сфера. */
   setRelief(on: boolean): void;
   /** Планетарный щит: голубая сфера; active — под ударом (ярче, пульс). */
   setShield(on: boolean, active: boolean): void;
   /** Орбитальная боевая станция, кружащая над планетой. */
   setStation(on: boolean): void;
+  /** Орбитальный док верфи: видно, где фракция строит флот. */
+  setYard(on: boolean): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +334,7 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
   material.setTexture('uMask', mask.tex);
   material.setFloat('uUseMask', mask.use);
   material.setVector3('uSun', SUN_DIR);
+  material.setFloat('uRadius', baseRadius);
 
   const root = new TransformNode(`p_${planet.id}`, scene);
 
@@ -294,13 +346,19 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
   axis.parent = root;
   axis.rotation.set(0, rand() * Math.PI * 2, tilt);
 
-  // Гладкая сфера — основной вид с общего плана.
-  const surface = meshFrom(`surf_${planet.id}`, sphereData(), scene);
-  surface.material = material;
-  surface.scaling.setAll(baseRadius);
-  surface.parent = axis;
-  // Пикинг идёт по гладкой сфере: она есть всегда, у неё простая геометрия и
-  // ровно тот силуэт, по которому игрок целится.
+  // Гладкие сферы трёх плотностей: видна всегда ровно одна.
+  const shells = SPHERE_LOD.map((_, i) => {
+    const m = meshFrom(`surf${i}_${planet.id}`, sphereData(i), scene);
+    m.material = material;
+    m.scaling.setAll(baseRadius);
+    m.parent = axis;
+    m.setEnabled(i === 0);
+    return m;
+  });
+  // Пикинг идёт по самой грубой сфере: она есть всегда, у неё простая
+  // геометрия и ровно тот силуэт, по которому игрок целится. Дальше по коду
+  // именно она считается «поверхностью» мира.
+  const surface = shells[0]!;
   surface.isPickable = true;
   surface.metadata = { planetId: planet.id };
 
@@ -486,19 +544,79 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
   // Орбитальная боевая станция: корпус-октаэдр с кольцом, кружит над миром.
   const stationGrp = new TransformNode(`station_${planet.id}`, scene);
   stationGrp.parent = root;
-  const stBody = CreatePolyhedron(`stBody_${planet.id}`, { type: 1, size: 0.055 }, scene);
-  const stBodyMat = new PBRMaterial(`stBodyMat_${planet.id}`, scene);
-  stBodyMat.albedoColor = new Color3(0.60, 0.64, 0.69);
-  stBodyMat.metallic = 0.4;
-  stBodyMat.roughness = 0.5;
-  stBody.material = stBodyMat;
+  // Корпус: гранёный блок с обшивкой и потёртостями.
+  const stBody = CreatePolyhedron(`stBody_${planet.id}`, { type: 1, size: 0.06 }, scene);
+  stBody.material = structureMaterial(`stBodyMat_${planet.id}`, scene,
+    new Color3(0.52, 0.56, 0.62), ownerColor, { metal: 0.6, rough: 0.5, panel: 0.022 });
   stBody.parent = stationGrp;
   stBody.isPickable = false;
-  const stRing = CreateTorus(`stRing_${planet.id}`, { diameter: 0.17, thickness: 0.016, tessellation: 18 }, scene);
-  stRing.material = shellMaterial(`stRingMat_${planet.id}`, scene, new Color3(0.56, 0.82, 1), 0.8, true);
+  // Опорное кольцо — жилой обод станции, а не светящийся ободок.
+  const stRing = CreateTorus(`stRing_${planet.id}`, { diameter: 0.19, thickness: 0.018, tessellation: 24 }, scene);
+  stRing.material = structureMaterial(`stRingMat_${planet.id}`, scene,
+    new Color3(0.46, 0.50, 0.56), ownerColor, { metal: 0.55, rough: 0.55, panel: 0.014 });
   stRing.parent = stationGrp;
   stRing.isPickable = false;
+  // Солнечные панели: две плоскости на штангах — по ним станция и читается
+  // станцией, а не просто гранёным камнем на орбите.
+  for (const side of [-1, 1]) {
+    const wing = CreateBox(`stWing${side}_${planet.id}`,
+      { width: 0.115, height: 0.006, depth: 0.055 }, scene);
+    wing.material = structureMaterial(`stWingMat${side}_${planet.id}`, scene,
+      new Color3(0.14, 0.19, 0.32), ownerColor, { metal: 0.35, rough: 0.3, panel: 0.008, wear: 0.4 });
+    wing.position.set(side * 0.125, 0, 0);
+    wing.parent = stationGrp;
+    wing.isPickable = false;
+    const boom = CreateBox(`stBoom${side}_${planet.id}`,
+      { width: 0.07, height: 0.008, depth: 0.008 }, scene);
+    boom.material = stBody.material;
+    boom.position.set(side * 0.062, 0, 0);
+    boom.parent = stationGrp;
+    boom.isPickable = false;
+  }
+  // Маяк: единственная светящаяся деталь — её и подхватывает слой свечения.
+  const stLight = meshFrom(`stLight_${planet.id}`, shellData(), scene);
+  stLight.material = shellMaterial(`stLightMat_${planet.id}`, scene, ownerColor, 0.95, true);
+  stLight.scaling.setAll(0.016);
+  stLight.position.y = 0.062;
+  stLight.parent = stationGrp;
   stationGrp.setEnabled(false);
+
+  // --- Верфь: орбитальный док ------------------------------------------------
+  //
+  // До этого верфь жила только в интерфейсе: на карте мир с верфью ничем не
+  // отличался от мира без неё, хотя это главное производственное сооружение
+  // партии. Теперь над планетой висит ферма дока — две балки, стапель между
+  // ними и сигнальные огни.
+  const yardGrp = new TransformNode(`yard_${planet.id}`, scene);
+  yardGrp.parent = root;
+  const yardMat = structureMaterial(`yardMat_${planet.id}`, scene,
+    new Color3(0.48, 0.51, 0.56), ownerColor, { metal: 0.6, rough: 0.55, panel: 0.018 });
+  for (const side of [-1, 1]) {
+    const beam = CreateBox(`yardBeam${side}_${planet.id}`,
+      { width: 0.028, height: 0.028, depth: 0.24 }, scene);
+    beam.material = yardMat;
+    beam.position.set(side * 0.075, 0, 0);
+    beam.parent = yardGrp;
+    beam.isPickable = false;
+  }
+  // Поперечины стапеля: между балками собирают корпус.
+  for (const z of [-0.08, 0, 0.08]) {
+    const rib = CreateBox(`yardRib${z}_${planet.id}`,
+      { width: 0.155, height: 0.016, depth: 0.018 }, scene);
+    rib.material = yardMat;
+    rib.position.set(0, 0, z);
+    rib.parent = yardGrp;
+    rib.isPickable = false;
+  }
+  // Сигнальные огни по углам фермы — их подхватывает слой свечения.
+  for (const [lx, lz] of [[-0.075, 0.12], [0.075, 0.12], [-0.075, -0.12], [0.075, -0.12]] as const) {
+    const lamp = meshFrom(`yardLamp${lx}${lz}_${planet.id}`, shellData(), scene);
+    lamp.material = shellMaterial(`yardLampMat${lx}${lz}_${planet.id}`, scene, ownerColor, 0.9, true);
+    lamp.scaling.setAll(0.012);
+    lamp.position.set(lx, 0, lz);
+    lamp.parent = yardGrp;
+  }
+  yardGrp.setEnabled(false);
 
   let spin = rand() * Math.PI * 2;
   let hovered = false;
@@ -507,11 +625,14 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
   let shieldActive = false;
   let reliefOn = false;
   let surfaceShown = true;
+  let detailLevel = 0;
   const stationPhase = rand() * Math.PI * 2;
 
-  /** Поверхность — это либо гладкая сфера, либо рельеф: видна ровно одна. */
+  /** Поверхность — это либо одна из сфер, либо рельеф: видна ровно одна. */
   const syncSurface = (): void => {
-    surface.setEnabled(surfaceShown && !reliefOn);
+    for (let i = 0; i < shells.length; i++) {
+      shells[i]!.setEnabled(surfaceShown && !reliefOn && i === detailLevel);
+    }
     relief?.setEnabled(surfaceShown && reliefOn);
   };
 
@@ -531,7 +652,7 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
       // Скорость вращения задана «на кадр при 60 Гц» — приводим к времени,
       // иначе на 144-герцовом мониторе миры крутятся вдвое быстрее.
       spin += spinSpeed * dt * 60;
-      surface.rotation.y = spin;
+      for (const sh of shells) sh.rotation.y = spin;
       if (relief) relief.rotation.y = spin;
       if (hoverRing.isEnabled()) hoverRing.rotation.y += dt * 0.9;
       if (gloomShell.isEnabled()) {
@@ -552,6 +673,14 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
       if (shield.isEnabled()) {
         shieldMat.alpha = shieldActive ? 0.16 + Math.sin(t * 6) * 0.07 : 0.07;
         shield.rotation.y += dt * 0.2;
+      }
+      if (yardGrp.isEnabled()) {
+        // Верфь идёт по своей орбите — ниже станции и в другую сторону, иначе
+        // два сооружения над одним миром слипаются в одну кляксу.
+        const a = -t * 0.22 + stationPhase + 2.1;
+        const r = baseRadius * 1.75;
+        yardGrp.position.set(Math.cos(a) * r, -baseRadius * 0.3, Math.sin(a) * r);
+        yardGrp.rotation.y = -a + Math.PI / 2;
       }
       if (stationGrp.isEnabled()) {
         const a = t * 0.35 + stationPhase;
@@ -623,6 +752,12 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
     setLod(octaves: number) {
       material.setFloat('uOct', octaves);
     },
+    setDetail(level: number) {
+      const want = Math.max(0, Math.min(SPHERE_LOD.length - 1, Math.round(level)));
+      if (want === detailLevel) return;
+      detailLevel = want;
+      syncSurface();
+    },
     setRelief(on: boolean) {
       if (!relief) return;
       reliefOn = on;
@@ -634,6 +769,9 @@ export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
     },
     setStation(on: boolean) {
       stationGrp.setEnabled(on && surfaceShown);
+    },
+    setYard(on: boolean) {
+      yardGrp.setEnabled(on && surfaceShown);
     },
   };
 }

@@ -11,10 +11,13 @@ import { drawUnits, mineE711, mineMinerals, replenishUnits, totalUnits } from '.
 import { TRANSPORT_LIFT } from '../data/troops';
 import { accruePower } from './politics';
 import { warpFleet, WARP_COST } from './illuminate';
+import { openPartition } from './partition';
 import { bus } from '../core/emitter';
 
 const FLEET_COST = 45;
 const INFANTRY_CAP = 45;
+/** Цена одной достроенной аппарели: вдвое дешевле пары с верфи, но и штука одна. */
+const TRANSPORT_COST = 16;
 
 /** Daily economy for every faction: production, manpower, fleet building, reload. */
 export function runEconomy(state: GameState, faction: FactionId): void {
@@ -86,6 +89,24 @@ export function runEconomy(state: GameState, faction: FactionId): void {
   for (const f of fleets) {
     if (f.transit) continue;
     const p = state.galaxy.planets.get(f.at);
+    // --- Аппарели растут вместе с потолком десанта ---------------------------
+    //
+    // Потолок пехоты поднимается с каждым годом войны, а транспорты ВССЗ
+    // выдавались один раз при сборке соединения и больше не докупались. Через
+    // десять лет у Супер-Земли на борту 24 места под 105 бойцов: остальные
+    // ехали пассажирами, в бой не шли, и наступать гегемону было нечем. В
+    // прогоне на десять сидов Супер-Земля гибла во всех десяти партиях.
+    //
+    // Флот на своей верфи достраивает аппарели под нынешний потолок и
+    // поднимает штат — иначе пополнение из резерва тут же вернёт старое число.
+    if (faction === 'superEarth' && p && p.owner === faction && !f.special) {
+      const lift = liftCapacity(f);
+      if (lift < infantryCap && fs.production >= TRANSPORT_COST) {
+        fs.production -= TRANSPORT_COST;
+        f.transports = (f.transports ?? 0) + 1;
+        if (f.establishment) f.establishment.transports = Math.round(f.transports);
+      }
+    }
     if (p && p.owner === faction && f.infantry < infantryCap) {
       // Потолок погрузки — по транспортам: лишний батальон некуда сажать.
       const room = Math.min(infantryCap, liftCapacity(f)) - f.infantry;
@@ -112,6 +133,8 @@ function eliminate(state: GameState, faction: FactionId): void {
   });
   if (faction === state.player) state.playerDefeated = true;
   bus.emit('factionDefeated', { faction, by });
+  // Если у изгнанной фракции ещё остались миры, они тоже делятся по очкам.
+  openPartition(state, faction, by);
 }
 
 /**
@@ -249,11 +272,21 @@ export function runAI(state: GameState, faction: FactionId): void {
     const hulls = f.ships + f.dreadnoughts + f.battleships;
 
     // Потрёпан или пуст — отход на переформирование.
-    if ((here.owner !== faction && f.infantry < 6) || hulls < 2.5) {
+    //
+    // Только С ЧУЖОЙ орбиты. Раньше условие срабатывало и в тылу, а поиск
+    // убежища никогда не возвращал текущую планету, — потрёпанное соединение
+    // каждый день получало приказ уйти на соседний свой мир, оттуда обратно, и
+    // так до конца партии, занимая слот флота и ничего не делая.
+    if (here.owner !== faction && (f.infantry < 6 || hulls < 2.5)) {
       const refuge = nearestOwnedWorld(state, faction, f.at);
+      // Приказ может не пройти (скован боем, нет маршрута по своей земле) —
+      // тогда соединение просто остаётся на месте, а не «числится отходящим».
       if (refuge) orderFleetTo(state, f, refuge, false);
       continue;
     }
+    // В тылу потрёпанному соединению отходить некуда: оно уже дома и здесь же
+    // пополняется (см. runEconomy).
+    if (hulls < 2.5) continue;
     // Уже штурмует вражеский мир — держит хватку.
     if (here.owner !== faction && hostileNow(state, faction, here.owner)) continue;
 
@@ -263,8 +296,11 @@ export function runAI(state: GameState, faction: FactionId): void {
     const threat = mostThreatenedWorld(state, faction, committed);
     if (threat) {
       const tp = state.galaxy.planets.get(threat)!;
-      if (tp.battle && tp.battle.liberation > 25 && threat !== f.at) {
-        orderFleetTo(state, f, threat, false);
+      // Десант записывается в «занятые» ТОЛЬКО если приказ принят. Раньше
+      // commit шёл безусловно: скованное боем соединение никуда не уходило, но
+      // числилось идущим на выручку, и остальные считали мир уже прикрытым.
+      if (tp.battle && tp.battle.liberation > 25 && threat !== f.at
+          && orderFleetTo(state, f, threat, false)) {
         commit(threat, f.infantry);
         continue;
       }
@@ -275,16 +311,14 @@ export function runAI(state: GameState, faction: FactionId): void {
     const minInfantry = faction === 'terminids' ? 7 : 12;
     if (f.infantry >= minInfantry) {
       const target = bestInvasionTarget(state, faction, f, committed);
-      if (target) {
-        orderFleetTo(state, f, target, true);
+      if (target && orderFleetTo(state, f, target, true)) {
         commit(target, f.infantry);
         continue;
       }
     }
     // Сил маловато — копим на месте (докомплектация идёт в runEconomy),
     // а тем временем прикрываем самый ценный фронтовой мир.
-    if (threat && threat !== f.at) {
-      orderFleetTo(state, f, threat, false);
+    if (threat && threat !== f.at && orderFleetTo(state, f, threat, false)) {
       commit(threat, f.infantry);
     }
   }
@@ -372,10 +406,10 @@ export function aiBuild(state: GameState, faction: FactionId): void {
   // при этом стояли без орбитального прикрытия. Гегемон обязан обстраиваться
   // соразмерно себе — иначе он платит за размер, ничего не получая взамен.
   const want: Record<string, number> = {
-    shipyard: Math.min(8, 1 + Math.floor(all.length / 10)),
-    shieldGen: Math.min(16, Math.ceil(front / 2)),
-    orbStation: Math.min(20, 1 + Math.floor(all.length / 12)),
-    depot: Math.min(12, Math.floor(all.length / 6)),
+    shipyard: Math.min(14, 1 + Math.floor(all.length / 9)),
+    shieldGen: Math.min(45, Math.ceil(front * 0.8)),
+    orbStation: Math.min(50, 1 + Math.floor(all.length / 5)),
+    depot: Math.min(26, Math.floor(all.length / 5)),
   };
   const cost: Record<string, number> = {
     shipyard: SHIPYARD_COST, shieldGen: SHIELD_COST, orbStation: STATION_COST, depot: DEPOT_COST,

@@ -26,15 +26,21 @@ function applyEffects(state: GameState, faction: FactionId, eff: EventEffects): 
   }
 }
 
-function triggerable(state: GameState, ev: TimelineEvent): boolean {
-  if (ev.day !== undefined) return state.day >= ev.day;
-  if (ev.capture) {
-    const p = state.galaxy.order
-      .map((id) => state.galaxy.planets.get(id)!)
-      .find((pl) => pl.name === ev.capture!.planet);
-    return !!p && p.owner === ev.capture.by && !p.shattered;
-  }
-  return false;
+/** Условие сюжетного ивента по захвату мира. */
+function captureMet(state: GameState, ev: TimelineEvent): boolean {
+  if (!ev.capture) return false;
+  const p = state.galaxy.order
+    .map((id) => state.galaxy.planets.get(id)!)
+    .find((pl) => pl.name === ev.capture!.planet);
+  return !!p && p.owner === ev.capture.by && !p.shattered;
+}
+
+/** Может ли ивент прийти сегодня: не выстрелил, адресат жив, срок наступил. */
+function eligible(state: GameState, ev: TimelineEvent): boolean {
+  if (state.firedEvents.includes(ev.id)) return false;
+  if (ev.faction && !state.factions[ev.faction]?.alive) return false;
+  if (ev.capture) return false;          // условные разбираются отдельно
+  return ev.day === undefined || state.day >= ev.day;
 }
 
 /**
@@ -85,14 +91,41 @@ function fire(state: GameState, ev: TimelineEvent): void {
   if (ev.major) bus.emit('gameEvent', { title: ev.title, text: ev.text });
 }
 
-/** Дневной шаг таймлайна (не больше одного датированного ивента за день). */
+/** Не чаще одного случайного ивента в этот срок — иначе они сливаются в шум. */
+export const EVENT_GAP = 22;
+/** Вероятность ивента в день, когда пауза выдержана и пул не пуст. */
+export const EVENT_CHANCE = 0.075;
+
+/**
+ * Дневной шаг событий.
+ *
+ * Сюжетные ивенты по захвату миров срабатывают по своему условию, как и
+ * раньше: они привязаны к настоящим событиям войны. А вот датированные больше
+ * не выстраиваются в один и тот же сценарий — они образуют ПУЛ доступного, и
+ * из него берётся случайный. Дата в данных стала нижней границей: ранние по
+ * смыслу события так и остаются ранними, но какое именно и когда придёт — в
+ * каждой партии своё.
+ *
+ * Случайность берётся из общего сида партии, а не из Math.random: иначе одна
+ * и та же партия расходилась бы у хоста и клиента, а тесты перестали бы быть
+ * воспроизводимыми.
+ */
 export function stepEvents(state: GameState): void {
+  // 1. Сюжетные: условие выполнено — событие случилось.
   for (const ev of TIMELINE_EVENTS) {
-    if (state.firedEvents.includes(ev.id)) continue;
-    // Фракционный ивент не приходит мёртвой фракции.
-    if (ev.faction && !state.factions[ev.faction].alive) continue;
+    if (!ev.capture || state.firedEvents.includes(ev.id)) continue;
+    if (ev.faction && !state.factions[ev.faction]?.alive) continue;
     // Ивент по захвату не срабатывает, если фракция уже без планет.
-    if (ev.capture && planetsOf(state, ev.capture.by).length === 0) continue;
-    if (triggerable(state, ev)) fire(state, ev);
+    if (planetsOf(state, ev.capture.by).length === 0) continue;
+    if (captureMet(state, ev)) fire(state, ev);
   }
+
+  // 2. Случайные из пула — с паузой между ними.
+  if (state.day - state.lastEventDay < EVENT_GAP) return;
+  if (state.rng.next() > EVENT_CHANCE) return;
+  const pool = TIMELINE_EVENTS.filter((ev) => eligible(state, ev));
+  if (!pool.length) return;
+  const pick = pool[Math.min(pool.length - 1, Math.floor(state.rng.next() * pool.length))]!;
+  state.lastEventDay = state.day;
+  fire(state, pick);
 }

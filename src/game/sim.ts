@@ -50,6 +50,10 @@ export function moveFleets(state: GameState, days: number): void {
 
 /** Discrete once-per-day simulation step: economy, focus, AI orders, combat. */
 export function advanceDay(state: GameState): void {
+  // Пока идёт делёж наследства, мир стоит: день не наступает, бои не считаются.
+  // Проверка здесь, а не только в часах, — второй слой: клиент сетевой партии
+  // получает срез с открытым разделом и тоже обязан замереть.
+  if (state.partition) return;
   state.day++;
 
   const activeFactions: FactionId[] = [...FACTION_IDS];

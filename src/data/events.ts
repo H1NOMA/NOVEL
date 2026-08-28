@@ -20,7 +20,15 @@ export interface EventEffects {
 
 export interface TimelineEvent {
   id: string;
-  /** День срабатывания (для ивентов по времени). */
+  /**
+   * Не раньше этого дня.
+   *
+   * Раньше это была ТОЧНАЯ дата, и каждая партия проживала один и тот же
+   * сценарий в одном и том же порядке. Теперь это только нижняя граница:
+   * ивент попадает в пул доступных, а выбор из пула случаен (см. stepEvents).
+   * Ранние по смыслу события так и остаются ранними, но какое и когда придёт
+   * — в каждой партии своё.
+   */
   day?: number;
   /** Условие по захвату: планета с таким именем принадлежит фракции. */
   capture?: { planet: string; by: FactionId };
@@ -100,4 +108,32 @@ export const TIMELINE_EVENTS: TimelineEvent[] = [
   { id: 'ev_cap_sanctuary_se', capture: { planet: "Святилище Скв'бай", by: 'superEarth' }, faction: 'superEarth', title: 'Святилище пало', text: 'Флаг Свободы над алтарями пророка. Жрецы бежали в Бездну.', effects: { warSupport: 8, politicalPower: 40 }, major: true },
   { id: 'ev_cap_superearth_aut', capture: { planet: 'Супер-Земля', by: 'automatons' }, faction: 'automatons', title: 'Стальная пята на колыбели', text: 'Машины маршируют по площадям Супер-Земли. Идеальный порядок. Мёртвый порядок.', effects: { warSupport: 15, production: 100 }, major: true },
   { id: 'ev_cap_superearth_term', capture: { planet: 'Супер-Земля', by: 'terminids' }, faction: 'terminids', title: 'Улей Супер-Земля', text: 'Колыбель человечества затянута паутиной туннелей. Рой доволен.', effects: { mass: 120 }, major: true },
+  // --- Общий пул: случайные события войны -------------------------------------
+  // У них нет сюжетной привязки, поэтому они могут прийти в любой партии в
+  // любом порядке — именно они и создают ощущение живой, а не заученной войны.
+  { id: 'ev_rnd_solar_flare', day: 60, title: 'Солнечная буря', text: 'Вспышка класса X глушит дальнюю связь. Конвои идут вслепую, штабы теряют картину.', effects: { production: -25 } },
+  { id: 'ev_rnd_mine_strike', day: 80, faction: 'automatons', title: 'Сбой на рудниках', text: 'Пласт вскрыт неверно, шахтные линии встали. Литейные ждут руду.', effects: { minerals: -25, production: -15 } },
+  { id: 'ev_rnd_volunteers', day: 100, title: 'Волна добровольцев', text: 'Сводки с фронта подняли волну записи. Учебки переполнены.', effects: { mass: 45, warSupport: 4 } },
+  { id: 'ev_rnd_supply_find', day: 120, title: 'Забытый склад', text: 'В брошенной системе найден нетронутый склад довоенных времён.', effects: { production: 55, minerals: 20 } },
+  { id: 'ev_rnd_plague', day: 160, title: 'Эпидемия на транспортах', text: 'Заразу везли вместе с десантом. Карантин съедает недели.', effects: { mass: -35, production: -20 } },
+  { id: 'ev_rnd_defection', day: 200, title: 'Перебежчики', text: 'Экипаж целого корабля сдался противнику вместе с шифрами.', effects: { warSupport: -6 } },
+  { id: 'ev_rnd_hero', day: 220, title: 'Герой фронта', text: 'Один взвод удержал перевал против дивизии. Его именем называют улицы.', effects: { warSupport: 8, politicalPower: 25 } },
+  { id: 'ev_rnd_strike', day: 260, faction: 'superEarth', title: 'Забастовка на верфях', text: 'Рабочие требуют вернуть восьмичасовой день. Министерство Правды в затруднении.', major: true, choices: [
+    { label: 'Разогнать (−8 стаб., +45 пр.)', effects: { stability: -8, production: 45 } },
+    { label: 'Уступить (+5 стаб., −25 пр.)', effects: { stability: 5, production: -25 } },
+  ] },
+  { id: 'ev_rnd_derelict', day: 300, title: 'Дрейфующий остов', text: 'Найден остов линкора неизвестной постройки. Инженеры спорят, чей он.', effects: { minerals: 45, production: 25 } },
+  { id: 'ev_rnd_spore_wind', day: 340, faction: 'terminids', title: 'Ветер спор', text: 'Кладки разнесло дальше обычного — рой прибавляет числом.', effects: { mass: 70 } },
+  { id: 'ev_rnd_prophecy', day: 380, faction: 'illuminate', title: 'Тёмное знамение', text: 'Пророки читают в узоре звёзд поражение. По флоту ползёт сомнение.', effects: { warSupport: -8 } },
+  { id: 'ev_rnd_reactor', day: 420, title: 'Авария реактора', text: 'Взрыв на орбитальной станции выжег целый док вместе со стапелем.', effects: { production: -60 }, major: true },
+  { id: 'ev_rnd_breakthrough', day: 460, title: 'Прорыв в металлургии', text: 'Новый сплав держит вдвое больше попаданий при той же массе.', effects: { production: 70, politicalPower: 20 } },
+  { id: 'ev_rnd_famine', day: 520, title: 'Продовольственный кризис', text: 'Аграрные миры не дали плана. Пайки урезаны, ропот растёт.', effects: { warSupport: -7, mass: -30 } },
+  { id: 'ev_rnd_amnesty', day: 560, title: 'Всеобщая амнистия', text: 'Тюрьмы открыты, штрафные части пополнены до штата.', effects: { mass: 60, warSupport: -3 } },
+  { id: 'ev_rnd_spy_ring', day: 620, title: 'Раскрыта шпионская сеть', text: 'Контрразведка взяла всю резидентуру разом. Планы противника на столе.', effects: { politicalPower: 45 } },
+  { id: 'ev_rnd_mutiny', day: 700, title: 'Мятеж в тылу', text: 'Гарнизон дальнего мира отказался грузиться на транспорты.', major: true, choices: [
+    { label: 'Показательный трибунал (+30 ПВ, −5 поддержки)', effects: { politicalPower: 30, warSupport: -5 } },
+    { label: 'Договориться (+6 поддержки, −20 пр.)', effects: { warSupport: 6, production: -20 } },
+  ] },
+  { id: 'ev_rnd_windfall', day: 780, title: 'Богатая жила', text: 'Разведка недр нашла пласт редких металлов прямо под старым лагерем.', effects: { minerals: 70 } },
+
 ];

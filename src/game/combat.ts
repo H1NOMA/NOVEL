@@ -13,6 +13,7 @@ import { commanderOf } from './commanders';
 import { STATION_POWER } from './defense';
 import { gainXp, rankOf } from './veterancy';
 import { originBlockaded } from './specops';
+import { addWarScore, CAPITAL_SCORE, HULL_SCORE, PLANET_SCORE, openPartition } from './partition';
 import { bus } from '../core/emitter';
 
 // ---------------------------------------------------------------------------
@@ -110,6 +111,24 @@ export function seDoctrine(faction: FactionId, hulls: number, troops: number, fu
   return 1 + (full - 1) * t;
 }
 
+/**
+ * Оборонительная половина доктрины — тоже непрерывная, но кривая СВОЯ.
+ *
+ * У атаки полная сила приходит при полуторном перекрытии порога: собрать
+ * армаду вдвое больше нужного — это подвиг, и он должен окупаться. Оборона
+ * устроена иначе: гарнизон с флотом над головой держится в полную силу уже на
+ * самом пороге, потому что порог и есть «мир прикрыт как положено».
+ *
+ * Разница не косметическая. Общая с атакой кривая давала на пороге лишь 1,53
+ * вместо 2,2 — оборона Супер-Земли просела на треть, и в прогоне на десять
+ * сидов гегемон гиб во всех десяти партиях вместо двух.
+ */
+export function seDefence(faction: FactionId, hulls: number, troops: number, full: number): number {
+  if (faction !== 'superEarth') return 1;
+  const t = Math.max(0, Math.min(1, (seConcentration(hulls, troops) - 0.55) / 0.45));
+  return 1 + (full - 1) * t;
+}
+
 /** Фаза наземной операции по прогрессу освобождения. */
 export function battlePhase(liberation: number): BattlePhase {
   if (liberation < 25) return 'landing';
@@ -171,7 +190,17 @@ export function resolveOrbital(state: GameState): void {
       }
       if (incoming <= 0) continue;
       const loss = incoming * 0.16;
+      const before = fleets.reduce((s, f) => s + hullCount(f), 0);
       applyShipLosses(state, fleets, loss, planet);
+      // Очки войны за потопленные корпуса делятся между теми, кто стрелял:
+      // вклад каждого — по его доле в суммарной силе, бившей по этой фракции.
+      const sunk = before - fleets.reduce((s, f) => s + hullCount(f), 0);
+      if (sunk > 0) {
+        for (const [other, op] of power) {
+          if (other === fac || !hostileNow(state, fac, other)) continue;
+          addWarScore(state, other, fac, sunk * HULL_SCORE * (op / incoming));
+        }
+      }
       // Обстрелянные экипажи: день орбитального боя даёт опыт обеим сторонам.
       const xpMult = modActive(state, 'veteranWar') ? 1.5 : 1;
       for (const f of fleets) gainXp(f, 0.8 * xpMult);
@@ -373,10 +402,14 @@ export function resolveGround(state: GameState): void {
     const covered = orbitCovered(state, planet);
     if (!covered) defBonus *= planet.owner === 'superEarth' ? SE_UNCOVERED : 0.85;
     // Зато собранный над своим миром кулак Супер-Земли делает штурм безнадёжным.
-    if (planet.owner === 'superEarth' &&
-        seMassedAttack('superEarth', orbitPower(state, planet.id, 'superEarth'), planet.garrison)) {
-      defBonus *= SE_DOCTRINE_DEFENCE;
-    }
+    //
+    // Кривая ТА ЖЕ, что у атаки, и это принципиально — ровно по той причине,
+    // что описана над seDoctrine. Здесь раньше стояла ступенька: гарнизон
+    // проседал на пять бойцов ниже порога, и оборона мира обваливалась в
+    // 2,2 раза за один день. Оборона, которая слабеет скачком от каждой
+    // царапины, — это тот же баг, что был у атаки, только с другой стороны.
+    defBonus *= seDefence(planet.owner, orbitPower(state, planet.id, planet.owner),
+      planet.garrison, SE_DOCTRINE_DEFENCE);
     // Снабжение атаки идёт С ПЛАЦДАРМА: планеты, с которой флот вторгся.
     // Если плацдарм потерян/отрезан, не смежен с целью — или его орбиту
     // блокирует вражеский рейдер, — атакующий получает штраф.
@@ -400,16 +433,40 @@ export function resolveGround(state: GameState): void {
     attackerForce *= doctrine;
     let defenderForce = planet.garrison * combatMult(state, planet.owner) * defBonus;
 
+    // Битва заводится ТОЛЬКО когда ведущему есть кого высаживать.
+    //
+    // Раньше её создавал любой враждебный корабль на орбите, даже пустой. Он
+    // висел над миром, штурм каждый день откатывался к нулю, на девятый день
+    // осада «снималась» — и назавтра заводилась снова, потому что флот никуда
+    // не делся. Игрок получал сирену «вторжение!» раз в девять дней до конца
+    // партии. Пустой флот теперь просто блокирует мир: обстрел работает,
+    // объекта битвы нет.
+    const canLand = leadVal > 0 || landedGround >= 1;
+    if (!planet.battle && !canLand) continue;
+
     if (!planet.battle || planet.battle.attacker !== lead) {
+      if (!canLand) continue;
+      // Смена ведущего атакующего — это НОВЫЙ штурм, а не продолжение чужого.
+      // Прежде прогресс освобождения доставался новой фракции даром, а десант
+      // предыдущей исчезал молча: подошедший на двадцатый день осады союзник
+      // забирал мир на следующий день.
+      const prior = planet.battle;
+      if (prior && (prior.landed ?? 0) >= 1) {
+        pushLog(state, {
+          faction: prior.attacker,
+          text: `Плацдарм ${FACTION_GEN[prior.attacker]} на ${planet.name} потерян: инициативу перехватили силы ${FACTION_GEN[lead]}.`,
+          tone: prior.attacker === state.player ? 'bad' : 'info',
+        });
+      }
       planet.battle = {
         attacker: lead,
         defender: planet.owner,
         attackerForce,
         defenderForce,
-        liberation: planet.battle?.liberation ?? 0,
+        liberation: 0,
         days: 0,
       };
-      if (planet.battle.days === 0) {
+      {
         pushLog(state, {
           faction: lead,
           text: `Силы ${FACTION_GEN[lead]} высаживаются на ${planet.name}! Начинается битва за планету.`,
@@ -462,7 +519,15 @@ export function resolveGround(state: GameState): void {
       * cmdCapture * vetCapture * (shielded ? 0.55 : 1)
       // Массированная высадка не топчется на плацдарме: сброс идёт волнами.
       * doctrine;
-    b.liberation = clamp(b.liberation + (ratio - 0.5) * 22 * captureRate + citiesHeld * 0.9, 0, 100);
+    // Множители применяются ТОЛЬКО к продвижению.
+    //
+    // Раньше captureRate умножал и отрицательное слагаемое, и знак смысла
+    // менялся на противоположный: везти супероружие становилось вредно (оно
+    // ускоряло потерю плацдарма в 1,4 раза), а вражеский планетарный щит —
+    // полезно атакующему (он замедлял откат вдвое). Откат — это просто
+    // вытеснение с плацдарма, никакие бонусы штурма его не касаются.
+    const step = (ratio - 0.5) * 22;
+    b.liberation = clamp(b.liberation + (step > 0 ? step * captureRate : step) + citiesHeld * 0.9, 0, 100);
 
     // Города переходят из рук в руки по мере освобождения планеты.
     const CITY_THRESHOLDS = [30, 55, 80];
@@ -484,7 +549,13 @@ export function resolveGround(state: GameState): void {
     for (const f of attackers) {
       // Подавляющее превосходство бережёт своих: под сплошным орбитальным
       // огнём защитники отвечают куда реже, и десант тает медленнее.
-      const iLoss = f.infantry * defenderForce * 0.0006 * (1 + planet.fortification * 0.15)
+      // Потери считаются от той пехоты, что РЕАЛЬНО сошла на грунт. Десант
+      // сверх аппарелей остаётся на орбите зрителем: он не даёт ни очка силы
+      // удара, и гибнуть в наземном бою ему тоже не с чего. Раньше он таял
+      // наравне с дерущимися — при слиянии соединений половина десанта
+      // испарялась, ни разу не коснувшись поверхности.
+      const inBattle = landableInfantry(f);
+      const iLoss = inBattle * defenderForce * 0.0006 * (1 + planet.fortification * 0.15)
         / (f.faction === lead ? doctrine : 1);
       f.infantry = Math.max(0, f.infantry - iLoss);
       // День наземных боёв закаляет десант.
@@ -495,7 +566,14 @@ export function resolveGround(state: GameState): void {
       b.landed = Math.max(0, b.landed - b.landed * defenderForce * 0.0006 * (1 + planet.fortification * 0.15));
     }
 
-    if (b.liberation >= 100 || planet.garrison <= 0.5) {
+    // Мир занимают ногами, а не только орудиями.
+    //
+    // Обнулённый обстрелом гарнизон раньше сам по себе означал захват: чисто
+    // боевой флот без единого десантника вставал на орбиту непрокрытого мира,
+    // полсотни дней ровнял гарнизон бомбардировкой и получал планету. Теперь
+    // для этого нужен хоть кто-то на поверхности.
+    const boots = leadVal > 0 || (b.landed ?? 0) >= 1;
+    if (b.liberation >= 100 || (planet.garrison <= 0.5 && boots)) {
       capturePlanet(state, planet, lead, attackers);
       continue;
     }
@@ -617,6 +695,10 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
     text: `${planet.name} — планета захвачена силами ${FACTION_GEN[attacker]}${planet.isCapital ? '. Пала СТОЛИЦА!' : '.'}`,
     tone: prev === state.player ? 'bad' : attacker === state.player ? 'good' : 'info',
   });
+  // Очки войны: захват мира у прежнего владельца — вклад в будущий раздел
+  // его наследства. Столица весит отдельно и много.
+  addWarScore(state, attacker, prev, planet.value * PLANET_SCORE
+    + (planet.isCapital ? CAPITAL_SCORE : 0));
   bus.emit('planetCaptured', { id: planet.id, by: attacker, prev });
   if (planet.isCapital) {
     pushChronicle(state, `Пала столица: ${planet.name} захвачена силами ${FACTION_GEN[attacker]}.`);
@@ -644,31 +726,25 @@ function surrenderFaction(state: GameState, loser: FactionId, victor: FactionId)
   if (!fs.alive) return;
   fs.alive = false;
   fs.activeFocus = undefined;
-  let flipped = 0;
-  for (const id of state.galaxy.order) {
-    const p = state.galaxy.planets.get(id)!;
-    if (p.owner === loser) {
-      p.owner = victor;
-      onOwnerChanged(p);
-      p.garrison = Math.max(5, p.garrison * 0.5);
-      p.battle = undefined;
-      // С падением их владык миры Бездны возвращаются в реальность.
-      if (p.abyss) p.abyss = false;
-      flipped++;
-    }
-  }
+  const left = state.galaxy.order
+    .map((id) => state.galaxy.planets.get(id)!)
+    .filter((p) => p.owner === loser).length;
   for (const fid of [...state.fleetOrder]) {
     const f = state.fleets.get(fid);
     if (f && f.faction === loser) removeFleet(state, fid);
   }
-  pushChronicle(state, `Фракция «${FACTIONS[loser].name}» капитулирует: ${flipped} миров переходят под контроль ${FACTION_GEN[victor]}.`);
+  pushChronicle(state, `Фракция «${FACTIONS[loser].name}» капитулирует: столица взята силами ${FACTION_GEN[victor]}.`);
   pushLog(state, {
     faction: loser,
-    text: `Столица пала — фракция «${FACTIONS[loser].name}» КАПИТУЛИРУЕТ! Миров перешло под контроль ${FACTION_GEN[victor]}: ${flipped}.`,
+    text: `Столица пала — фракция «${FACTIONS[loser].name}» КАПИТУЛИРУЕТ! Осталось миров к разделу: ${left}.`,
     tone: loser === state.player ? 'bad' : 'alert',
   });
   if (loser === state.player) state.playerDefeated = true;
   bus.emit('factionDefeated', { faction: loser, by: victor });
+  // Наследство делят все, кто воевал с проигравшим, а не только тот, кто взял
+  // столицу: три года войны на другом фронте — тоже вклад. Партия встаёт на
+  // паузу до подтверждения (см. game/partition.ts).
+  openPartition(state, loser, victor);
 }
 
 function regrowGarrison(state: GameState, planet: Planet): void {

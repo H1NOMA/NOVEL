@@ -36,7 +36,9 @@ function ok(cond: boolean, msg: string): void {
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons' && p.links.length > 0)!;
   target.garrison = 50;
-  const attacker = spawnFleet(s, 'superEarth', target.id, { ships: 10, infantry: 40 });
+  // Транспорты обязательны (раунд 53): без них ВССЗ на грунт не сойдут, а с
+  // раунда 58 битва без десанта и не заводится вовсе — флоту нечем воевать.
+  const attacker = spawnFleet(s, 'superEarth', target.id, { ships: 10, infantry: 40, transports: 4 });
   const defenderFleet = spawnFleet(s, 'automatons', target.id, { ships: 8, infantry: 10 });
   resolveGround(s); // битва завязалась
   ok(!!target.battle, 'битва началась');
@@ -56,7 +58,9 @@ function ok(cond: boolean, msg: string): void {
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons')!;
   target.garrison = 60;
-  const inv = spawnFleet(s, 'superEarth', target.id, { ships: 10, infantry: 30 });
+  // Транспорты обязательны (раунд 53), и с раунда 58 без них битва не
+  // заводится вовсе: высаживать нечего.
+  const inv = spawnFleet(s, 'superEarth', target.id, { ships: 10, infantry: 30, transports: 3 });
   resolveGround(s);
   ok(!!target.battle && target.battle.attacker === 'superEarth', 'битва идёт');
   garrisonReinforce(s, inv);
@@ -76,15 +80,38 @@ function ok(cond: boolean, msg: string): void {
   console.log('высадка десанта: OK');
 }
 
-// --- Захлебнувшийся штурм прекращается ---------------------------------------
+// --- Пустой флот не заводит битву ---------------------------------------------
+//
+// Раньше сражение начинал ЛЮБОЙ враждебный корабль на орбите, даже без единого
+// десантника. Он висел над миром, штурм каждый день откатывался к нулю, на
+// девятый день осада «снималась» — и назавтра заводилась снова, потому что
+// флот никуда не делся. Игрок получал сирену «вторжение!» раз в девять дней до
+// конца партии. Теперь пустой флот просто блокирует мир.
 {
   const s = warGame(47);
   const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
     .find((p) => p.owner === 'automatons')!;
   target.garrison = 80;
   const inv = spawnFleet(s, 'superEarth', target.id, { ships: 6, infantry: 0 });
+  for (let i = 0; i < 12; i++) resolveGround(s);
+  ok(!target.battle, 'флоту без десанта нечем начинать битву');
+  ok(!lockedInBattle(s, inv), 'и боем он не скован');
+  console.log('пустой флот не воюет: OK');
+}
+
+// --- Захлебнувшийся штурм прекращается ---------------------------------------
+{
+  const s = warGame(47);
+  const target = s.galaxy.order.map((id) => s.galaxy.planets.get(id)!)
+    .find((p) => p.owner === 'automatons')!;
+  target.garrison = 80;
+  // Штурм начинается по-настоящему — с десантом и аппарелями под него.
+  const inv = spawnFleet(s, 'superEarth', target.id, { ships: 6, infantry: 24, transports: 2 });
   resolveGround(s);
-  ok(!!target.battle, 'битва завязалась даже с пустым десантом');
+  ok(!!target.battle, 'битва завязалась');
+  // Десант выбит подчистую: продолжать штурм нечем.
+  inv.infantry = 0;
+  target.battle!.landed = 0;
   target.battle!.days = 9;
   target.battle!.liberation = 0;
   resolveGround(s);

@@ -1,3 +1,4 @@
+import type { Partition } from './partition';
 import type {
   FactionId,
   FactionState,
@@ -87,6 +88,17 @@ export interface GameState {
   puppets: Partial<Record<FactionId, FactionId>>;
   /** Трофейные технологии: победитель → список покорённых им фракций. */
   trophies: Partial<Record<FactionId, FactionId[]>>;
+  /**
+   * Очки войны: против кого → кто → сколько заработал.
+   *
+   * Копятся весь ход войны и решают, кому сколько миров достанется при
+   * разделе наследства побеждённого (см. game/partition.ts).
+   */
+  warScore: Partial<Record<FactionId, Partial<Record<FactionId, number>>>>;
+  /** Идущий делёж наследства: партия стоит, пока его не подтвердят. */
+  partition: Partition | null;
+  /** День последнего случайного ивента — по нему держится пауза между ними. */
+  lastEventDay: number;
   /** Выбранные в этой партии варианты узлов древа фокусов. */
   focusVariants: Record<string, string>;
 }
@@ -165,6 +177,9 @@ export function createGame(
     subjugated: {},
     puppets: {},
     trophies: {},
+    warScore: {},
+    partition: null,
+    lastEventDay: 0,
     focusVariants: {},
   };
 
@@ -180,7 +195,14 @@ export function createGame(
     const isEnemy = fid !== 'superEarth';
     const fleetCount = fid === 'superEarth' ? 3 : 3;
     for (let i = 0; i < fleetCount; i++) {
-      const home = homeworlds[(i * 3) % homeworlds.length] ?? cap;
+      // Первое соединение — на столицу, остальные вразброс по своим мирам.
+      //
+      // Шаг 3 при трёх же соединениях вырождался всякий раз, когда число миров
+      // фракции кратно трём: индексы давали 0, 0, 0, и весь флот вставал на
+      // один и тот же мир — причём не на столицу, а на первый по порядку. Три
+      // мира — как раз типовой старт автоматонов и иллюминатов.
+      const step = Math.max(1, Math.floor(homeworlds.length / fleetCount));
+      const home = i === 0 ? cap : (homeworlds[(i * step) % homeworlds.length] ?? cap);
       const infantry = (isEnemy ? 32 : 20) + Math.floor(state.rng.range(0, 15));
       spawnFleet(state, fid, home.id, {
         ships: (isEnemy ? 9 : 6) + Math.floor(state.rng.range(0, 4)),
@@ -310,7 +332,20 @@ export function fleetsOf(state: GameState, faction: FactionId): Fleet[] {
  */
 export function fleetCap(state: GameState, faction: FactionId): number {
   const base = faction === 'superEarth' ? 7 : 5;
-  return base + state.factions[faction].bonuses.shipCap;
+  // Потолок растёт вместе с территорией, и это принципиально.
+  //
+  // Фиксированные семь соединений на сто семьдесят пять миров означали, что
+  // сто шестьдесят восемь из них ВСЕГДА без флота над головой, — а мир без
+  // прикрытия Супер-Земля обороняет вполсилы (см. SE_UNCOVERED). Гегемон
+  // копил по двадцать тысяч неизрасходованного производства и погибал во всех
+  // десяти партиях прогона: тратить его было не на что, а фронт держать нечем.
+  //
+  // Теперь размер флота — следствие размера державы. Рассредоточенность
+  // никуда не делась: прикрыть все миры всё равно невозможно, и слабость
+  // непрокрытых гарнизонов остаётся фирменной уязвимостью Супер-Земли. Но
+  // теперь это выбор, где держать кулак, а не приговор.
+  const worlds = planetsOf(state, faction).length;
+  return base + Math.floor(worlds / 18) + state.factions[faction].bonuses.shipCap;
 }
 
 /**

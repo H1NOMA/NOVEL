@@ -214,12 +214,16 @@ export function produceShips(state: GameState, faction: FactionId, cls: ShipClas
   const fs = state.factions[faction];
   const def = SHIP_CLASSES.find((c) => c.id === cls)!;
   if (fs.production < def.cost || fs.resources.minerals < def.minerals) return false;
-  fs.resources.minerals -= def.minerals;
   const worlds = state.galaxy.order
     .map((id) => state.galaxy.planets.get(id)!)
     .filter((p) => p.owner === faction && !p.shattered);
   const yard = worlds.find((p) => p.isCapital) ?? worlds[0];
   if (!yard) return false;
+  // Обе валюты списываются В ОДНОЙ ТОЧКЕ и только на успешном пути. Раньше
+  // руда уходила выше проверки: фракция без единого мира жгла её каждый день,
+  // ничего не строила и возвращала false — производство при этом оставалось
+  // нетронутым, поэтому вызов повторялся и назавтра.
+  fs.resources.minerals -= def.minerals;
   fs.production -= def.cost;
   const docked = fleetsAt(state, yard.id).find((f) => f.faction === faction && !f.special);
   const apply = (fl: { ships: number; dreadnoughts: number; battleships: number }) => {

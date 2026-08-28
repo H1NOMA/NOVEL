@@ -18,6 +18,7 @@ function legacyRelations(): Relation[] {
   }
   return out;
 }
+import type { Partition } from './partition';
 import type { GameState } from './state';
 
 // ---------------------------------------------------------------------------
@@ -82,6 +83,9 @@ interface SaveBlob {
   puppets?: Partial<Record<FactionId, FactionId>>;
   trophies?: Partial<Record<FactionId, FactionId[]>>;
   focusVariants?: Record<string, string>;
+  warScore?: Partial<Record<FactionId, Partial<Record<FactionId, number>>>>;
+  partition?: Partition | null;
+  lastEventDay?: number;
 }
 
 function storage(): Storage | null {
@@ -139,6 +143,9 @@ export function serializeState(state: GameState, slot: string, name: string): st
     puppets: state.puppets,
     trophies: state.trophies,
     focusVariants: state.focusVariants,
+    warScore: state.warScore,
+    partition: state.partition,
+    lastEventDay: state.lastEventDay,
   };
   return JSON.stringify(blob);
 }
@@ -199,6 +206,11 @@ export function deserializeState(json: string): GameState {
     puppets: b.puppets ?? {},
     trophies: b.trophies ?? {},
     focusVariants: b.focusVariants ?? {},
+    // Сейвы до раздела наследства не знают ни очков войны, ни открытого
+    // раздела: партия продолжится с чистым счётом, а не сломается.
+    warScore: b.warScore ?? {},
+    partition: b.partition ?? null,
+    lastEventDay: b.lastEventDay ?? 0,
     selectedPlanet: null,
     selectedFleet: null,
     log: b.log,

@@ -1,12 +1,13 @@
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
-import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { Scene } from '@babylonjs/core/scene';
 import type { FactionId } from '../core/types';
 import type { ShipClass } from './ships';
 import { loadVertexData, type ShapePart } from './gltf';
-import { mixColor } from './engine';
+import { mixColor, SUN_DIR } from './engine';
+import { HULL_ATTRS, HULL_UNIFORMS } from './hullShader';
 
 // ---------------------------------------------------------------------------
 // Настоящие 3D-модели флота, собранные в Blender (tools/blender/shipforge.py)
@@ -14,9 +15,10 @@ import { mixColor } from './engine';
 // получает свои меши с фракционными материалами. Если модель по какой-то
 // причине не загрузилась — рендер откатывается на процедурные силуэты.
 //
-// Материалы теперь PBR, а не приблизительный Standard: у корпусов появились
-// честная металличность и шероховатость, поэтому свет ложится на броню как на
-// металл, а не как на крашеный картон.
+// Поверхность корпуса считает процедурный шейдер (см. hullShader.ts): обшивка
+// из панелей со швами, заклёпки, потёртости на кромках и копоть в углублениях.
+// До этого корабль был ровно закрашенным куском металла — рядом с планетой, у
+// которой девять октав шума и разворот нормали по высоте, он выглядел игрушкой.
 // ---------------------------------------------------------------------------
 
 import seDestroyer from '../assets/ships/se_destroyer.glb?url';
@@ -79,71 +81,72 @@ export async function preloadShipModels(): Promise<void> {
 
 // --- Фракционные материалы --------------------------------------------------
 // Имена материалов в GLB — контракт с shipforge.py: hull / dark / accent /
-// glow / organic / organicDark. Базовые общие, акцентные кэшируются по цвету:
-// иначе каждое соединение заводило бы свой материал и шейдер компилировался бы
-// заново на каждый новый флот.
+// glow / organic / organicDark. Материалы кэшируются по «роль + цвет»: иначе
+// каждое соединение заводило бы свой, и шейдер компилировался бы заново на
+// каждый новый флот.
 
-let baseMats: Record<string, PBRMaterial> | null = null;
+interface HullLook {
+  base: Color3;
+  metal: number;
+  rough: number;
+  emissive: number;
+  /** Масштаб обшивки: у эсминца плиты мельче, у флагмана крупнее. */
+  panel: number;
+  wear: number;
+  organic: number;
+}
 
-function pbr(scene: Scene, name: string, color: Color3, metallic: number, rough: number): PBRMaterial {
-  const m = new PBRMaterial(name, scene);
-  m.albedoColor = color;
-  m.metallic = metallic;
-  m.roughness = rough;
-  // Без карты окружения металл чернеет: подмешиваем ровный отражённый свет,
-  // иначе корпуса на чёрном космосе превращаются в силуэты.
-  m.ambientColor = new Color3(0.16, 0.18, 0.22);
-  m.environmentIntensity = 0.55;
+const LOOKS: Record<string, HullLook> = {
+  // Обшивка: светлый крашеный металл, плиты среднего размера, заметный износ.
+  hull: { base: new Color3(0.62, 0.66, 0.71), metal: 0.55, rough: 0.42, emissive: 0, panel: 0.085, wear: 0.75, organic: 0 },
+  // Тёмные узлы: надстройки, скобы двигателей — грязнее и матовее.
+  dark: { base: new Color3(0.26, 0.29, 0.34), metal: 0.62, rough: 0.55, emissive: 0, panel: 0.05, wear: 0.95, organic: 0 },
+  // Акцентные панели фракции: чище, полоса шире, немного светятся.
+  accent: { base: new Color3(0.45, 0.48, 0.52), metal: 0.5, rough: 0.38, emissive: 0.35, panel: 0.07, wear: 0.45, organic: 0 },
+  // Ходовые огни и сопла: светятся сильно, это их и подхватывает слой свечения.
+  glow: { base: new Color3(0.8, 0.85, 0.95), metal: 0, rough: 0.25, emissive: 1.7, panel: 0.05, wear: 0, organic: 0 },
+  // Хитин роя: не металл, а панцирь с сегментами и порами.
+  organic: { base: new Color3(0.58, 0.49, 0.24), metal: 0.05, rough: 0.85, emissive: 0, panel: 0.09, wear: 0.5, organic: 1 },
+  organicDark: { base: new Color3(0.33, 0.27, 0.11), metal: 0.05, rough: 0.9, emissive: 0, panel: 0.06, wear: 0.6, organic: 1 },
+};
+
+const hullCache = new Map<string, ShaderMaterial>();
+
+function hullMaterial(scene: Scene, role: string, accent: Color3): ShaderMaterial {
+  const key = `${role}_${accent.toHexString()}`;
+  let m = hullCache.get(key);
+  if (m) return m;
+  const look = LOOKS[role] ?? LOOKS.hull!;
+  m = new ShaderMaterial(`hull_${key}`, scene, 'hull', {
+    attributes: HULL_ATTRS,
+    uniforms: HULL_UNIFORMS,
+  });
+  // Акцентные и светящиеся детали красятся в цвет фракции целиком; обшивка
+  // держит свой металл, а фракционный цвет получает только полосой по борту.
+  const base = role === 'accent' ? mixColor(look.base, accent, 0.75)
+    : role === 'glow' ? mixColor(accent, new Color3(1, 1, 1), 0.35)
+    : look.base;
+  m.setColor3('uBase', base);
+  m.setColor3('uAccent', accent);
+  m.setVector3('uSun', SUN_DIR);
+  m.setFloat('uMetal', look.metal);
+  m.setFloat('uRough', look.rough);
+  m.setFloat('uEmissive', look.emissive);
+  m.setFloat('uPanel', look.panel);
+  m.setFloat('uWear', look.wear);
+  m.setFloat('uOrganic', look.organic);
+  hullCache.set(key, m);
   return m;
 }
 
-function bases(scene: Scene): Record<string, PBRMaterial> {
-  if (baseMats) return baseMats;
-  baseMats = {
-    hull: pbr(scene, 'shipHull', new Color3(0.68, 0.72, 0.76), 0.30, 0.50),
-    dark: pbr(scene, 'shipDark', new Color3(0.35, 0.38, 0.43), 0.35, 0.60),
-    organic: pbr(scene, 'shipOrganic', new Color3(0.71, 0.60, 0.29), 0.05, 0.85),
-    organicDark: pbr(scene, 'shipOrganicDark', new Color3(0.43, 0.35, 0.13), 0.05, 0.75),
-  };
-  return baseMats;
-}
-
-const accentCache = new Map<string, PBRMaterial>();
-const glowCache = new Map<string, PBRMaterial>();
-
-function accentFor(scene: Scene, color: Color3): PBRMaterial {
-  const key = color.toHexString();
-  let m = accentCache.get(key);
-  if (!m) {
-    m = pbr(scene, `accent_${key}`, color, 0.30, 0.50);
-    m.emissiveColor = color.scale(0.55);
-    accentCache.set(key, m);
-  }
-  return m;
-}
-
-function glowFor(scene: Scene, color: Color3): PBRMaterial {
-  const key = color.toHexString();
-  let m = glowCache.get(key);
-  if (!m) {
-    const c = mixColor(color, new Color3(1, 1, 1), 0.35);
-    m = pbr(scene, `glow_${key}`, c, 0, 0.40);
-    // Ярче единицы намеренно: именно это подхватывает слой свечения и делает
-    // ходовые огни видимыми с общего плана.
-    m.emissiveColor = c.scale(1.6);
-    glowCache.set(key, m);
-  }
-  return m;
-}
-
-function materialFor(scene: Scene, name: string, color: Color3): PBRMaterial {
-  const b = bases(scene);
-  if (name.startsWith('accent')) return accentFor(scene, color);
-  if (name.startsWith('glow')) return glowFor(scene, color);
-  if (name.startsWith('organicDark')) return b.organicDark!;
-  if (name.startsWith('organic')) return b.organic!;
-  if (name.startsWith('dark')) return b.dark!;
-  return b.hull!;
+/** Какая роль у детали по имени её материала в GLB. */
+function roleOf(name: string): string {
+  if (name.startsWith('accent')) return 'accent';
+  if (name.startsWith('glow')) return 'glow';
+  if (name.startsWith('organicDark')) return 'organicDark';
+  if (name.startsWith('organic')) return 'organic';
+  if (name.startsWith('dark')) return 'dark';
+  return 'hull';
 }
 
 /** Собрать узел модели из заготовки в цветах фракции. */
@@ -152,7 +155,7 @@ function build(scene: Scene, parts: ShapePart[], color: Color3, tag: string): Tr
   for (const part of parts) {
     const mesh = new Mesh(`${tag}_${part.name}`, scene);
     part.data.applyToMesh(mesh);
-    mesh.material = materialFor(scene, part.name, color);
+    mesh.material = hullMaterial(scene, roleOf(part.name), color);
     mesh.parent = root;
     // Корабли мелкие и их много: отсечение по частям кадра стоит дороже, чем
     // сама отрисовка.

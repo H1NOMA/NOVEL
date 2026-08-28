@@ -217,7 +217,16 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
         const pad = 14 * scale + 6; // видимый радиус планеты + зазор
         const rClamped = Math.max(r0 + pad, Math.min(r1 - pad, r));
         const aPad = pad / Math.max(1, rClamped);
-        const aClamped = Math.max(a0 + aPad, Math.min(a1 - aPad, norm(angle)));
+        // Клампим САМ angle, а не его нормированную копию.
+        //
+        // angle строится строго внутри (a0, a1), и границы эти АБСОЛЮТНЫЕ: у
+        // форм с закруткой (спираль, скопления) бакеты дальних колец целиком
+        // уезжают за 2π. norm() возвращал угол в [0, 2π), сравнение шло с
+        // ненормированными a0/a1, и для такого бакета срабатывал нижний кламп
+        // — ВСЕ его планеты садились на a0 + aPad, выстраиваясь в радиальную
+        // линейку у кромки сектора. Ровно то, чего не должно быть по замыслу
+        // строкой выше.
+        const aClamped = Math.max(a0 + aPad, Math.min(a1 - aPad, angle));
         const posC: Vec2 = { x: Math.cos(aClamped) * rClamped, y: Math.sin(aClamped) * rClamped };
 
         const id = `p_${idCounter++}`;
@@ -350,8 +359,19 @@ export function generateGalaxy(seed: number, shape: GalaxyShape = DEFAULT_SHAPE)
       .find((p) => p.owner === w.faction && (p.isCapital || p.name === 'Кеплер Прайм'));
     if (!seat) continue;
     seats.set(w.faction, seat);
-    sectorOwner.set(seat.sector, w.faction);
-    homeSectors.set(w.faction, [seat.sector]);
+    // Первая заявка на сектор побеждает.
+    //
+    // Между клиньями фракций есть узкий зазор (25° между иллюминатами и роем),
+    // и один бакет внешнего кольца способен его перекрыть — тогда два престола
+    // оказываются в ОДНОМ секторе. Раньше вторая фракция по списку молча
+    // перезаписывала запись первой и отбирала у неё домашний сектор; теперь
+    // ей достанется довесок рядом, а чужой престол останется чужим.
+    if (!sectorOwner.has(seat.sector)) {
+      sectorOwner.set(seat.sector, w.faction);
+      homeSectors.set(w.faction, [seat.sector]);
+    } else {
+      homeSectors.set(w.faction, []);
+    }
   }
   // Добираем смежные сектора по близости центров — соседний по кольцу или
   // через кольцо, но всегда рядом с престолом, а не на другом краю карты.

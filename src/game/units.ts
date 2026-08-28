@@ -181,6 +181,14 @@ export function mergeFleets(state: GameState, target: Fleet, sources: Fleet[]): 
     target.dreadnoughts += f.dreadnoughts;
     target.battleships += f.battleships;
     target.infantry += f.infantry;
+    // Аппарели переезжают вместе с десантом, который на них ехал.
+    //
+    // Раньше пехота доноров переходила приёмнику, а транспорты исчезали
+    // вместе с распущенным соединением. Два флота ВССЗ по 36 бойцов на трёх
+    // транспортах после слияния давали 72 бойца на трёх транспортах: половина
+    // десанта превращалась в пассажиров, которым нечем сойти на грунт. Именно
+    // так Супер-Земля теряла способность наступать, ничего для этого не делая.
+    target.transports = (target.transports ?? 0) + (f.transports ?? 0);
     // Спецстанция не дублируется: если её нет у приёмника — переезжает к нему.
     if (f.special && !target.special) target.special = f.special;
     // Командир остаётся у приёмника; чужой уходит вместе с распущенной группой.
@@ -219,10 +227,14 @@ export function splitFleet(state: GameState, fleet: Fleet): Fleet | null {
   const bbs = Math.floor(fleet.battleships / 2);
   if (ships + dreads + bbs < 1) return null;
   const inf = Math.floor(fleet.infantry / 2);
+  // Аппарели делятся вместе с десантом: половина ВССЗ без транспортов —
+  // это половина, которая никуда не высадится.
+  const trns = Math.floor((fleet.transports ?? 0) / 2);
   fleet.ships -= ships;
   fleet.dreadnoughts -= dreads;
   fleet.battleships -= bbs;
   fleet.infantry -= inf;
+  if (fleet.transports !== undefined) fleet.transports -= trns;
   const nf: Fleet = {
     id: `f_${state.fleetCounter++}`,
     faction: fleet.faction,
@@ -230,6 +242,7 @@ export function splitFleet(state: GameState, fleet: Fleet): Fleet | null {
     ships,
     dreadnoughts: dreads,
     battleships: bbs,
+    transports: trns,
     infantry: inf,
     // Ветеранские экипажи делятся поровну — опыт наследуется.
     xp: fleet.xp,
@@ -264,8 +277,12 @@ export function disbandFleet(state: GameState, fleet: Fleet): boolean {
     p.shipyard.stored.ships += fleet.ships;
     p.shipyard.stored.dreadnoughts += fleet.dreadnoughts;
     p.shipyard.stored.battleships += fleet.battleships;
+    // Транспорты — такие же корпуса: на складе они пригодятся следующему
+    // соединению. Раньше роспуск уничтожал их молча.
+    p.shipyard.stored.transports = (p.shipyard.stored.transports ?? 0) + (fleet.transports ?? 0);
   } else {
-    const scrap = fleet.ships * 6 + fleet.dreadnoughts * 18 + fleet.battleships * 40;
+    const scrap = fleet.ships * 6 + fleet.dreadnoughts * 18 + fleet.battleships * 40
+      + (fleet.transports ?? 0) * 4;
     state.factions[fleet.faction].production += scrap;
   }
   pushLog(state, {

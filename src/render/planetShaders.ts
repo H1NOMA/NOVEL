@@ -75,10 +75,11 @@ float gOct = 5.0;
 
 float fbm(vec3 p){
   float f = 0.0; float amp = 0.5;
-  // Октав стало семь вместо пяти, и множитель частоты чуть больше двух:
-  // «мыло» на поверхности было именно нехваткой верхних октав — крупные
-  // пятна шума без мелкой структуры читаются как размытие.
-  for(int i=0;i<7;i++){
+  // Октав восемь: «мыло» на поверхности было нехваткой верхних октав, но
+  // девятая уже уходит под размер пикселя и даёт не резкость, а рябь. Реальное
+  // их число режется и настройкой качества (uOct), и размером пикселя (gOct),
+  // поэтому на общем плане считается по-прежнему пять-шесть.
+  for(int i=0;i<8;i++){
     if (float(i) >= gOct) break;
     f += amp*snoise(p); p *= 2.07; amp *= 0.5;
   }
@@ -160,6 +161,7 @@ uniform float uCity; uniform float uCapSize; uniform float uContinent;
 uniform float uRidges; uniform float uCraters;
 uniform float uBattle; uniform float uDim; uniform float uScar;
 uniform float uOct; uniform float uLava; uniform float uIce; uniform float uToxic;
+uniform float uRadius;
 uniform sampler2D uMask; uniform float uUseMask;
 // Тень кольца: нормаль плоскости кольца в системе планеты и его радиусы.
 uniform vec3 uRingN; uniform float uRingIn; uniform float uRingOut; uniform float uHasRing;
@@ -234,6 +236,24 @@ void main(){
   surf *= 1.0 + (grit(q * 15.0) - 0.5) * 0.22 * band(scl * 15.0, fw);
   surf *= 1.0 + (grit(q * 38.0 + 7.0) - 0.5) * 0.13 * band(scl * 38.0, fw);
 
+  // --- Рельеф уходит в СВЕТ, а не только в цвет ------------------------------
+  //
+  // Всё, что посчитано выше, жило исключительно в цвете: горы, долины и зерно
+  // рисовались светлее и темнее, но нормаль оставалась нормалью гладкого шара.
+  // Свет ложился ровно по сфере, и поверхность читалась плоской картинкой,
+  // натянутой на мяч, — именно это и выглядит «мылом», сколько октав ни
+  // добавляй.
+  //
+  // Поле высот собирается из УЖЕ посчитанных слоёв, лишнего шума не считается:
+  // поэтому свет ложится ровно по тому рисунку, который виден в цвете.
+  // В высоту идут ТОЛЬКО крупные формы: хребты и долины. Мелкое зерно
+  // (detail, grit) сюда попасть не должно — нормаль считается через
+  // производную, а производная высокочастотного шума и есть высокочастотный
+  // шум. С зерном в высоте планета покрывалась попиксельной «солью с перцем»
+  // вместо рельефа: ровно тот муар, ради борьбы с которым и написан band().
+  float hgt = (mountains * 0.62 - valleys * 0.22) * land;
+  if (uRidges > 0.5) hgt += ridged(q * 1.15 + 31.0, min(gOct, 4.0)) * 0.45;
+
   // Прибрежная полоса чуть светлее (отмели).
   float shore = smoothstep(uWater - 0.05, uWater, hn) * (1.0 - land);
   surf += uSea * shore * 0.5;
@@ -302,6 +322,23 @@ void main(){
   // подсвеченной почти как дневную, и планета читалась плоским ярким кругом
   // без объёма.
   vec3 nrm = normalize(vWorldN);
+  // Разворот нормали по градиенту высоты — приём Микельсена через экранные
+  // производные: настоящей карты нормалей нет, а склоны всё равно начинают
+  // ловить свет. Сила падает вместе с различимостью: на планете в десяток
+  // пикселей бугры превратились бы в мерцающий шум, а не в рельеф.
+  {
+    vec3 dpx = dFdx(vWorldP);
+    vec3 dpy = dFdy(vWorldP);
+    float det = dot(dpx, cross(dpy, nrm));
+    if (abs(det) > 1e-12) {
+      vec3 grad = (cross(dpy, nrm) * dFdx(hgt) + cross(nrm, dpx) * dFdy(hgt)) / det;
+      // Сила рельефа скромная и вдобавок гаснет по размеру пикселя дважды:
+      // через band() и через прямой множитель. Разворот нормали — самый
+      // заметный эффект в кадре, и передозировка здесь читается как брак.
+      float bumpFade = band(scl * 1.9, fw) * (1.0 - smoothstep(0.004, 0.02, fw));
+      nrm = normalize(nrm - grad * uRadius * 0.30 * bumpFade);
+    }
+  }
   vec3 sun = normalize(uSun);
   float ndl = dot(nrm, sun);
   const float WRAP = 0.12;
@@ -456,6 +493,6 @@ export const SURFACE_UNIFORMS = [
   'uLand', 'uSea', 'uAtmo', 'uTint', 'uWater', 'uRough', 'uClouds', 'uTime',
   'uSeed', 'uFreq', 'uWarp', 'uBands', 'uCity', 'uCapSize', 'uContinent',
   'uRidges', 'uCraters', 'uBattle', 'uDim', 'uScar', 'uOct', 'uLava', 'uIce',
-  'uToxic', 'uUseMask', 'uRingN', 'uRingIn', 'uRingOut', 'uHasRing', 'uSun',
+  'uToxic', 'uUseMask', 'uRingN', 'uRingIn', 'uRingOut', 'uHasRing', 'uSun', 'uRadius',
 ];
 export const ATMO_UNIFORMS = ['worldViewProjection', 'world', 'cameraPosition', 'uColor', 'uSun'];

@@ -174,6 +174,7 @@ export class UI {
   private bannerEl!: HTMLElement;
   private bannerTimer = 0;
   private eventEl!: HTMLElement;
+  private partitionEl!: HTMLElement;
   private eventTimer = 0;
   /** Позиция карточки планеты (сохраняется между открытиями). */
   private cardPos: { x: number; y: number } | null = null;
@@ -321,6 +322,7 @@ export class UI {
     this.menuEl = el('div'); this.menuEl.id = 'main-menu'; this.menuEl.classList.add('hidden');
     this.bannerEl = el('div'); this.bannerEl.id = 'defeat-banner'; this.bannerEl.classList.add('hidden');
     this.eventEl = el('div'); this.eventEl.id = 'event-banner'; this.eventEl.classList.add('hidden');
+    this.partitionEl = el('div'); this.partitionEl.id = 'partition'; this.partitionEl.classList.add('hidden');
     this.forcesEl = el('div'); this.forcesEl.id = 'forces-dock';
     this.fleetDetailEl = el('div'); this.fleetDetailEl.id = 'fleet-detail'; this.fleetDetailEl.classList.add('hidden');
     this.boxActionsEl = el('div'); this.boxActionsEl.id = 'box-actions'; this.boxActionsEl.classList.add('hidden');
@@ -344,7 +346,7 @@ export class UI {
     this.sideBtns.querySelector('#cinema-btn')!.addEventListener('click', () => this.cinemaNext());
     this.sideBtns.querySelector('#chronicle-btn')!.addEventListener('click', () => this.toggleChronicle());
 
-    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.resourceEl, this.factionEl, this.composeEl, this.logEl, this.toastEl);
+    this.root.append(this.hud, this.sideBtns, this.chipsEl, this.dossierEl, this.panel, this.focusOverlay, this.decisionsEl, this.productionEl, this.menuEl, this.bannerEl, this.eventEl, this.fleetDetailEl, this.boxActionsEl, this.forcesEl, this.alertsEl, this.chronicleEl, this.resourceEl, this.factionEl, this.composeEl, this.partitionEl, this.logEl, this.toastEl);
   }
 
   private wire(): void {
@@ -582,6 +584,7 @@ export class UI {
     if (!this.productionEl.classList.contains('hidden')) this.renderProduction();
     this.renderResource();
     this.renderFaction();
+    this.renderPartition();
     this.watchOutcome();
     // owners may have shifted this day
     this.scene.refreshOwners();
@@ -886,7 +889,8 @@ export class UI {
     this.paint(this.factionEl, `
       <div class="pc-head"><span class="pc-title" style="color:${color}">${def.name.toUpperCase()}</span>
         <button class="pc-close" id="fac-close">✕</button></div>
-      <div class="pc-body">
+      <div class="pc-body dossier-cols">
+        <div class="dos-col">
         <div class="dossier-top">
           <img class="dossier-portrait" src="${portraitDataURL(f)}" alt="">
           <div>
@@ -1007,6 +1011,8 @@ export class UI {
             <div class="pp-stat"><span>Добыча ископаемых</span><b style="color:#6fe39a">+${minIn.toFixed(2)} ⛏ (запас ${fs.resources.minerals.toFixed(0)})</b></div>
             <div class="pp-stat"><span>Содержание флота</span><b style="color:var(--fed)">−${upkeep.toFixed(1)}</b></div>`;
         })()}
+        </div>
+        <div class="dos-col">
         <div class="pp-section">Текущий фокус</div>
         <div class="hint" style="margin-top:2px">◈ ${focus}</div>
         <button class="mini-btn wide" id="dos-focus">◈ Открыть древо фокусов</button>
@@ -1035,6 +1041,8 @@ export class UI {
           </div>`;
         }).join('')}
         <div class="hint">Выберите операцию, затем щёлкните планету-цель и подтвердите в её карточке.</div>
+        </div>
+        <div class="dos-col dos-col-wide">
         <div class="pp-section">Дипломатия</div>
         ${FACTION_IDS.filter((f2) => f2 !== f && s.factions[f2].alive).map((f2) => {
           const active = truceActive(s, f, f2);
@@ -1073,6 +1081,7 @@ export class UI {
           const done = s.doneObjectives.includes(objectiveKey(f, o.id));
           return `<div class="pp-stat"><span title="${o.desc}">${done ? '✓' : '◇'} ${o.title}</span><b style="color:${done ? '#6fe39a' : 'var(--muted)'}">${done ? 'выполнено' : '+' + o.reward + ' ПВ'}</b></div>`;
         }).join('')}
+        </div>
       </div>`);
 
     this.dossierEl.querySelector('#dos-close')?.addEventListener('click', () => this.dossierEl.classList.add('hidden'));
@@ -3034,6 +3043,69 @@ export class UI {
     if (!isPlayer) {
       this.bannerTimer = window.setTimeout(() => this.bannerEl.classList.add('hidden'), 12000);
     }
+  }
+
+  /**
+   * Раздел наследства побеждённой фракции.
+   *
+   * Окно во весь экран и с паузой: пока участники не подтвердили итог, партия
+   * стоит. Показывается ВСЕМ живым, а не только победителю, — делят ведь общее
+   * наследство, и каждому важно видеть, кому что досталось и по каким заслугам.
+   */
+  private renderPartition(): void {
+    const s = this.state;
+    const p = s.partition;
+    if (!p) { this.partitionEl.classList.add('hidden'); return; }
+    const me = s.player;
+    const mine = p.confirmed.includes(me);
+    const iAmLoser = me === p.loser;
+    const waiting = FACTION_IDS.filter((f) => !p.confirmed.includes(f) && s.factions[f]?.alive);
+    const maxScore = Math.max(1, ...p.shares.map((sh) => sh.score));
+
+    this.paint(this.partitionEl, `
+      <div class="pc-head"><span class="pc-title" style="color:${factionColor(p.loser)}">
+        РАЗДЕЛ НАСЛЕДСТВА · ${FACTIONS[p.loser].name.toUpperCase()}</span></div>
+      <div class="pc-body">
+        <div class="part-lead">Фракция повержена. Её миры делятся между победителями
+          по очкам, накопленным в войне именно против неё.</div>
+        <div class="part-cols">
+          ${p.shares.map((sh) => {
+            const col = factionColor(sh.faction);
+            const worlds = sh.planets
+              .map((id) => s.galaxy.planets.get(id))
+              .filter((pl): pl is NonNullable<typeof pl> => !!pl)
+              .sort((a, b) => b.value - a.value);
+            return `<div class="part-col ${sh.faction === me ? 'part-mine' : ''}">
+              <div class="part-head" style="border-color:${col}">
+                <b style="color:${col}">${FACTIONS[sh.faction].name}</b>
+                ${p.confirmed.includes(sh.faction) ? '<span class="part-ok">✓ согласна</span>' : '<span class="part-wait">ждём</span>'}
+              </div>
+              <div class="part-score">
+                <span>Очки войны</span><b>${Math.round(sh.score)}</b>
+              </div>
+              <div class="rel-bar"><i style="width:${Math.round(100 * sh.score / maxScore)}%;background:${col}"></i></div>
+              <div class="part-score"><span>Доля</span><b>${Math.round(sh.share * 100)}%</b></div>
+              <div class="part-score"><span>Миров</span><b style="color:${col}">${sh.planets.length}</b></div>
+              <div class="part-list">${worlds.map((pl) =>
+                `<div class="part-world"><span>${pl.name}</span><b>${pl.isCapital ? '★' : pl.value}</b></div>`).join('')
+                || '<div class="hint">ничего не досталось</div>'}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="part-foot">
+          ${iAmLoser
+            ? '<span class="hint">Ваша фракция повержена. Раздел идёт без вас.</span>'
+            : mine
+              ? `<span class="part-ok">✓ Ваше согласие принято</span>
+                 <span class="hint">Ждём: ${waiting.map((f) => FACTIONS[f].name).join(', ') || '—'}</span>`
+              : '<button class="mini-btn wide" id="part-ok">ПОДТВЕРДИТЬ РАЗДЕЛ</button>'}
+        </div>
+      </div>`);
+    this.partitionEl.classList.remove('hidden');
+    this.partitionEl.querySelector('#part-ok')?.addEventListener('click', () => {
+      this.act({ k: 'confirmPartition' });
+      this.renderDynamic();
+    });
   }
 
   /** Сюжетный ивент: золотой баннер. Развилка — кнопки выбора и пауза. */

@@ -272,9 +272,31 @@ b, strong { color: var(--text-hi); }
 .pc-body { padding: 0.625rem 0.875rem 1rem; overflow-y: auto; }
 
 /* ---------- Досье ---------- */
+/*
+ * Досье — главное окно политики, и оно РАСТЁТ ВШИРЬ, а не вниз.
+ *
+ * Раньше это была колонка в двадцать сантиметров, по которой приходилось
+ * прокручивать всё: сводку, экономику, решения, спецоперации, дипломатию и
+ * цели. Сравнить отношения с тремя фракциями и свой запас ПВ не получалось —
+ * они не помещались на экран одновременно. Теперь три колонки: слева кто мы,
+ * посередине чем управляем, справа с кем воюем.
+ */
 #dossier {
-  position: absolute; left: 1rem; top: 7rem; width: 20.625rem; max-height: 74vh;
+  position: absolute; left: 50%; transform: translateX(-50%); top: 6rem;
+  width: min(76rem, calc(100vw - 3rem)); max-height: 80vh;
   display: flex; flex-direction: column; font-size: 0.8125rem; z-index: 32;
+}
+.dossier-cols {
+  display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 0 1.5rem;
+  align-items: start;
+}
+/* Каждая колонка прокручивается сама: длинный список решений не должен
+   растягивать соседние. */
+.dos-col { min-width: 0; }
+.dos-col-wide .bonus-row { align-items: flex-start; }
+/* На узком экране колонки складываются в одну — окно остаётся рабочим. */
+@media (max-width: 68rem) {
+  .dossier-cols { grid-template-columns: 1fr; }
 }
 #dossier.hidden { display: none; }
 .dossier-top { display: flex; gap: 0.75rem; align-items: flex-start; margin-bottom: 0.5rem; }
@@ -1483,3 +1505,45 @@ body.no-grain #vignette::after { display: none; }
 
 /* Ряд кнопок «передать мир» в карточке планеты. */
 .cede-row { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.3rem; }
+
+
+/* ---------- Раздел наследства побеждённой фракции ---------- */
+/*
+ * Окно занимает экран целиком и намеренно не имеет кнопки закрытия: пока
+ * победители не подтвердили делёж, партия стоит. Колонок столько, сколько
+ * претендентов, — сравнить доли и заслуги нужно одним взглядом.
+ */
+#partition {
+  position: absolute; inset: 4rem 2rem; z-index: 60;
+  display: flex; flex-direction: column; font-size: 0.8125rem;
+  background: rgba(6, 9, 16, 0.97); border: 1px solid var(--edge);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 1.5rem 4rem rgba(0,0,0,0.75);
+}
+#partition.hidden { display: none; }
+.part-lead { color: var(--muted); margin-bottom: 0.875rem; line-height: 1.5; }
+.part-cols {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem; align-items: start;
+}
+.part-col { border: 1px solid var(--edge); padding: 0.625rem 0.75rem; min-width: 0; }
+/* Своя доля выделена рамкой: на четырёх колонках взгляд иначе теряется. */
+.part-mine { border-color: var(--yel); background: rgba(255, 209, 74, 0.05); }
+.part-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 0.5rem; border-bottom: 1px solid; padding-bottom: 0.375rem; margin-bottom: 0.5rem;
+}
+.part-ok { color: #6fe39a; font-size: 0.75rem; }
+.part-wait { color: var(--muted); font-size: 0.75rem; }
+.part-score { display: flex; justify-content: space-between; margin: 0.1875rem 0; }
+.part-score span { color: var(--muted); }
+.part-list { margin-top: 0.5rem; max-height: 38vh; overflow-y: auto; }
+.part-world {
+  display: flex; justify-content: space-between; gap: 0.5rem;
+  padding: 0.125rem 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.part-world span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.part-foot {
+  margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--edge);
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+}
+.part-foot .mini-btn { max-width: 22rem; }

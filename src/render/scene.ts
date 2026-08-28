@@ -430,6 +430,7 @@ export class GalaxyScene {
       vis.setWreckage(p.wreckage ?? 0);
       vis.setShield(p.buildings.includes('shieldGen'), !!p.battle);
       vis.setStation(p.buildings.includes('orbStation'));
+      vis.setYard(!!p.shipyard);
       // Смена владельца → расходящийся пульс цвета нового хозяина.
       const prev = this.prevOwners.get(id);
       if (prev !== undefined && prev !== p.owner && !p.abyss && !p.shattered) {
@@ -605,6 +606,7 @@ export class GalaxyScene {
     this.setBloomEnabled(this.bloomOn);
     // Смена пресета сразу меняет и потолок детализации поверхностей.
     this.lodOct = -1;
+    this.lodDetail = -1;
     this.resize();
   }
 
@@ -932,6 +934,7 @@ export class GalaxyScene {
   }
 
   private lodOct = 5;
+  private lodDetail = -1;
   private lodRelief = false;
 
   render(): void {
@@ -954,10 +957,18 @@ export class GalaxyScene {
     // оттуда, откуда на них смотрят почти всё время. Теперь на общем плане
     // пять, на среднем шесть, вблизи все семь.
     const cap = QUALITY_PRESETS[this.quality].planetOct;
-    const wantOct = Math.min(cap, this.distance > 34 ? 5 : this.distance > 18 ? 6 : 7);
+    const wantOct = Math.min(cap, this.distance > 34 ? 6 : this.distance > 18 ? 7 : 8);
     if (wantOct !== this.lodOct) {
       this.lodOct = wantOct;
       for (const vis of this.planets.values()) vis.setLod(wantOct);
+    }
+    // Плотность сетки сферы. Порог низкий: грани лимба становятся заметны
+    // задолго до того, как включается рельефный меш, и именно они читаются как
+    // «мяч», а не как планета.
+    const wantDetail = this.distance > 26 ? 0 : this.distance > 11 ? 1 : 2;
+    if (wantDetail !== this.lodDetail) {
+      this.lodDetail = wantDetail;
+      for (const vis of this.planets.values()) vis.setDetail(wantDetail);
     }
     // Геометрический LOD: рельефные меши (16 тыс. треугольников) включаются
     // только на подлёте, когда в кадре остаётся часть галактики.

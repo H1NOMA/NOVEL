@@ -8,6 +8,7 @@ import {
 import { cancelBuild } from '../game/construction';
 import { takeOverFaction } from '../game/state';
 import { warpFleet } from '../game/illuminate';
+import { confirmPartition } from '../game/partition';
 import { buildDepot } from '../game/supply';
 import { buildShield, buildStation } from '../game/defense';
 import { selectFocus } from '../game/focus';
@@ -148,6 +149,9 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
     // паузу, мир стоит у всех. Поэтому команду принимает любой живой участник
     // без дополнительных проверок владения.
     case 'setSpeed': {
+      // Пока делят наследство побеждённого, время стоит у всех: снять паузу
+      // кнопкой скорости нельзя, иначе война поехала бы дальше мимо раздела.
+      if (state.partition) return false;
       const v = Math.max(0, Math.min(3, Math.round(c.speed))) as 0 | 1 | 2 | 3;
       if (state.speed === v) return false;
       state.speed = v;
@@ -219,6 +223,11 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
       cycleCommander(state, f);
       return true;
     }
+    case 'confirmPartition':
+      // Согласие на делёж наследства даёт КАЖДЫЙ живой человек за столом.
+      // Фракция-исполнитель берётся у хоста, поэтому чужое согласие не
+      // подделать.
+      return confirmPartition(state, actor);
     case 'warpFleet':
       // Право на прыжок и его цена проверяются внутри: клиент присылает
       // только «кем и куда», фракция-исполнитель берётся у хоста.

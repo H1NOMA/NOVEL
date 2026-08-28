@@ -6,7 +6,7 @@ import type { FactionId, GameSpeed } from '../core/types';
 // правды о формате сообщений — этот файл.
 // ---------------------------------------------------------------------------
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const DEFAULT_PORT = 47624;
 
 /**
@@ -69,6 +69,7 @@ export type Cmd =
   | { k: 'cycleCommander'; fleet: string }
   /** Иллюминаты: прыжок соединения через Бездну к любому миру галактики. */
   | { k: 'warpFleet'; fleet: string; target: string }
+  | { k: 'confirmPartition' }
   | { k: 'resolveChoice'; event: string; choice: number };
 
 export interface LobbySlot {

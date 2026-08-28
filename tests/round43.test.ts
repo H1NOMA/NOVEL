@@ -112,7 +112,7 @@ function parseGlbJson(buf: Buffer): { asset?: { version?: string }; meshes?: unk
   const mesh = readFileSync(join(ROOT, 'src', 'render', 'planetMesh.ts'), 'utf8');
   ok(mesh.includes('reliefShape('), 'меш планеты берёт рельеф');
   ok(mesh.includes('setRelief('), 'есть переключатель геометрического LOD');
-  ok(/relief\.setEnabled\(false\)/.test(mesh) && mesh.includes('sphereData()'),
+  ok(/relief\.setEnabled\(false\)/.test(mesh) && mesh.includes('sphereData(i)'),
     'стартует с гладкой сферы — иначе на общем плане рельеф мерцает');
   ok(mesh.includes('spinSpeed * dt * 60'), 'вращение развязано с частотой кадров');
   ok(/axis\.rotation\.set\(/.test(mesh), 'наклон оси вынесен на родителя (нет прецессии)');

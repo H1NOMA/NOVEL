@@ -59,6 +59,9 @@ export function applySnapshot(target: GameState, json: string): void {
   target.chronicle = fresh.chronicle;
   target.history = fresh.history;
   target.modifiers = fresh.modifiers;
+  target.warScore = fresh.warScore;
+  target.partition = fresh.partition;
+  target.lastEventDay = fresh.lastEventDay;
 
   // --- Своё у каждого экрана -------------------------------------------------
   //

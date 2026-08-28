@@ -1,4 +1,4 @@
-import type { FactionId } from '../core/types';
+import type { FactionId, FactionState } from '../core/types';
 import { modActive, pushLog, type GameState } from './state';
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,21 @@ export function canBuyBonus(state: GameState, faction: FactionId, id: string): b
   if (!def || !fs.alive) return false;
   if (def.faction && def.faction !== faction) return false;
   if (!def.repeatable && timesBought(state, faction, id) > 0) return false;
+  // Бонус, который уже ничего не изменит, покупать нельзя.
+  //
+  // Пропаганда поднимает поддержку войны, чрезвычайные полномочия —
+  // стабильность, и оба зажаты сотней. На потолке покупка списывала полную
+  // цену, писала строку в журнал и не давала ровным счётом ничего, а кнопка
+  // в досье оставалась активной: игрок платил 60–90 ПВ за пустоту.
+  if (!applicable(def, fs)) return false;
   return fs.politicalPower >= def.cost;
+}
+
+/** Способен ли эффект бонуса вообще что-то изменить прямо сейчас. */
+function applicable(def: { id: string }, fs: FactionState): boolean {
+  if (def.id === 'propaganda') return fs.warSupport < 100;
+  if (def.id === 'emergency') return fs.stability < 100;
+  return true;
 }
 
 /** Купить бонус за политическую власть и немедленно применить эффект. */
