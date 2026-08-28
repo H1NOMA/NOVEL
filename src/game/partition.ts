@@ -184,13 +184,39 @@ export function openPartition(state: GameState, loser: FactionId, finisher: Fact
   return true;
 }
 
+/**
+ * Кого ещё ждём: живые люди, кроме проигравшего, не давшие согласия.
+ *
+ * Список считается ПО ТЕКУЩЕМУ составу стола, а не по замороженному при
+ * открытии. Иначе раздел зависал навсегда, стоило участнику выйти или быть
+ * исключённым: его фракцию убирали из state.humans, но раздел продолжал ждать
+ * согласия от места, за которым уже никто не сидит. То же и при смене стороны.
+ */
+export function partitionPending(state: GameState): FactionId[] {
+  const p = state.partition;
+  if (!p) return [];
+  const humans = state.humans?.length ? state.humans : [state.player];
+  return humans.filter((f) =>
+    f !== p.loser && state.factions[f]?.alive && !p.confirmed.includes(f));
+}
+
+/**
+ * Закрыть раздел, если ждать больше некого.
+ *
+ * Зовётся и после согласия, и когда состав стола изменился (выход, кик, смена
+ * стороны) — иначе партия могла остаться на паузе без единого способа её снять.
+ */
+export function settlePartition(state: GameState): void {
+  if (state.partition && partitionPending(state).length === 0) applyPartition(state);
+}
+
 /** Подтвердить итог раздела от имени фракции. */
 export function confirmPartition(state: GameState, faction: FactionId): boolean {
   const p = state.partition;
   if (!p || p.confirmed.includes(faction)) return false;
   if (faction === p.loser || !state.factions[faction]?.alive) return false;
   p.confirmed.push(faction);
-  if (FACTION_IDS.every((f) => p.confirmed.includes(f))) applyPartition(state);
+  settlePartition(state);
   return true;
 }
 

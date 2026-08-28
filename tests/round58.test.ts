@@ -7,12 +7,16 @@ import { advanceDay } from '../src/game/sim';
 import { generateGalaxy } from '../src/game/galaxy';
 import { mergeFleets, splitFleet, disbandFleet } from '../src/game/units';
 import { applyCommand } from '../src/net/commands';
-import { addWarScore, confirmPartition, openPartition, planPartition, warScoreOf } from '../src/game/partition';
+import { addWarScore, confirmPartition, openPartition, planPartition, settlePartition, warScoreOf } from '../src/game/partition';
 import { canBuyBonus, buyBonus } from '../src/game/politics';
 import { seDefence, seDoctrine, SE_DOCTRINE_DEFENCE, SE_MASS_HULLS, SE_MASS_TROOPS } from '../src/game/combat';
 import { EVENT_GAP } from '../src/game/events';
 import { TIMELINE_EVENTS } from '../src/data/events';
 import { FACTION_IDS } from '../src/data/factions';
+import { recomputeSupply } from '../src/game/supply';
+import { atWar, declareWar } from '../src/game/relations';
+import { FOCUS_VARIANTS } from '../src/game/trophies';
+import { FOCUS_TREES } from '../src/data/focus';
 
 let checks = 0;
 function ok(cond: boolean, msg: string): void {
@@ -245,6 +249,97 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(ui.includes('renderPartition('), 'интерфейс рисует раздел');
   ok(ui.includes("k: 'confirmPartition'"), 'и умеет подтверждать его приказом');
   console.log('визуал и интерфейс: OK');
+}
+
+
+// --- Вторая волна аудита: критические находки -----------------------------------
+{
+  const s = createGame(404, 'superEarth');
+  // Трофейная столица не делает своего хозяина «головой чужого государства».
+  const foreign = planetsOf(s, 'automatons').find((p) => p.isCapital);
+  if (foreign) {
+    foreign.owner = 'superEarth';                 // Киберстан взят Супер-Землёй
+    recomputeSupply(s);
+    const mine = planetsOf(s, 'superEarth').filter((p) => p.supplied).length;
+    ok(mine > 10, `опора снабжения — своя столица, а не трофейная (снабжено ${mine})`);
+  }
+
+  // atWar симметричен в обе стороны.
+  const t = createGame(405, 'superEarth');
+  t.puppets = { illuminate: 'superEarth' };
+  declareWar(t, 'superEarth', 'automatons', 'проверка');
+  ok(atWar(t, 'illuminate', 'automatons') === atWar(t, 'automatons', 'illuminate'),
+    'война марионетки читается одинаково с обеих сторон');
+  // Погибший сюзерен не держит чужую войну вечно.
+  t.factions.superEarth.alive = false;
+  ok(!atWar(t, 'illuminate', 'automatons'), 'мёртвый сюзерен не навязывает войн');
+
+  // Разрушенный мир не проводит снабжение.
+  const sup = read('src', 'game', 'supply.ts');
+  ok(sup.includes('!n.shattered'), 'обломки не мостят граф снабжения');
+  ok(sup.includes("p.isCapital && p.origin === faction"), 'опорой служит своя столица');
+  const cb = read('src', 'game', 'combat.ts');
+  ok(cb.includes('planet.isCapital && planet.origin === prev'),
+    'капитулирует хозяин своей столицы, а не всякий владелец');
+  console.log('критические находки: OK');
+}
+
+// --- Шкала боевых доктрин -----------------------------------------------------------
+{
+  // combat — это ДОЛЯ: combatMult считает 1 + bonuses.combat. Целые числа
+  // давали множитель ×9 вместо ×1.25.
+  let seenCombat = 0;
+  for (const v of FOCUS_VARIANTS) {
+    for (const opt of v.options) {
+      for (const e of opt.effects ?? []) {
+        if (e.kind !== 'combat') continue;
+        seenCombat++;
+        ok(e.amount <= 0.5, `${v.slot}/${opt.id}: боевой бонус в шкале долей (${e.amount})`);
+      }
+    }
+  }
+  ok(seenCombat > 0, 'боевые доктрины вообще проверены');
+  console.log('шкала доктрин: OK');
+}
+
+// --- Древо фокусов: никаких наложенных узлов ------------------------------------------
+{
+  const seen = new Map<string, string>();
+  for (const [faction, nodes] of Object.entries(FOCUS_TREES)) {
+    for (const n of nodes) {
+      const key = `${faction}:${n.x},${n.y}`;
+      ok(!seen.has(key), `${faction}: узлы ${seen.get(key) ?? ''} и ${n.id} не в одной клетке (${n.x},${n.y})`);
+      seen.set(key, n.id);
+    }
+  }
+  console.log('древо без наложений: OK');
+}
+
+// --- Сеть: снапшот везёт мир целиком, приказы проверяют правила -------------------------
+{
+  const snap = read('src', 'net', 'snapshot.ts');
+  for (const f of ['relations', 'swarmAwake', 'subjugated', 'puppets', 'trophies', 'focusVariants']) {
+    ok(snap.includes(`target.${f} = fresh.${f}`), `снапшот везёт ${f}`);
+  }
+  const cmds = read('src', 'net', 'commands.ts');
+  ok(cmds.includes('canNegotiate(actor, c.with)'), 'мир проверяет правила переговоров');
+  ok(cmds.includes('PEACE_THRESHOLD'), 'и порог симпатии');
+  const ses = read('src', 'net', 'session.ts');
+  ok(ses.includes("peerFaction.set(from, msg.cmd.faction)"), 'смена стороны обновляет реестр соединений');
+  ok((ses.match(/settlePartition\(state\)/g) ?? []).length >= 3,
+    'выход, кик и смена стороны не морозят раздел');
+
+  // Раздел закрывается сам, когда ждать больше некого.
+  const g = createGame(88, 'superEarth');
+  g.humans = ['superEarth', 'illuminate'];
+  openPartition(g, 'terminids', 'automatons');
+  ok(!!g.partition, 'раздел открыт');
+  confirmPartition(g, 'superEarth');
+  ok(!!g.partition, 'ждём второго человека');
+  g.humans = ['superEarth'];                       // иллюминат вышел из партии
+  settlePartition(g);
+  ok(g.partition === null, 'после выхода участника раздел закрывается сам');
+  console.log('сетевые находки: OK');
 }
 
 console.log(`round58: OK (${checks} проверок)`);

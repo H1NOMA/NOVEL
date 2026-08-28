@@ -19,7 +19,7 @@ import {
   plantGloomSeed, produceDivision, raiseSpire, rebuildSpecial,
 } from '../game/decisions';
 import { runRecon, runSabotage, runUprising } from '../game/specops';
-import { cedePlanet, declareWar, makePeace } from '../game/relations';
+import { canNegotiate, cedePlanet, declareWar, makePeace, relationOf, PEACE_THRESHOLD } from '../game/relations';
 import { cycleCommander } from '../game/commanders';
 import { resolveChoice } from '../game/events';
 import { fleetsAt } from '../game/state';
@@ -213,8 +213,16 @@ export function applyCommand(state: GameState, actor: FactionId, c: Cmd): boolea
       fs.politicalPower -= WAR_DECLARATION_COST;
       return true;
     }
-    case 'makePeace':
+    case 'makePeace': {
+      // Правила мира живут ЗДЕСЬ, а не только в интерфейсе. Раньше кнопку
+      // гасил ui.ts, а команда не проверяла ничего: самодельный клиент мог
+      // заключить мир с роем (который переговоров не ведёт) и при любой
+      // симпатии — достаточно было послать приказ мимо кнопки.
+      if (!canNegotiate(actor, c.with)) return false;
+      if (!state.factions[actor]?.alive || !state.factions[c.with]?.alive) return false;
+      if (relationOf(state, actor, c.with) <= PEACE_THRESHOLD) return false;
       return makePeace(state, actor, c.with);
+    }
 
     // --- Прочее -------------------------------------------------------------
     case 'cycleCommander': {

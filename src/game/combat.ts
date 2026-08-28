@@ -713,9 +713,15 @@ function capturePlanet(state: GameState, planet: Planet, attacker: FactionId, at
   } else if (attacker === state.player) {
     bus.emit('combatAlert', { planetId: planet.id, text: `${planet.name} — освобождена`, tone: 'good', voice: 'planetLiberated' });
   }
-  // Capitals are the head of the state: cut it off and the faction capitulates.
-  // The Terminids have no capital — the swarm must be exterminated entirely.
-  if (planet.isCapital && prev !== 'terminids') {
+  // Столица — голова государства: отруби её, и фракция капитулирует. У роя
+  // столицы нет — его надо вытравить целиком.
+  //
+  // Капитулирует хозяин СВОЕЙ столицы, а не всякий, кто ею владел. Флаг
+  // isCapital не снимается при захвате, поэтому трофейная столица оставалась
+  // «головой государства»: отбив у автоматонов захваченный ими Киберстан,
+  // Супер-Земля обрушивала не автоматонов, а саму себя — если Киберстан к
+  // тому моменту принадлежал ей.
+  if (planet.isCapital && planet.origin === prev && prev !== 'terminids') {
     surrenderFaction(state, prev, attacker);
   }
 }

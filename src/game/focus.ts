@@ -1,6 +1,7 @@
 import type { FactionId, FocusEffect, FocusNode } from '../core/types';
 import { FEDERATION_BRANCH } from '../data/focus';
 import { treeFor } from './trophies';
+import { onOwnerChanged } from './supply';
 import { adjustRelation, riseFederation } from './relations';
 import { FACTIONS, SPECIALS } from '../data/factions';
 import { troopsOf } from '../data/troops';
@@ -179,6 +180,12 @@ function applyEffect(state: GameState, faction: FactionId, eff: FocusEffect): vo
       for (const p of conquered) {
         const to = p.origin;
         p.owner = to;
+        // Города переходят вместе с миром, как при любой другой смене
+        // владельца (захват, прибытие Ковчега, переприсяга Федерации). Здесь
+        // строчка была пропущена: мир возвращался, а города на нём оставались
+        // под прежним флагом и продолжали работать на бывшего хозяина.
+        for (const c of p.cities) c.holder = to;
+        onOwnerChanged(p);
         adjustRelation(state, faction, to, 22);
         pushLog(state, {
           faction,

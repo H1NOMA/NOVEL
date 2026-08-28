@@ -3,6 +3,10 @@ import { FACTIONS } from '../data/factions';
 import { FOCUS_TREES } from '../data/focus';
 import type { GameState } from './state';
 
+// ВАЖНО про шкалу combat: это ДОЛЯ, а не проценты и не очки. combatMult
+// считает 1 + bonuses.combat + …, поэтому 0.25 — это +25% к силе, а 8 —
+// множитель ×9. Доктрины были записаны целыми и давали фракции девятикратное
+// превосходство в бою до конца партии; в остальном древе шкала 0.05…0.28.
 // ---------------------------------------------------------------------------
 // Трофейные технологии и вариативность древа фокусов.
 //
@@ -93,7 +97,7 @@ export const FOCUS_VARIANTS: FocusVariant[] = [
         id: 'se_doctrine_blitz',
         title: 'Доктрина «Молния»',
         desc: 'Ставка на скорость: десант бьёт раньше, чем враг успевает окопаться.',
-        effects: [{ kind: 'combat', amount: 6 }, { kind: 'recruitment', amount: 4 }],
+        effects: [{ kind: 'combat', amount: 0.18 }, { kind: 'recruitment', amount: 4 }],
       },
       {
         id: 'se_doctrine_fortress',
@@ -129,7 +133,7 @@ export const FOCUS_VARIANTS: FocusVariant[] = [
         id: 'aut_doctrine_precision',
         title: 'Протокол «Точный расчёт»',
         desc: 'Холодная оптимизация огня: меньше залпов, больше попаданий.',
-        effects: [{ kind: 'combat', amount: 8 }],
+        effects: [{ kind: 'combat', amount: 0.25 }],
       },
     ],
   },
@@ -141,7 +145,7 @@ export const FOCUS_VARIANTS: FocusVariant[] = [
         id: 'ill_doctrine_veil',
         title: 'Путь Пелены',
         desc: 'Разум противника ломается раньше его строя.',
-        effects: [{ kind: 'combat', amount: 5 }, { kind: 'politicalPower', amount: 40 }],
+        effects: [{ kind: 'combat', amount: 0.15 }, { kind: 'politicalPower', amount: 40 }],
       },
       {
         id: 'ill_doctrine_crystal',
@@ -171,13 +175,13 @@ export const FOCUS_VARIANTS: FocusVariant[] = [
         id: 'term_doctrine_chitin',
         title: 'Инстинкт: хитин',
         desc: 'Панцирь толще, потери роя ниже.',
-        effects: [{ kind: 'fortify', amount: 7 }, { kind: 'combat', amount: 3 }],
+        effects: [{ kind: 'fortify', amount: 7 }, { kind: 'combat', amount: 0.10 }],
       },
       {
         id: 'term_doctrine_spore',
         title: 'Инстинкт: споры',
         desc: 'Мрак стелется впереди роя.',
-        effects: [{ kind: 'combat', amount: 6 }, { kind: 'industry', amount: 3 }],
+        effects: [{ kind: 'combat', amount: 0.18 }, { kind: 'industry', amount: 3 }],
       },
     ],
   },

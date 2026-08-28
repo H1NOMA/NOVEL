@@ -83,14 +83,24 @@ export function relationOf(state: GameState, a: FactionId, b: FactionId): number
 export function atWar(state: GameState, a: FactionId, b: FactionId): boolean {
   if (a === b) return false;
   // Марионетка воюет там же, где её сюзерен, и никогда — против него.
-  const ma = state.puppets?.[a];
-  const mb = state.puppets?.[b];
+  // Сюзерен считается только пока жив: иначе павший господин навечно
+  // фиксировал бы за марионеткой свои войны.
+  const alive = (f: FactionId | undefined): FactionId | undefined =>
+    f && state.factions[f]?.alive ? f : undefined;
+  const ma = alive(state.puppets?.[a]);
+  const mb = alive(state.puppets?.[b]);
   if (ma === b || mb === a) return false;
-  if (ma && ma !== b) {
-    const r = find(state, ma, b);
-    if (r?.war) return true;
-  }
-  return find(state, a, b)?.war ?? false;
+  // Проверка СИММЕТРИЧНА. Раньше наследование войн сюзерена работало только
+  // для первого аргумента: получалось atWar(вассал, враг) === true, но
+  // atWar(враг, вассал) === false. Одна и та же пара считалась воюющей или
+  // мирной в зависимости от того, с какой стороны спросить, — а от этого
+  // зависит и hostileNow, то есть кто по кому вообще стреляет.
+  const pairs: [FactionId, FactionId][] = [[a, b]];
+  if (ma && ma !== b) pairs.push([ma, b]);
+  if (mb && mb !== a) pairs.push([a, mb]);
+  if (ma && mb && ma !== mb) pairs.push([ma, mb]);
+  for (const [x, y] of pairs) if (find(state, x, y)?.war) return true;
+  return false;
 }
 
 /** Словесная оценка симпатии — её показывает интерфейс. */

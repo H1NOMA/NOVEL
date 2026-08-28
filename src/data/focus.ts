@@ -143,7 +143,7 @@ const automatons: FocusNode[] = [
   { id: 'aut_cold_peace', faction: 'automatons', title: 'Протокол холодного мира', desc: 'Огонь прекращается, счётчик обид продолжает работу в фоновом режиме.', cost: 65, x: 4, y: 6, requires: ['aut_sp_yards', 'aut_uplinks'], effects: [{ kind: 'truceAll', days: 60 }, { kind: 'politicalPower', amount: 60 }] },
   { id: 'aut_auto_bastions', faction: 'automatons', title: 'Автоматические бастионы', desc: 'Автоматические бастионы обороняются без гарнизона. Первым делом они запрашивают гарнизон.', cost: 70, x: 6, y: 6, requires: ['aut_ter_bastion', 'aut_selfrep'], effects: [{ kind: 'freeDefenses', count: 2 }] },
   { id: 'aut_final_march', faction: 'automatons', title: 'Марш на колыбель', desc: 'Марш на колыбель человечества. Конечная точка столетнего маршрута, у которого никогда не было конечной точки.', cost: 80, x: 7, y: 5, requires: ['aut_ter_grid', 'aut_purge'], effects: [{ kind: 'combat', amount: 0.1 }, { kind: 'heavyFleet', ships: 6, dreadnoughts: 2, battleships: 1, infantry: 60 }] },
-  { id: 'aut_cold_ledger', faction: 'automatons', title: 'Холодный расчёт границ', desc: 'Часть захваченного возвращается. Не из милосердия — из строки в балансе, где содержание дороже выручки.', cost: 70, x: 6, y: 4, requires: ['aut_cold_calc'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'industry', amount: 5 }] },
+  { id: 'aut_cold_ledger', faction: 'automatons', title: 'Холодный расчёт границ', desc: 'Часть захваченного возвращается. Не из милосердия — из строки в балансе, где содержание дороже выручки.', cost: 70, x: 7, y: 6, requires: ['aut_cold_calc'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'industry', amount: 5 }] },
 ];
 
 // ============================ ИЛЛЮМИНАТЫ ===================================
@@ -204,7 +204,7 @@ const illuminate: FocusNode[] = [
   { id: 'ill_all_eye', faction: 'illuminate', title: 'Всевидящее око', desc: 'Всевидящее око видит всё. Отчётность по увиденному ведётся выборочно — на всё не хватает писцов.', cost: 60, x: 5, y: 5, requires: ['ill_dev_choir'], effects: [{ kind: 'revealAll', days: 60 }] },
   { id: 'ill_word_truth', faction: 'illuminate', title: 'Слово, несущее мир', desc: 'Произносится один раз, слушателей после не остаётся, поэтому мир действительно наступает.', cost: 65, x: 5, y: 6, requires: ['ill_all_eye', 'ill_mindfog'], effects: [{ kind: 'truceAll', days: 60 }, { kind: 'politicalPower', amount: 40 }] },
   { id: 'ill_precursor_shields', faction: 'illuminate', title: 'Щиты предтеч', desc: 'Щиты предтеч работают безотказно. Как они работают, предтечи объяснить уже не смогут.', cost: 70, x: 6, y: 6, requires: ['ill_ter_dominion'], effects: [{ kind: 'freeDefenses', count: 2 }] },
-  { id: 'ill_hollow_gift', faction: 'illuminate', title: 'Дар пустоты', desc: 'Захваченное отдаётся обратно. Принимающая сторона гадает, в чём подвох, — и в этом весь дар.', cost: 70, x: 6, y: 4, requires: ['ill_word_truth'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'politicalPower', amount: 70 }] },
+  { id: 'ill_hollow_gift', faction: 'illuminate', title: 'Дар пустоты', desc: 'Захваченное отдаётся обратно. Принимающая сторона гадает, в чём подвох, — и в этом весь дар.', cost: 70, x: 7, y: 6, requires: ['ill_word_truth'], effects: [{ kind: 'returnTerritory', count: 3 }, { kind: 'politicalPower', amount: 70 }] },
 ];
 
 // ============================ ТЕРМИНИДЫ ====================================

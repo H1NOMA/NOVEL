@@ -59,6 +59,15 @@ export function applySnapshot(target: GameState, json: string): void {
   target.chronicle = fresh.chronicle;
   target.history = fresh.history;
   target.modifiers = fresh.modifiers;
+  // Дипломатия и всё, что к ней прилегает, — часть МИРА, а не точки зрения.
+  // Без этих шести полей у клиента навсегда оставалась выдумка из createGame(1):
+  // свои отношения, свои вассалы, свои трофеи. Он видел мир, которого нет.
+  target.relations = fresh.relations;
+  target.swarmAwake = fresh.swarmAwake;
+  target.subjugated = fresh.subjugated;
+  target.puppets = fresh.puppets;
+  target.trophies = fresh.trophies;
+  target.focusVariants = fresh.focusVariants;
   target.warScore = fresh.warScore;
   target.partition = fresh.partition;
   target.lastEventDay = fresh.lastEventDay;

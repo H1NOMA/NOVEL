@@ -2,6 +2,7 @@ import type { FactionId } from '../core/types';
 import { FACTIONS, FACTION_IDS } from '../data/factions';
 import type { GameState } from '../game/state';
 import { applyCommand } from './commands';
+import { settlePartition } from '../game/partition';
 import { netBridge, type FoundParty, type NetAdapter, type NetEvent } from './bridge';
 import { PROTOCOL_VERSION, type Cmd, type LobbySlot, type NetMessage, type PartyMember } from './protocol';
 import { partyCodeFor, resolveJoinTarget } from './partyCode';
@@ -212,7 +213,11 @@ export function kickPeer(peer: string): boolean {
   peerFaction.delete(peer);
   peerName.delete(peer);
   peerPing.delete(peer);
-  if (faction && state) state.humans = state.humans.filter((f) => f !== faction);
+  if (faction && state) {
+    state.humans = state.humans.filter((f) => f !== faction);
+    // Исключённый не должен держать открытый раздел наследства.
+    settlePartition(state);
+  }
   void net.drop(peer, 'Вас исключил хост');
   pushLobby();
   return true;
@@ -296,6 +301,19 @@ function handleHostMessage(from: string, msg: NetMessage): void {
       if (!applyCommand(state, actor, msg.cmd)) {
         net.sendTo(from, { k: 'nak', reason: 'Приказ отклонён' });
         return;
+      }
+      // Смена стороны меняет и РЕЕСТР СОЕДИНЕНИЙ.
+      //
+      // Исполнитель всех последующих приказов этого пира берётся отсюда, а не
+      // из сообщения. Без этой строки выбывший игрок «переезжал» в новую
+      // фракцию только в state.humans: его приказы по-прежнему приписывались
+      // погибшей стороне и отклонялись, а новая фракция не доставалась ни ему,
+      // ни ИИ — она просто замирала.
+      if (msg.cmd.k === 'takeOverFaction') {
+        peerFaction.set(from, msg.cmd.faction);
+        // Освободившееся место могло держать открытый раздел наследства.
+        settlePartition(state);
+        pushLobby();
       }
       // На паузе очередной срез ждать до секунды: отдав приказ, игрок должен
       // увидеть результат сразу, а не после того, как кто-то снимет паузу.
@@ -435,7 +453,13 @@ function listen(): void {
       peerFaction.delete(e.id);
       peerName.delete(e.id);
       peerPing.delete(e.id);
-      if (faction && state) state.humans = state.humans.filter((f) => f !== faction);
+      if (faction && state) {
+        state.humans = state.humans.filter((f) => f !== faction);
+        // Ушедший не должен держать открытый раздел наследства: без этого
+        // партия оставалась на паузе навсегда, ожидая согласия от места, за
+        // которым уже никто не сидит.
+        settlePartition(state);
+      }
       pushLobby();
       return;
     }

@@ -54,7 +54,10 @@ export function recomputeSupply(state: GameState): void {
         comp.push(cur);
         for (const nid of cur.links) {
           const n = state.galaxy.planets.get(nid)!;
-          if (n.owner === faction && !visited.has(n.id)) {
+          // Обломки не проводят снабжение: планету уже собрали в компоненты
+          // с пропуском shattered, но обход соседей об этом не знал — поле
+          // обломков склеивало через себя две разорванные половины державы.
+          if (n.owner === faction && !n.shattered && !visited.has(n.id)) {
             visited.add(n.id);
             stack.push(n);
           }
@@ -62,9 +65,15 @@ export function recomputeSupply(state: GameState): void {
       }
       components.push(comp);
     }
-    // Опорный компонент: со столицей, иначе крупнейший.
+    // Опорный компонент: со СВОЕЙ столицей, иначе крупнейший.
+    //
+    // Флаг isCapital при захвате не снимается, поэтому фракция может владеть
+    // двумя столицами — своей и трофейной. Раньше опорным становился любой
+    // компонент со столицей, и если трофейная попадалась в списке раньше,
+    // вся коренная держава разом объявлялась окружённой: гарнизоны таяли,
+    // производство падало, а причины на карте было не видно.
     let anchor = components[0]!;
-    const withCapital = components.find((c) => c.some((p) => p.isCapital));
+    const withCapital = components.find((c) => c.some((p) => p.isCapital && p.origin === faction));
     if (withCapital) anchor = withCapital;
     else for (const c of components) if (c.length > anchor.length) anchor = c;
 
