@@ -1,46 +1,70 @@
-import * as THREE from 'three';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder';
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder';
+import { CreateLines } from '@babylonjs/core/Meshes/Builders/linesBuilder';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
+import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Constants } from '@babylonjs/core/Engines/constants';
+import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
+import type { Scene } from '@babylonjs/core/scene';
 import type { Fleet } from '../core/types';
 import { factionColor } from '../data/factions';
 import { fleetWorldPos } from '../game/units';
 import type { GameState } from '../game/state';
-import { shipModel, stationModel, type ShipClass } from './ships';
-
-const EXHAUST_GEO = new THREE.ConeGeometry(0.03, 0.16, 6);
+import { hexColor } from './engine';
+import { shipModel, stationModel, useScene, type ShipClass } from './ships';
 
 /** Мягкое круглое пятно под кораблём — общая текстура на все соединения. */
-let beaconTex: THREE.Texture | null = null;
-function beaconTexture(): THREE.Texture {
+let beaconTex: DynamicTexture | null = null;
+function beaconTexture(scene: Scene): DynamicTexture {
   if (beaconTex) return beaconTex;
   const size = 64;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
+  beaconTex = new DynamicTexture('beacon', { width: size, height: size }, scene, false);
+  const ctx = beaconTex.getContext() as CanvasRenderingContext2D;
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   g.addColorStop(0, 'rgba(255,255,255,0.95)');
   g.addColorStop(0.35, 'rgba(255,255,255,0.35)');
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
-  beaconTex = new THREE.CanvasTexture(cv);
+  beaconTex.update();
+  beaconTex.hasAlpha = true;
   return beaconTex;
 }
 
+/** Аддитивный самосветящийся материал — выхлоп, следы, метки, вспышки. */
+function glowMat(name: string, scene: Scene, color: Color3, alpha: number): StandardMaterial {
+  const m = new StandardMaterial(name, scene);
+  m.emissiveColor = color;
+  m.diffuseColor = new Color3(0, 0, 0);
+  m.specularColor = new Color3(0, 0, 0);
+  m.disableLighting = true;
+  m.alpha = alpha;
+  m.alphaMode = Constants.ALPHA_ADD;
+  m.disableDepthWrite = true;
+  return m;
+}
+
 interface FleetMesh {
-  group: THREE.Group;
-  model: THREE.Group;
+  root: TransformNode;
+  model: TransformNode;
   /** Дополнительные модельки стека (2-й и 3-й кораблик соединения). */
-  extras: THREE.Group[];
-  exhaust: THREE.Mesh;
-  exhaustMat: THREE.MeshBasicMaterial;
+  extras: TransformNode[];
+  exhaust: Mesh;
+  exhaustMat: StandardMaterial;
   /** Гипер-след: светящаяся нить за кораблём в полёте. */
-  trailMat: THREE.LineBasicMaterial;
-  last: THREE.Vector2;
+  trailMat: StandardMaterial;
+  last: Vector2;
   yaw: number;
   phase: number;
   special: boolean;
   stackShown: number;
   /** Класс тяжелейшего корпуса — определяет силуэт модели. */
   cls: ShipClass;
+  visible: boolean;
 }
 
 /** Сколько корабликов показывать: ≤10 корпусов — 1, 11–20 — 2, 21+ — 3. */
@@ -116,101 +140,101 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + d * Math.min(1, t);
 }
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * Math.min(1, Math.max(0, t));
+}
+
 export class FleetLayer {
-  readonly group = new THREE.Group();
+  readonly root: TransformNode;
   private meshes = new Map<string, FleetMesh>();
   private t = 0;
 
-  constructor(private scale: number) {}
+  constructor(private scene: Scene, private scale: number) {
+    this.root = new TransformNode('fleets', scene);
+    // Сборщики силуэтов лепят меши в этой же сцене.
+    useScene(scene);
+  }
 
   private make(fleet: Fleet): FleetMesh {
-    const color = new THREE.Color(factionColor(fleet.faction));
+    const color = hexColor(factionColor(fleet.faction));
     const special = !!fleet.special;
     const cls = dominantClass(fleet);
     const model = special ? stationModel(color) : shipModel(fleet.faction, color, cls);
 
     // Выхлоп двигателей — виден только в полёте.
-    const exhaustMat = new THREE.MeshBasicMaterial({
-      color: 0x9fd4ff,
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const exhaust = new THREE.Mesh(EXHAUST_GEO, exhaustMat);
+    const exhaustMat = glowMat(`exh_${fleet.id}`, this.scene, new Color3(0.62, 0.83, 1), 0);
+    const exhaust = CreateCylinder(`exhM_${fleet.id}`, {
+      diameterTop: 0, diameterBottom: 0.06, height: 0.16, tessellation: 6,
+    }, this.scene);
+    exhaust.material = exhaustMat;
+    exhaust.isPickable = false;
     exhaust.rotation.x = Math.PI / 2; // остриё назад вдоль -Z
     exhaust.position.z = -0.24;
-    model.add(exhaust);
+    exhaust.parent = model;
 
     // Стек: до двух уменьшенных копий-эсминцев эскорта рядом (11–20 и 21+).
-    const extras: THREE.Group[] = [];
+    const extras: TransformNode[] = [];
     if (!special) {
       for (const [dx, dz] of [[-0.16, -0.1], [0.16, -0.1]] as const) {
         const copy = shipModel(fleet.faction, color, 'destroyer');
-        copy.scale.setScalar(0.7);
+        copy.scaling.setAll(0.7);
         copy.position.set(dx, -0.02, dz);
-        copy.visible = false;
-        model.add(copy);
+        copy.setEnabled(false);
+        copy.parent = model;
         extras.push(copy);
       }
     }
 
     // Гипер-след: нить от кормы, разгорается в полёте.
-    const trailMat = new THREE.LineBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const trailGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, -0.2),
-      new THREE.Vector3(0, 0, -0.85),
-    ]);
-    const trail = new THREE.Line(trailGeo, trailMat);
-    model.add(trail);
+    const trailMat = glowMat(`trail_${fleet.id}`, this.scene, color, 0);
+    const trail = CreateLines(`trailM_${fleet.id}`, {
+      points: [new Vector3(0, 0, -0.2), new Vector3(0, 0, -0.85)],
+    }, this.scene);
+    trail.material = trailMat;
+    trail.isPickable = false;
+    trail.parent = model;
 
     // --- Опознавательный огонь ------------------------------------------
     //
     // На чёрном космосе тёмный корпус в полтора десятка пикселей не читается
     // никак: соединения превращались в едва заметные серые крапины. Под
-    // каждым кораблём теперь горит маленькая метка цвета фракции — по ней
-    // флот виден с общего плана, и сразу понятно, чей он. Метка аддитивная,
-    // без записи в глубину, поэтому не спорит с моделью.
-    const beaconMat = new THREE.SpriteMaterial({
-      map: beaconTexture(),
-      color,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const beacon = new THREE.Sprite(beaconMat);
-    beacon.scale.setScalar(special ? 0.72 : 0.42);
+    // каждым кораблём горит маленькая метка цвета фракции — по ней флот виден
+    // с общего плана, и сразу понятно, чей он. Метка аддитивная, без записи в
+    // глубину, поэтому не спорит с моделью.
+    const beaconSize = special ? 0.72 : 0.42;
+    const beacon = CreatePlane(`beacon_${fleet.id}`, { size: beaconSize }, this.scene);
+    const beaconMat = glowMat(`beaconMat_${fleet.id}`, this.scene, color, 0.85);
+    beaconMat.emissiveTexture = beaconTexture(this.scene);
+    beaconMat.opacityTexture = beaconTexture(this.scene);
+    beaconMat.emissiveColor = color;
+    beacon.material = beaconMat;
+    beacon.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    beacon.isPickable = false;
     beacon.position.y = -0.02;
 
-    const g = new THREE.Group();
+    const root = new TransformNode(`fleet_${fleet.id}`, this.scene);
+    root.parent = this.root;
+    beacon.parent = root;
     // Модель крупнее: силуэт класса должен быть различим с обычного зума,
     // а не только при подлёте вплотную.
-    model.scale.multiplyScalar(1.45);
-    g.add(beacon);
-    g.add(model);
-    const fm: FleetMesh = {
-      group: g,
+    model.scaling.scaleInPlace(1.45);
+    model.parent = root;
+
+    return {
+      root,
       model,
       extras,
       exhaust,
       exhaustMat,
       trailMat,
-      last: new THREE.Vector2(),
+      last: new Vector2(),
       yaw: 0,
       phase: Math.random() * Math.PI * 2,
       special,
       stackShown: 1,
       cls,
+      visible: true,
     };
-    this.group.add(g);
-    return fm;
   }
 
   /** Обновить число корабликов в стеке по количеству корпусов соединения. */
@@ -218,7 +242,7 @@ export class FleetLayer {
     const want = fm.special ? 1 : stackSize(fleet.ships + fleet.dreadnoughts + fleet.battleships);
     if (want === fm.stackShown) return;
     fm.stackShown = want;
-    fm.extras.forEach((ex, i) => (ex.visible = i < want - 1));
+    fm.extras.forEach((ex, i) => ex.setEnabled(i < want - 1));
   }
 
   update(state: GameState, dt: number): void {
@@ -243,7 +267,7 @@ export class FleetLayer {
       // Класс тяжелейшего корпуса изменился (принят линкор с верфи и т.п.) —
       // силуэт пересобирается.
       if (fm && !fm.special && fm.cls !== dominantClass(fleet)) {
-        this.group.remove(fm.group);
+        fm.root.dispose(false, true);
         this.meshes.delete(id);
         fm = undefined;
       }
@@ -265,7 +289,8 @@ export class FleetLayer {
         const at = state.galaxy.planets.get(fleet.at);
         visible = !!at && (at.owner === viewer || !!at.battle);
       }
-      fm.group.visible = visible;
+      fm.root.setEnabled(visible);
+      fm.visible = visible;
       if (!visible) continue;
 
       if (!fleet.transit) {
@@ -279,14 +304,14 @@ export class FleetLayer {
           const angle = fm.phase + (slot * Math.PI * 2) / Math.max(1, slots.length);
           const x = planet.pos.x * this.scale + Math.cos(angle) * orbitR;
           const z = planet.pos.y * this.scale + Math.sin(angle) * orbitR;
-          fm.group.position.set(x, (fm.special ? 0.3 : 0.16) + bob, z);
+          fm.root.position.set(x, (fm.special ? 0.3 : 0.16) + bob, z);
           // нос по касательной к орбите
           const targetYaw = Math.atan2(-Math.cos(angle), Math.sin(angle));
           fm.yaw = lerpAngle(fm.yaw, targetYaw, dt * 4);
           fm.model.rotation.y = fm.yaw;
           if (fm.special) fm.model.rotation.y += Math.sin(this.t * 0.4) * 0.2;
-          fm.exhaustMat.opacity = Math.max(0, fm.exhaustMat.opacity - dt * 2);
-          fm.trailMat.opacity = Math.max(0, fm.trailMat.opacity - dt * 2.5);
+          fm.exhaustMat.alpha = Math.max(0, fm.exhaustMat.alpha - dt * 2);
+          fm.trailMat.alpha = Math.max(0, fm.trailMat.alpha - dt * 2.5);
           fm.last.set(x, z);
           continue;
         }
@@ -308,14 +333,14 @@ export class FleetLayer {
       fm.model.rotation.y = fm.yaw;
       // Дуга перелёта: корабль поднимается над плоскостью и садится у цели.
       const lift = sp ? sp.lift * 0.5 : 0;
-      fm.group.position.set(x, (fm.special ? 0.32 : 0.2) + bob + lift, z);
+      fm.root.position.set(x, (fm.special ? 0.32 : 0.2) + bob + lift, z);
       // Крен в поворот — корабль «ложится на крыло», а не скользит боком.
-      fm.model.rotation.z = THREE.MathUtils.lerp(fm.model.rotation.z, 0, dt * 3);
+      fm.model.rotation.z = lerp(fm.model.rotation.z, 0, dt * 3);
       // выхлоп: разгорается в полёте и пульсирует
-      fm.exhaustMat.opacity = Math.min(0.75, fm.exhaustMat.opacity + dt * 3);
-      fm.exhaust.scale.y = 0.85 + Math.sin(this.t * 9 + fm.phase) * 0.25;
+      fm.exhaustMat.alpha = Math.min(0.75, fm.exhaustMat.alpha + dt * 3);
+      fm.exhaust.scaling.y = 0.85 + Math.sin(this.t * 9 + fm.phase) * 0.25;
       // гипер-след тянется за кормой и мерцает
-      fm.trailMat.opacity = Math.min(0.28, fm.trailMat.opacity + dt * 1.5)
+      fm.trailMat.alpha = Math.min(0.28, fm.trailMat.alpha + dt * 1.5)
         * (0.8 + 0.2 * Math.sin(this.t * 6 + fm.phase));
       fm.last.set(x, z);
     }
@@ -323,7 +348,7 @@ export class FleetLayer {
     // Удаляем меши исчезнувших флотов.
     for (const [id, fm] of this.meshes) {
       if (!seen.has(id)) {
-        this.group.remove(fm.group);
+        fm.root.dispose(false, true);
         this.meshes.delete(id);
       }
     }
@@ -333,56 +358,58 @@ export class FleetLayer {
 
   // --- Эффекты боя: трассеры выстрелов и вспышки взрывов над планетами ---
 
-  private tracers: { line: THREE.Line; geo: THREE.BufferGeometry; from: THREE.Vector3; to: THREE.Vector3; t: number; spd: number }[] = [];
-  private booms: { sprite: THREE.Sprite; t: number }[] = [];
-  private static boomTexture: THREE.Texture | null = null;
+  private tracers: { line: LinesMesh; from: Vector3; to: Vector3; t: number; spd: number }[] = [];
+  private booms: { plane: Mesh; mat: StandardMaterial; t: number }[] = [];
+  private boomTex: DynamicTexture | null = null;
 
-  private static getBoomTexture(): THREE.Texture {
-    if (!FleetLayer.boomTexture) {
-      const cv = document.createElement('canvas');
-      cv.width = cv.height = 64;
-      const ctx = cv.getContext('2d')!;
+  private getBoomTexture(): DynamicTexture {
+    if (!this.boomTex) {
+      this.boomTex = new DynamicTexture('boom', { width: 64, height: 64 }, this.scene, false);
+      const ctx = this.boomTex.getContext() as CanvasRenderingContext2D;
       const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
       g.addColorStop(0, 'rgba(255,240,200,1)');
       g.addColorStop(0.35, 'rgba(255,160,60,0.9)');
       g.addColorStop(1, 'rgba(255,80,20,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 64, 64);
-      FleetLayer.boomTexture = new THREE.CanvasTexture(cv);
+      this.boomTex.update();
+      this.boomTex.hasAlpha = true;
     }
-    return FleetLayer.boomTexture;
+    return this.boomTex;
   }
 
-  private spawnTracer(from: THREE.Vector3, to: THREE.Vector3, color: string): void {
+  private spawnTracer(from: Vector3, to: Vector3, color: string): void {
     if (this.tracers.length > 70) return;
-    const geo = new THREE.BufferGeometry().setFromPoints([from.clone(), from.clone()]);
-    const mat = new THREE.LineBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.95,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const line = new THREE.Line(geo, mat);
-    this.group.add(line);
+    // Линия обновляемая: голова и хвост двигаются каждый кадр.
+    const line = CreateLines(`tracer${this.tracers.length}`, {
+      points: [from.clone(), from.clone()],
+      updatable: true,
+    }, this.scene);
+    line.color = hexColor(color);
+    line.alpha = 0.95;
+    line.isPickable = false;
+    line.parent = this.root;
     // лёгкий разброс попаданий
-    const jitter = new THREE.Vector3((Math.random() - 0.5) * 0.16, (Math.random() - 0.5) * 0.08, (Math.random() - 0.5) * 0.16);
-    this.tracers.push({ line, geo, from: from.clone(), to: to.clone().add(jitter), t: 0, spd: 2.2 + Math.random() * 1.2 });
+    const jitter = new Vector3(
+      (Math.random() - 0.5) * 0.16, (Math.random() - 0.5) * 0.08, (Math.random() - 0.5) * 0.16);
+    this.tracers.push({
+      line, from: from.clone(), to: to.add(jitter), t: 0, spd: 2.2 + Math.random() * 1.2,
+    });
   }
 
-  private spawnBoom(at: THREE.Vector3): void {
+  private spawnBoom(at: Vector3): void {
     if (this.booms.length > 24) return;
-    const mat = new THREE.SpriteMaterial({
-      map: FleetLayer.getBoomTexture(),
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const sprite = new THREE.Sprite(mat);
-    sprite.position.copy(at);
-    sprite.scale.setScalar(0.1);
-    this.group.add(sprite);
-    this.booms.push({ sprite, t: 0 });
+    const plane = CreatePlane(`boom${this.booms.length}`, { size: 1 }, this.scene);
+    const mat = glowMat(`boomMat${this.booms.length}`, this.scene, new Color3(1, 1, 1), 1);
+    mat.emissiveTexture = this.getBoomTexture();
+    mat.opacityTexture = this.getBoomTexture();
+    plane.material = mat;
+    plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    plane.isPickable = false;
+    plane.position.copyFrom(at);
+    plane.scaling.setAll(0.1);
+    plane.parent = this.root;
+    this.booms.push({ plane, mat, t: 0 });
   }
 
   private updateBattleFx(state: GameState, dt: number, docked: Map<string, Fleet[]>): void {
@@ -394,32 +421,32 @@ export class FleetLayer {
       const atkMeshes = here
         .filter((f) => f.faction === p.battle!.attacker)
         .map((f) => this.meshes.get(f.id))
-        .filter((m): m is FleetMesh => !!m && m.group.visible);
+        .filter((m): m is FleetMesh => !!m && m.visible);
       if (!atkMeshes.length) continue;
       const defMeshes = here
         .filter((f) => f.faction === p.owner)
         .map((f) => this.meshes.get(f.id))
-        .filter((m): m is FleetMesh => !!m && m.group.visible);
-      const planetPos = new THREE.Vector3(p.pos.x * this.scale, 0.18, p.pos.y * this.scale);
+        .filter((m): m is FleetMesh => !!m && m.visible);
+      const planetPos = new Vector3(p.pos.x * this.scale, 0.18, p.pos.y * this.scale);
       const atkColor = factionColor(p.battle.attacker);
       const defColor = factionColor(p.owner);
 
       // Атакующие бьют по защитникам (или по планете при орбитальной бомбардировке).
       if (Math.random() < dt * 5) {
-        const from = atkMeshes[Math.floor(Math.random() * atkMeshes.length)]!.group.position;
+        const from = atkMeshes[Math.floor(Math.random() * atkMeshes.length)]!.root.position;
         const to = defMeshes.length
-          ? defMeshes[Math.floor(Math.random() * defMeshes.length)]!.group.position
+          ? defMeshes[Math.floor(Math.random() * defMeshes.length)]!.root.position
           : planetPos;
         this.spawnTracer(from, to, atkColor);
       }
       // Ответный огонь обороны и зенитки с поверхности.
       if (defMeshes.length && Math.random() < dt * 3.5) {
-        const from = defMeshes[Math.floor(Math.random() * defMeshes.length)]!.group.position;
-        const to = atkMeshes[Math.floor(Math.random() * atkMeshes.length)]!.group.position;
+        const from = defMeshes[Math.floor(Math.random() * defMeshes.length)]!.root.position;
+        const to = atkMeshes[Math.floor(Math.random() * atkMeshes.length)]!.root.position;
         this.spawnTracer(from, to, defColor);
       }
       if (Math.random() < dt * 1.8) {
-        const to = atkMeshes[Math.floor(Math.random() * atkMeshes.length)]!.group.position;
+        const to = atkMeshes[Math.floor(Math.random() * atkMeshes.length)]!.root.position;
         this.spawnTracer(planetPos, to, defColor);
       }
     }
@@ -427,13 +454,11 @@ export class FleetLayer {
     // Полёт трассеров: голова летит к цели, хвост тянется следом.
     for (const tr of [...this.tracers]) {
       tr.t += dt * tr.spd;
-      const head = tr.from.clone().lerp(tr.to, Math.min(1, tr.t));
-      const tail = tr.from.clone().lerp(tr.to, Math.max(0, tr.t - 0.18));
-      tr.geo.setFromPoints([tail, head]);
+      const head = Vector3.Lerp(tr.from, tr.to, Math.min(1, tr.t));
+      const tail = Vector3.Lerp(tr.from, tr.to, Math.max(0, tr.t - 0.18));
+      CreateLines(tr.line.name, { points: [tail, head], instance: tr.line }, this.scene);
       if (tr.t >= 1) {
-        this.group.remove(tr.line);
-        tr.geo.dispose();
-        (tr.line.material as THREE.Material).dispose();
+        tr.line.dispose();
         this.tracers.splice(this.tracers.indexOf(tr), 1);
         if (Math.random() < 0.4) this.spawnBoom(tr.to);
       }
@@ -443,11 +468,10 @@ export class FleetLayer {
     for (const b of [...this.booms]) {
       b.t += dt;
       const life = 0.5;
-      b.sprite.scale.setScalar(0.1 + (b.t / life) * 0.42);
-      (b.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - b.t / life);
+      b.plane.scaling.setAll(0.1 + (b.t / life) * 0.42);
+      b.mat.alpha = Math.max(0, 1 - b.t / life);
       if (b.t >= life) {
-        this.group.remove(b.sprite);
-        (b.sprite.material as THREE.SpriteMaterial).dispose();
+        b.plane.dispose(false, true);
         this.booms.splice(this.booms.indexOf(b), 1);
       }
     }

@@ -29,7 +29,7 @@ export interface FactionDef {
   id: FactionId;
   name: string;
   short: string;
-  /** Primary CSS/three colour, hex string. */
+  /** Основной цвет фракции (CSS и сцена), hex-строка. */
   color: string;
   /** Secondary accent colour. */
   accent: string;

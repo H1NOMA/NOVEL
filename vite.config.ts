@@ -21,12 +21,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     target: 'es2022',
-    // three.js целиком ~510 КБ — это ожидаемо, шумное предупреждение не нужно.
-    chunkSizeWarningLimit: 600,
+    // Babylon целиком ~2,5 МБ (около 500 КБ в gzip) — это ожидаемо для
+    // движка, шумное предупреждение не нужно. Игра ставится настольным
+    // приложением и грузится с диска, а не по сети, поэтому вес движка здесь
+    // ничего не стоит: важнее, что он даёт из коробки.
+    chunkSizeWarningLimit: 3000,
     rollupOptions: {
       output: {
-        // three.js — в отдельный чанк: игровой код обновляется чаще движка.
-        manualChunks: { three: ['three'] }
+        // Движок — в отдельный чанк: игровой код обновляется чаще него.
+        manualChunks(id) {
+          if (id.includes('node_modules/@babylonjs')) return 'babylon';
+          return undefined;
+        }
       }
     }
   }

@@ -1,4 +1,9 @@
-import * as THREE from 'three';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
+import { Color3 } from '@babylonjs/core/Maths/math.color';
+import type { Scene } from '@babylonjs/core/scene';
 import type { FactionId } from '../core/types';
 
 // ---------------------------------------------------------------------------
@@ -290,7 +295,7 @@ function star(ctx: CanvasRenderingContext2D, cx: number, cy: number, points: num
   ctx.fill();
 }
 
-const cache = new Map<FactionId, THREE.Texture>();
+const cache = new Map<FactionId, DynamicTexture>();
 const urlCache = new Map<FactionId, string>();
 
 function emblemCanvas(faction: FactionId): HTMLCanvasElement {
@@ -314,23 +319,32 @@ export function emblemDataURL(faction: FactionId): string {
   return url;
 }
 
-export function emblemTexture(faction: FactionId): THREE.Texture {
+export function emblemTexture(faction: FactionId, scene: Scene): DynamicTexture {
   const cached = cache.get(faction);
   if (cached) return cached;
-  const tex = new THREE.CanvasTexture(emblemCanvas(faction));
-  tex.anisotropy = 4;
+  const cv = emblemCanvas(faction);
+  const tex = new DynamicTexture(`emblem_${faction}`, { width: cv.width, height: cv.height }, scene, true);
+  (tex.getContext() as CanvasRenderingContext2D).drawImage(cv, 0, 0);
+  tex.update();
+  tex.hasAlpha = true;
+  tex.anisotropicFilteringLevel = 4;
   cache.set(faction, tex);
   return tex;
 }
 
-/** Спрайт-эмблема родного мира, парящая над планетой. */
-export function emblemSprite(faction: FactionId): THREE.Sprite {
-  const mat = new THREE.SpriteMaterial({
-    map: emblemTexture(faction),
-    transparent: true,
-    depthWrite: false,
-  });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.setScalar(0.42);
-  return sprite;
+/** Эмблема родного мира, парящая над планетой лицом к камере. */
+export function emblemSprite(faction: FactionId, scene: Scene): Mesh {
+  const plane = CreatePlane(`emblem_${faction}`, { size: 0.42 }, scene);
+  const mat = new StandardMaterial(`emblemMat_${faction}`, scene);
+  const tex = emblemTexture(faction, scene);
+  mat.emissiveTexture = tex;
+  mat.opacityTexture = tex;
+  mat.diffuseColor = new Color3(0, 0, 0);
+  mat.specularColor = new Color3(0, 0, 0);
+  mat.disableLighting = true;
+  mat.disableDepthWrite = true;
+  plane.material = mat;
+  plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  plane.isPickable = false;
+  return plane;
 }

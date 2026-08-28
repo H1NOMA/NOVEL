@@ -1,471 +1,111 @@
-import * as THREE from 'three';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { CreateSphereVertexData } from '@babylonjs/core/Meshes/Builders/sphereBuilder';
+import { CreatePolyhedron } from '@babylonjs/core/Meshes/Builders/polyhedronBuilder';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder';
+import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Constants } from '@babylonjs/core/Engines/constants';
+import type { Scene } from '@babylonjs/core/scene';
 import type { Planet } from '../core/types';
 import { BIOMES } from '../data/biomes';
 import { factionColor } from '../data/factions';
-import { moonGeometry, reliefGeometry, ringGeometry } from './planetAssets';
+import { moonShape, reliefShape, ringShape } from './planetAssets';
+import { hexColor, mixColor, offsetHSL, SUN_DIR } from './engine';
+import { ATMO_UNIFORMS, SURFACE_ATTRS, SURFACE_UNIFORMS } from './planetShaders';
 
-// Ashima simplex noise (3D) + fbm, used to give every planet a unique,
-// volumetric procedural surface instead of a flat sprite.
-const NOISE_GLSL = /* glsl */ `
-vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}
-vec4 mod289(vec4 x){return x - floor(x*(1.0/289.0))*289.0;}
-vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
-vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
-float snoise(vec3 v){
-  const vec2 C = vec2(1.0/6.0, 1.0/3.0);
-  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-  vec3 i  = floor(v + dot(v, C.yyy));
-  vec3 x0 = v - i + dot(i, C.xxx);
-  vec3 g = step(x0.yzx, x0.xyz);
-  vec3 l = 1.0 - g;
-  vec3 i1 = min(g.xyz, l.zxy);
-  vec3 i2 = max(g.xyz, l.zxy);
-  vec3 x1 = x0 - i1 + C.xxx;
-  vec3 x2 = x0 - i2 + C.yyy;
-  vec3 x3 = x0 - D.yyy;
-  i = mod289(i);
-  vec4 p = permute(permute(permute(
-      i.z + vec4(0.0, i1.z, i2.z, 1.0))
-    + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-    + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-  float n_ = 0.142857142857;
-  vec3 ns = n_ * D.wyz - D.xzx;
-  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-  vec4 x_ = floor(j * ns.z);
-  vec4 y_ = floor(j - 7.0 * x_);
-  vec4 x = x_ *ns.x + ns.yyyy;
-  vec4 y = y_ *ns.x + ns.yyyy;
-  vec4 h = 1.0 - abs(x) - abs(y);
-  vec4 b0 = vec4(x.xy, y.xy);
-  vec4 b1 = vec4(x.zw, y.zw);
-  vec4 s0 = floor(b0)*2.0 + 1.0;
-  vec4 s1 = floor(b1)*2.0 + 1.0;
-  vec4 sh = -step(h, vec4(0.0));
-  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
-  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
-  vec3 p0 = vec3(a0.xy, h.x);
-  vec3 p1 = vec3(a0.zw, h.y);
-  vec3 p2 = vec3(a1.xy, h.z);
-  vec3 p3 = vec3(a1.zw, h.w);
-  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-  p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-  m = m * m;
-  return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-}
-/**
- * Сколько октав шума ИМЕЕТ СМЫСЛ считать в этом пикселе.
- *
- * Ставится один раз в main() и дальше действует на весь шум поверхности.
- * Верхняя граница — настройка качества и дистанция (uOct), нижняя — размер
- * пикселя: октаву, период которой уже, чем пиксель, считать не только
- * бесполезно, но и вредно — из неё рождается ползущая рябь.
- */
-float gOct = 5.0;
-
-float fbm(vec3 p){
-  float f = 0.0; float amp = 0.5;
-  // Октав стало семь вместо пяти, и множитель частоты чуть больше двух:
-  // «мыло» на поверхности было именно нехваткой верхних октав — крупные
-  // пятна шума без мелкой структуры читаются как размытие.
-  for(int i=0;i<7;i++){
-    if (float(i) >= gOct) break;
-    f += amp*snoise(p); p *= 2.07; amp *= 0.5;
-  }
-  return f;
-}
-
-/**
- * Ridged multifractal — хребты с ОСТРЫМ гребнем.
- *
- * Обычный fbm даёт мягкие холмы: сумма синусоподобного шума нигде не имеет
- * излома. Модуль с инверсией создаёт складку на нуле, и рельеф получает
- * чёткие кромки — то, чего поверхностям не хватало больше всего.
- */
-float ridged(vec3 p, float oct){
-  float f = 0.0; float amp = 0.5; float prev = 1.0;
-  for(int i=0;i<6;i++){
-    if (float(i) >= oct) break;
-    float n = 1.0 - abs(snoise(p));
-    n *= n;
-    f += n * amp * prev;
-    prev = n;
-    p *= 2.13; amp *= 0.5;
-  }
-  return f;
-}
-
-/** Одна октава высокой частоты: зерно поверхности, «кожа» планеты. */
-float grit(vec3 p){
-  return snoise(p) * 0.5 + 0.5;
-}
-
-/**
- * Насколько уместна деталь такой частоты в этом пикселе.
- *
- * Мелкое зерно даёт резкость ровно до того момента, пока период узора шире
- * пикселя. Дальше начинается муар: планета в двадцать пикселей покрывается
- * шевелящейся «солью с перцем», и это хуже любого мыла. fwidth говорит,
- * сколько поверхности приходится на пиксель, — и деталь плавно гаснет ровно
- * там, где её всё равно не разрешить.
- */
-float band(float freq, float fw){
-  return 1.0 - smoothstep(0.30, 0.90, fw * freq);
-}
-`;
-
-const VERT = /* glsl */ `
-uniform vec3 uRingN;
-varying vec3 vObj;
-// Свет считается в МИРОВЫХ координатах.
+// ---------------------------------------------------------------------------
+// Один мир на карте: поверхность, атмосфера, кольца, луна, оболочки состояний
+// (Мрак, Бездна, обломки, щит) и орбитальная станция.
 //
-// Раньше и нормаль, и направление на солнце жили в пространстве вида, а само
-// солнце было прибитой константой. Из этого следовало, что освещённая сторона
-// планеты ВСЕГДА повёрнута к камере: терминатор не появлялся ни при каком
-// ракурсе, и все миры выглядели плоскими кружками с текстурой. Теперь нормаль
-// переводится в мир, солнце приходит извне одним общим для всех уникформом, и
-// тень честно ползёт по глобусу, когда камера облетает карту.
-varying vec3 vWorldN;
-varying vec3 vWorldP;
-varying vec3 vRingN;
-void main(){
-  vObj = position;
-  vWorldN = normalize(mat3(modelMatrix) * normal);
-  vRingN = normalize(mat3(modelMatrix) * uRingN);
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vWorldP = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp;
+// Шейдеры живут отдельно, в planetShaders.ts, и перенесены дословно. Здесь —
+// сборка узлов и вся логика состояний, которую дёргает сцена.
+// ---------------------------------------------------------------------------
+
+/** Геометрия сферы общая на все миры: 200+ планет не должны её дублировать. */
+let sphereVD: VertexData | null = null;
+let shellVD: VertexData | null = null;
+
+function sphereData(): VertexData {
+  if (!sphereVD) sphereVD = CreateSphereVertexData({ segments: 48, diameter: 2 });
+  return sphereVD;
 }
-`;
-
-const FRAG = /* glsl */ `
-precision highp float;
-uniform vec3 uLand; uniform vec3 uSea; uniform vec3 uAtmo;
-uniform vec3 uTint; uniform float uWater; uniform float uRough;
-uniform float uClouds; uniform float uTime; uniform float uSeed;
-uniform float uFreq; uniform float uWarp; uniform float uBands;
-uniform float uCity; uniform float uCapSize; uniform float uContinent;
-uniform float uRidges; uniform float uCraters;
-uniform float uBattle; uniform float uDim; uniform float uScar;
-uniform float uOct; uniform float uLava; uniform float uIce; uniform float uToxic;
-uniform sampler2D uMask; uniform float uUseMask;
-// Тень кольца: нормаль плоскости кольца в системе планеты и его радиусы.
-uniform vec3 uRingN; uniform float uRingIn; uniform float uRingOut; uniform float uHasRing;
-/** Направление НА солнце в мировых координатах — одно на всю карту. */
-uniform vec3 uSun;
-varying vec3 vObj; varying vec3 vWorldN; varying vec3 vWorldP; varying vec3 vRingN;
-${NOISE_GLSL}
-void main(){
-  vec3 n = normalize(vObj);
-  vec3 sp = n * (uFreq + uRough) + vec3(uSeed);
-  // Размер пикселя на поверхности сферы — мера того, какие частоты вообще
-  // различимы отсюда. Ниже ею гасятся все мелкие узоры.
-  float fw = fwidth(n.x) + fwidth(n.y) + fwidth(n.z);
-  float scl = uFreq + uRough;
-  // Предел различимости: последняя октава, чей период ещё шире пикселя.
-  // log2(2.07) ≈ 1.05 — во столько раз растёт частота на каждой октаве.
-  gOct = clamp(log2(0.60 / max(fw * scl, 1e-5)) / 1.05, 1.0, uOct);
-
-  // Доменное искажение — континенты обретают естественные рваные очертания.
-  vec3 w = vec3(fbm(sp + 13.1), fbm(sp + 71.7), fbm(sp + 29.3));
-  vec3 q = sp + uWarp * w;
-  // Крупная низкочастотная компонента сливает сушу в настоящие континенты.
-  float h = mix(fbm(q), fbm(q * 0.42 + 5.7), uContinent);
-
-  // Газовые гиганты: турбулентные широтные полосы.
-  if (uBands > 0.5) {
-    h = mix(h, sin(n.y * uBands + w.x * 4.0 + uSeed) * 0.55, 0.7);
-  }
-
-  float hn = h * 0.5 + 0.5;
-
-  // Настоящая карта континентов (Супер-Земля): маска в эквидистантной проекции
-  // задаёт сушу, fbm слегка рвёт береговую линию.
-  if (uUseMask > 0.5) {
-    float lon = atan(n.z, n.x) / 6.2831853 + 0.5;
-    float latv = asin(clamp(n.y, -1.0, 1.0)) / 3.1415926 + 0.5;
-    float m = texture2D(uMask, vec2(lon, latv)).r;
-    float coast = fbm(q * 3.2) * 0.14;
-    hn = mix(uWater - 0.22, uWater + 0.3, clamp(m + coast, 0.0, 1.0));
-  }
-
-  float land = smoothstep(uWater - 0.05, uWater + 0.05, hn);
-  vec3 surf = mix(uSea, uLand, land);
-
-  // Высотная окраска суши: низины темнее и сочнее, нагорья светлее.
-  float relief = fbm(q * 2.6);
-  surf = mix(surf * 0.8, surf * 1.25, smoothstep(-0.4, 0.6, relief) * land);
-
-  // --- Настоящий рельеф вместо размытых пятен ------------------------------
-  //
-  // Три слоя разного масштаба, и каждый добавляет ту частоту, которой раньше
-  // не было: складчатые горы с острым гребнем, эрозионная сетка долин и
-  // мелкое зерно поверхности. Всё считается только на суше — на воде и в
-  // облаках эти детали не нужны и стоили бы даром.
-  float mountains = ridged(q * 1.9 + 4.3, min(gOct, 5.0));
-  float chains = smoothstep(0.55, 0.95, mountains) * band(scl * 1.9, fw);
-  surf = mix(surf, surf * 0.66, chains * 0.55 * land);
-  float crest = smoothstep(0.86, 1.02, mountains) * band(scl * 1.9, fw);
-  surf += vec3(0.13, 0.12, 0.11) * crest * land;
-
-  // Эрозия: узкие тёмные жилы долин там, где склон круче всего.
-  float valleys = 1.0 - abs(fbm(q * 4.1 + 51.0));
-  surf = mix(surf, surf * 0.72,
-    smoothstep(0.88, 1.0, valleys) * land * 0.7 * band(scl * 4.1, fw));
-
-  // Зерно поверхности — то, что глаз читает как «резкость». Каждый слой
-  // живёт ровно до своего предела различимости, иначе вместо резкости
-  // получается муар.
-  float detail = fbm(q * 5.3);
-  surf *= 1.0 + (detail * 0.5 - 0.07) * 0.28 * band(scl * 5.3, fw);
-  surf *= 1.0 + (grit(q * 15.0) - 0.5) * 0.22 * band(scl * 15.0, fw);
-  surf *= 1.0 + (grit(q * 38.0 + 7.0) - 0.5) * 0.13 * band(scl * 38.0, fw);
-
-  // Прибрежная полоса чуть светлее (отмели).
-  float shore = smoothstep(uWater - 0.05, uWater, hn) * (1.0 - land);
-  surf += uSea * shore * 0.5;
-
-  // Хребты: тёмные жилы горных цепей (пустыни и безводные миры).
-  if (uRidges > 0.5) {
-    // На безводных мирах горы — главный сюжет поверхности, поэтому вторая,
-    // более крупная гряда поверх общей складчатости.
-    float ridge = ridged(q * 1.15 + 31.0, min(gOct, 5.0));
-    float big = smoothstep(0.50, 0.92, ridge) * band(scl * 1.15, fw);
-    surf = mix(surf, surf * 0.45, big * 0.8);
-    surf += vec3(0.16, 0.13, 0.09) * smoothstep(0.88, 1.05, ridge) * band(scl * 1.15, fw);
-    // Дюнные поля между грядами: направленная рябь, а не изотропный шум.
-    float dunes = sin(dot(n, vec3(0.7, 0.2, -0.68)) * 90.0 + fbm(q * 1.7) * 9.0);
-    surf *= 1.0 + 0.055 * dunes * (1.0 - big) * band(90.0, fw);
-  }
-
-  // Ледяные миры: поля разломанных плит с подсвеченными кромками.
-  if (uIce > 0.5) {
-    float plate = 1.0 - abs(fbm(q * 3.3 + 77.0));
-    float vis = band(scl * 3.3, fw);
-    float crack = smoothstep(0.90, 0.995, plate) * vis;
-    surf = mix(surf, surf * 0.68 + vec3(0.05, 0.09, 0.14), crack * 0.85);
-    surf += vec3(0.10, 0.13, 0.16) * smoothstep(0.975, 1.0, plate) * vis;
-  }
-
-  // Кратерные поля мёртвых миров: чаши с подсвеченными валами.
-  if (uCraters > 0.5) {
-    float cr = abs(snoise(q * 3.1 + 60.0));
-    float bowl = 1.0 - smoothstep(0.0, 0.09, cr);
-    float rim = smoothstep(0.05, 0.09, cr) - smoothstep(0.09, 0.2, cr);
-    surf = mix(surf, surf * 0.5, bowl * 0.85);
-    surf += vec3(0.12, 0.11, 0.1) * rim;
-  }
-
-  // Полярные шапки — только там, где им положено быть (uCapSize > 1 = нет шапок).
-  // Кромка льда рваная: шум ломает ровную границу.
-  float lat = abs(n.y);
-  float cap = smoothstep(uCapSize, uCapSize + 0.1, lat + relief * 0.05 + fbm(q * 3.1 + 9.0) * 0.045);
-  surf = mix(surf, vec3(0.93, 0.96, 1.0), cap * 0.85);
-
-  // Большой шторм-вихрь газового гиганта (у каждого — свой, по сиду).
-  if (uBands > 0.5) {
-    float lonS = atan(n.z, n.x);
-    vec2 sd = vec2(sin(lonS - uSeed), (n.y - 0.22) * 2.6);
-    float storm = 1.0 - smoothstep(0.1, 0.4, length(sd));
-    float swirl = fbm(sp * 3.0 + vec3(uTime * 0.05, 0.0, 0.0)) * 0.5 + 0.5;
-    surf = mix(surf, surf * 1.45 + uLand * 0.3, storm * (0.55 + 0.45 * swirl));
-  }
-
-  // Два слоя облаков: крупные массивы + перистая рябь.
-  float c1 = fbm(sp * 1.6 + vec3(uTime * 0.03, 0.0, 0.0));
-  float c2 = fbm(sp * 4.2 + vec3(-uTime * 0.05, uTime * 0.01, 0.0));
-  float clouds = smoothstep(0.32, 0.72, c1 * 0.5 + 0.5) * 0.75 + smoothstep(0.55, 0.9, c2 * 0.5 + 0.5) * 0.35;
-  clouds *= uClouds;
-  // Токсичные миры: кислотно-зелёные вихри вместо белых облаков.
-  vec3 cloudCol = mix(vec3(1.0), vec3(0.72, 1.0, 0.5), uToxic);
-  surf = mix(surf, cloudCol, clamp(clouds, 0.0, 1.0) * 0.6);
-
-  // --- Освещение ------------------------------------------------------------
-  // Мир должен иметь ночную сторону.
-  //
-  // Свет по-прежнему заворачивается за терминатор (wrap-diffuse) — жёсткая
-  // ламбертова граница выглядит дёшево, — но заворот СИЛЬНО уже прежнего, а
-  // полусферный ambient приглушён: раньше вместе они держали теневую сторону
-  // подсвеченной почти как дневную, и планета читалась плоским ярким кругом
-  // без объёма.
-  vec3 nrm = normalize(vWorldN);
-  vec3 sun = normalize(uSun);
-  float ndl = dot(nrm, sun);
-  const float WRAP = 0.12;
-  float diff = clamp((ndl + WRAP) / (1.0 + WRAP), 0.0, 1.0);
-  diff *= diff * (3.0 - 2.0 * diff);            // мягкое S-образное спадание
-
-  // Ambient — только отсвет неба и диска, а не вторая лампа: тень должна
-  // оставаться тенью, иначе объём теряется.
-  vec3 skyAmb = vec3(0.058, 0.072, 0.100);       // холодное небо сверху
-  vec3 gndAmb = vec3(0.044, 0.038, 0.034);       // тёплый отсвет снизу
-  vec3 ambient = mix(gndAmb, skyAmb, nrm.y * 0.5 + 0.5);
-  // Тень от колец: луч на солнце из точки поверхности пересекается с
-  // плоскостью кольца; попадание между внутренним и внешним радиусом гасит
-  // прямой свет. Полоса тени ползёт по глобусу вместе с наклоном кольца.
-  float ringShadow = 1.0;
-  if (uHasRing > 0.5) {
-    // Нормаль кольца переведена в мир тем же преобразованием, что и nrm:
-    // иначе полоса тени легла бы мимо освещённой стороны.
-    vec3 rn = normalize(vRingN);
-    float denom = dot(rn, sun);
-    if (abs(denom) > 1e-4) {
-      float t = -dot(rn, nrm) / denom;           // nrm на сфере = точка на ней
-      if (t > 0.0) {
-        vec3 hit = nrm + sun * t;
-        float r = length(hit - rn * dot(rn, hit));
-        float band = smoothstep(uRingIn, uRingIn + 0.06, r) *
-                     (1.0 - smoothstep(uRingOut - 0.06, uRingOut, r));
-        ringShadow = 1.0 - band * 0.62;
-      }
-    }
-  }
-
-  vec3 sunCol = vec3(1.0, 0.965, 0.90);
-  vec3 col = surf * (ambient + sunCol * diff * 1.02 * ringShadow);
-
-  // Тёплая полоса терминатора — «закат» на границе дня и ночи. Стала заметнее:
-  // теперь ей есть на чём проступать.
-  float term = smoothstep(0.0, 0.16, diff) * (1.0 - smoothstep(0.16, 0.42, diff));
-  col += vec3(0.44, 0.22, 0.09) * term * 0.34 * (1.0 - clouds * 0.5);
-
-  // Солнечный блик на воде: шире и слабее, чтобы не резал глаз.
-  vec3 vd = normalize(cameraPosition - vWorldP);
-  float spec = pow(clamp(dot(reflect(-sun, nrm), vd), 0.0, 1.0), 42.0);
-  col += vec3(1.0, 0.97, 0.88) * spec * (1.0 - land) * (1.0 - clouds) * 0.26;
-
-  // Ледяные миры: сеть трещин и холодный зеркальный блеск.
-  if (uIce > 0.5) {
-    float cracks = smoothstep(0.84, 0.96, 1.0 - abs(fbm(q * 5.5 + 23.0)));
-    col = mix(col, vec3(0.6, 0.8, 1.0), cracks * 0.3 * band(scl * 5.5, fw));
-    col += vec3(0.7, 0.85, 1.0) * spec * 0.4;
-  }
-
-  // Магмовые миры: лавовые океаны светятся и ночью, по коре бегут жилы огня.
-  //
-  // Яркость НЕ пульсирует целиком: общий множитель по времени заставлял
-  // планету мигать как лампочка — особенно заметно, когда мир занимает на
-  // экране десяток пикселей. Вместо этого по поверхности медленно течёт
-  // тепловой шум, поэтому светятся то одни жилы, то другие.
-  if (uLava > 0.5) {
-    vec3 flow = q * 3.1 + vec3(uTime * 0.035, uTime * 0.021, uTime * 0.028);
-    float heat = fbm(flow) * 0.5 + 0.5;
-    col += uSea * (1.0 - land) * (0.42 + 0.16 * heat);
-    float veins = smoothstep(0.78, 0.93, 1.0 - abs(fbm(q * 4.2 + 7.0)));
-    col += vec3(1.0, 0.36, 0.06) * veins * land * (0.62 + 0.34 * heat) * band(scl * 4.2, fw);
-  }
-
-  // Ночные огни городов на тёмной стороне обитаемых миров.
-  if (uCity > 0.5) {
-    float night = 1.0 - smoothstep(0.0, 0.25, diff);
-    float lights = smoothstep(0.72, 0.86, fbm(q * 7.0) * 0.5 + 0.5);
-    col += vec3(1.0, 0.82, 0.45) * lights * night * land * (1.0 - clouds) * 0.9
-      * mix(0.35, 1.0, band(scl * 7.0, fw));
-  }
-
-  // Погода войны: на сражающейся планете тлеют пожары и стелется гарь.
-  if (uBattle > 0.5) {
-    // Пожары движутся вместе с шумом, но не строботят: множитель на sin с
-    // частотой в пять герц давал именно мигание, а не жизнь.
-    float fire = smoothstep(0.74, 0.94, fbm(q * 6.0 + vec3(uTime * 0.25)) * 0.5 + 0.5);
-    col += vec3(1.0, 0.42, 0.1) * fire * land * 0.85;
-    float smoke = smoothstep(0.5, 0.85, fbm(q * 2.4 + vec3(-uTime * 0.06, uTime * 0.04, 0.0)) * 0.5 + 0.5);
-    col = mix(col, vec3(0.16, 0.14, 0.13), smoke * 0.35);
-  }
-  // Шрамы войны: выжженные пятна на месте долгих сражений — навсегда.
-  if (uScar > 0.5) {
-    float burn = smoothstep(0.68, 0.9, fbm(q * 3.4 + 17.0) * 0.5 + 0.5);
-    col = mix(col, vec3(0.07, 0.06, 0.05), burn * 0.55 * land);
-    float ash = smoothstep(0.8, 0.95, fbm(q * 6.8 + 41.0) * 0.5 + 0.5);
-    col = mix(col, vec3(0.2, 0.18, 0.16), ash * 0.3);
-  }
-
-  // Осада: отрезанный от снабжения мир меркнет.
-  col *= uDim;
-
-  // Фракционный ободок — единственная цветовая кодировка на сфере.
-  // Показатель степени высокий намеренно: кайма должна быть узкой полоской
-  // у самого края, а не широкой заливкой в полпланеты.
-  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 6.5);
-  col += uTint * fres * 1.3;
-  col += uAtmo * fres * 0.10;
-  gl_FragColor = vec4(col, 1.0);
-}
-`;
-
-const ATMO_VERT = /* glsl */ `
-varying vec3 vWorldN; varying vec3 vWorldP;
-void main(){
-  vWorldN = normalize(mat3(modelMatrix) * normal);
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vWorldP = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}
-`;
-const ATMO_FRAG = /* glsl */ `
-uniform vec3 uColor;
-uniform vec3 uSun;
-varying vec3 vWorldN; varying vec3 vWorldP;
-void main(){
-  vec3 nrm = normalize(vWorldN);
-  vec3 vd = normalize(cameraPosition - vWorldP);
-  // Атмосферная оболочка: тонкий нимб у самого лимба, без раздутого гало.
-  float fres = pow(1.0 - clamp(dot(nrm, vd), 0.0, 1.0), 7.0);
-  // Нимб СВЕТИТСЯ ТОЛЬКО СО СТОРОНЫ СОЛНЦА. Раньше он шёл ровным кольцом по
-  // всему лимбу, включая ночную сторону, и это сильнее всего съедало объём:
-  // как ни затемняй поверхность, планета оставалась ярким кругом в ободке.
-  // Солнце то же, что в шейдере поверхности, — общий мировой уникформ.
-  vec3 sun = normalize(uSun);
-  float lit = smoothstep(-0.35, 0.30, dot(nrm, sun));
-  // На ночной стороне остаётся едва заметный контур: мир не должен пропадать
-  // с карты целиком.
-  gl_FragColor = vec4(uColor, fres * (0.07 + 0.55 * lit));
-}
-`;
-
-/**
- * Направление НА солнце в мировых координатах — ОДНО на всю карту.
- *
- * Уникформ намеренно общий объект: он попадает в материал каждой планеты и
- * каждой атмосферной оболочки по ссылке, поэтому одно присваивание в
- * setSunDirection мгновенно перекрашивает все двести миров.
- */
-export const SUN_UNIFORM = { value: new THREE.Vector3(0.48, 0.62, 0.62).normalize() };
-
-/** Повернуть общее солнце карты. */
-export function setSunDirection(x: number, y: number, z: number): void {
-  SUN_UNIFORM.value.set(x, y, z).normalize();
+function shellData(): VertexData {
+  if (!shellVD) shellVD = CreateSphereVertexData({ segments: 20, diameter: 2 });
+  return shellVD;
 }
 
-const SPHERE_GEO = new THREE.SphereGeometry(1, 72, 54);
-const SHELL_GEO = new THREE.SphereGeometry(1, 28, 20);
+/** Меш из готовых вершинных данных — общий приём для всех оболочек мира. */
+function meshFrom(name: string, vd: VertexData, scene: Scene): Mesh {
+  const m = new Mesh(name, scene);
+  vd.applyToMesh(m, false);
+  m.isPickable = false;
+  return m;
+}
+
+/** Простая непросвечивающая оболочка (Мрак, Бездна, щит). */
+function shellMaterial(
+  name: string, scene: Scene, color: Color3, alpha: number, additive: boolean,
+): StandardMaterial {
+  const m = new StandardMaterial(name, scene);
+  m.emissiveColor = color;
+  m.diffuseColor = new Color3(0, 0, 0);
+  m.specularColor = new Color3(0, 0, 0);
+  m.disableLighting = true;
+  m.alpha = alpha;
+  m.disableDepthWrite = true;
+  if (additive) m.alphaMode = Constants.ALPHA_ADD;
+  return m;
+}
 
 // Кольцо наведения: три дуги с тремя квадратными вырезами, равномерно
 // распределёнными по окружности. Вращается вокруг оси планеты.
 const HOVER_ARC = (Math.PI * 2) / 3 - 0.38; // дуга ~101°, вырез ~22°
-function buildHoverRing(): THREE.Group {
-  const g = new THREE.Group();
-  for (let i = 0; i < 3; i++) {
-    const start = (i * Math.PI * 2) / 3 + 0.19;
-    const geo = new THREE.RingGeometry(1.42, 1.58, 20, 1, start, HOVER_ARC);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffd24a,
-      transparent: true,
-      opacity: 0.95,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const arc = new THREE.Mesh(geo, mat);
-    g.add(arc);
+
+/** Плоское кольцо-дуга в плоскости XZ: внутренний и внешний радиус, сектор. */
+function arcVertexData(r0: number, r1: number, start: number, span: number, seg = 20): VertexData {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= seg; i++) {
+    const a = start + (span * i) / seg;
+    const c = Math.cos(a), s = Math.sin(a);
+    positions.push(c * r0, 0, s * r0, c * r1, 0, s * r1);
+    normals.push(0, 1, 0, 0, 1, 0);
   }
-  g.rotation.x = -Math.PI / 2;
-  return g;
+  for (let i = 0; i < seg; i++) {
+    const b = i * 2;
+    indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+  }
+  const vd = new VertexData();
+  vd.positions = positions;
+  vd.normals = normals;
+  vd.indices = indices;
+  return vd;
+}
+
+/** Облако точек — поле обломков и орбитальный мусор. */
+function pointCloud(name: string, pts: Float32Array, scene: Scene): Mesh {
+  const mesh = new Mesh(name, scene);
+  const vd = new VertexData();
+  vd.positions = pts;
+  vd.indices = new Uint32Array(pts.length / 3).map((_, i) => i);
+  vd.applyToMesh(mesh, false);
+  mesh.isPickable = false;
+  mesh.alwaysSelectAsActiveMesh = true;
+  return mesh;
 }
 
 export interface PlanetVisual {
-  group: THREE.Group;
-  surface: THREE.Mesh;
-  material: THREE.ShaderMaterial;
+  root: TransformNode;
+  surface: Mesh;
+  material: ShaderMaterial;
   planetId: string;
   baseRadius: number;
   update(t: number, dt: number): void;
@@ -483,7 +123,7 @@ export interface PlanetVisual {
   setScar(on: boolean): void;
   /** Обломки погибших флотов на орбите (0 — чисто). */
   setWreckage(amount: number): void;
-  /** Уровень детализации шейдера: октавы шума (5 — вблизи, 3 — издали). */
+  /** Уровень детализации шейдера: октавы шума (5 — вблизи, 7 — рядом). */
   setLod(octaves: number): void;
   /** Вблизи — рельефная геометрия из Blender, издали — гладкая сфера. */
   setRelief(on: boolean): void;
@@ -498,8 +138,8 @@ export interface PlanetVisual {
 // канве (эквидистантная проекция) и подаются в шейдер маской суши.
 // ---------------------------------------------------------------------------
 
-let earthMaskTex: THREE.Texture | null = null;
-let dummyMaskTex: THREE.Texture | null = null;
+let earthMaskTex: Texture | null = null;
+let dummyMaskTex: Texture | null = null;
 
 type LL = [number, number]; // [долгота, широта] в градусах
 
@@ -520,15 +160,15 @@ const CONTINENTS: LL[][] = [
   [[-180, -70], [180, -70], [180, -90], [-180, -90]],
 ];
 
-function buildEarthMask(): THREE.Texture {
-  const cv = document.createElement('canvas');
-  cv.width = 512; cv.height = 256;
-  const ctx = cv.getContext('2d')!;
+function buildEarthMask(scene: Scene): Texture {
+  const w = 512, h = 256;
+  const tex = new DynamicTexture('earthMask', { width: w, height: h }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#fff';
-  const X = (lon: number) => ((lon + 180) / 360) * cv.width;
-  const Y = (lat: number) => ((90 - lat) / 180) * cv.height;
+  const X = (lon: number) => ((lon + 180) / 360) * w;
+  const Y = (lat: number) => ((90 - lat) / 180) * h;
   for (const poly of CONTINENTS) {
     ctx.beginPath();
     poly.forEach(([lon, lat], i) => (i === 0 ? ctx.moveTo(X(lon), Y(lat)) : ctx.lineTo(X(lon), Y(lat))));
@@ -545,21 +185,19 @@ function buildEarthMask(): THREE.Texture {
   isle(139, 37, 4, 10, 0.5);
   isle(172, -42, 3, 8, 0.3);
   isle(114, 0, 8, 6);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearFilter;
+  tex.update();
+  tex.wrapU = Texture.WRAP_ADDRESSMODE;
   return tex;
 }
 
-function maskFor(planetId: string): { tex: THREE.Texture; use: number } {
+function maskFor(planetId: string, scene: Scene): { tex: Texture; use: number } {
   if (planetId === 'p_super_earth') {
-    if (!earthMaskTex) earthMaskTex = buildEarthMask();
+    if (!earthMaskTex) earthMaskTex = buildEarthMask(scene);
     return { tex: earthMaskTex, use: 1 };
   }
   if (!dummyMaskTex) {
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = 2;
-    dummyMaskTex = new THREE.CanvasTexture(cv);
+    dummyMaskTex = new DynamicTexture('noMask', { width: 2, height: 2 }, scene, false);
+    (dummyMaskTex as DynamicTexture).update();
   }
   return { tex: dummyMaskTex, use: 0 };
 }
@@ -575,19 +213,18 @@ function seededStream(seed: number): () => number {
   };
 }
 
-export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual {
+export function createPlanetVisual(planet: Planet, scene: Scene): PlanetVisual {
   const biome = BIOMES[planet.biome];
-  const baseRadius = 0.42 * planet.scale * scale;
+  const baseRadius = 0.42 * planet.scale;
   const rand = seededStream(planet.seed);
 
   // Every planet gets its own surface: jittered colours, water level,
   // terrain frequency, spin and axial tilt — all derived from planet.seed.
-  const land = new THREE.Color(biome.land).offsetHSL(rand() * 0.08 - 0.04, rand() * 0.2 - 0.1, rand() * 0.16 - 0.08);
-  const sea = new THREE.Color(biome.sea).offsetHSL(rand() * 0.06 - 0.03, rand() * 0.2 - 0.1, rand() * 0.12 - 0.06);
+  const land = offsetHSL(hexColor(biome.land), rand() * 0.08 - 0.04, rand() * 0.2 - 0.1, rand() * 0.16 - 0.08);
+  const sea = offsetHSL(hexColor(biome.sea), rand() * 0.06 - 0.03, rand() * 0.2 - 0.1, rand() * 0.12 - 0.06);
   const water = Math.min(0.95, Math.max(0.02, biome.water + rand() * 0.26 - 0.13));
-  // Разброс базовой частоты расширен: раньше все миры одного биома лепились
-  // из шума почти одного масштаба и на общем плане выглядели однояйцевыми.
-  // Теперь рядом стоят и мир крупных плит, и мир мелко изрезанной суши.
+  // Разброс базовой частоты широкий: иначе все миры одного биома лепятся из
+  // шума почти одного масштаба и на общем плане выглядят однояйцевыми.
   const freq = 0.75 + rand() * 4.1;
   const clouds = Math.min(1, Math.max(0, biome.clouds + rand() * 0.25 - 0.12));
   const spinSpeed = (0.0012 + rand() * 0.003) * (rand() < 0.15 ? -1 : 1);
@@ -611,158 +248,192 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
   const ridges = planet.biome === 'desert' || planet.biome === 'barren' ? 1 : 0;
   // Кратерные поля: бесплодные — всегда, ледяные/пустынные — через раз.
   const craters = planet.biome === 'barren' || ((planet.biome === 'ice' || planet.biome === 'desert') && rand() < 0.45) ? 1 : 0;
-  const mask = maskFor(planet.id);
+  const mask = maskFor(planet.id, scene);
 
-  const material = new THREE.ShaderMaterial({
-    vertexShader: VERT,
-    fragmentShader: FRAG,
-    // fwidth: нужен, чтобы гасить мелкие узоры там, где пиксель шире узора.
-    // На WebGL2 доступен всегда, на WebGL1 включается расширением.
-    extensions: { derivatives: true } as unknown as THREE.ShaderMaterialParameters['extensions'],
-    uniforms: {
-      uLand: { value: land },
-      uSea: { value: sea },
-      uAtmo: { value: new THREE.Color(biome.atmo) },
-      uTint: { value: new THREE.Color(factionColor(planet.owner)) },
-      uWater: { value: water },
-      uRough: { value: biome.rough },
-      uClouds: { value: clouds },
-      uTime: { value: 0 },
-      uSeed: { value: (planet.seed % 8933) * 0.017 },
-      uFreq: { value: freq },
-      uWarp: { value: warp },
-      uBands: { value: bands },
-      uCity: { value: city },
-      uCapSize: { value: capSize },
-      uContinent: { value: continent },
-      uRidges: { value: ridges },
-      uCraters: { value: craters },
-      uBattle: { value: 0 },
-      uDim: { value: 1 },
-      uScar: { value: 0 },
-      uOct: { value: 7 },
-      uLava: { value: planet.biome === 'magma' || planet.biome === 'volcanic' ? 1 : 0 },
-      uIce: { value: planet.biome === 'ice' ? 1 : 0 },
-      uToxic: { value: planet.biome === 'toxic' ? 1 : 0 },
-      uMask: { value: mask.tex },
-      uUseMask: { value: mask.use },
-      // Тень колец: заполняется ниже, когда решено, есть ли у мира кольцо.
-      uRingN: { value: new THREE.Vector3(0, 1, 0) },
-      uRingIn: { value: 1.32 },
-      uRingOut: { value: 2.18 },
-      uHasRing: { value: 0 },
-      uSun: SUN_UNIFORM,
-    },
+  const material = new ShaderMaterial(`planet_${planet.id}`, scene, 'planetSurface', {
+    attributes: SURFACE_ATTRS,
+    uniforms: SURFACE_UNIFORMS,
+    samplers: ['uMask'],
   });
+  const ownerColor = hexColor(factionColor(planet.owner));
+  material.setColor3('uLand', land);
+  material.setColor3('uSea', sea);
+  material.setColor3('uAtmo', hexColor(biome.atmo));
+  material.setColor3('uTint', ownerColor);
+  material.setFloat('uWater', water);
+  material.setFloat('uRough', biome.rough);
+  material.setFloat('uClouds', clouds);
+  material.setFloat('uTime', 0);
+  material.setFloat('uSeed', (planet.seed % 8933) * 0.017);
+  material.setFloat('uFreq', freq);
+  material.setFloat('uWarp', warp);
+  material.setFloat('uBands', bands);
+  material.setFloat('uCity', city);
+  material.setFloat('uCapSize', capSize);
+  material.setFloat('uContinent', continent);
+  material.setFloat('uRidges', ridges);
+  material.setFloat('uCraters', craters);
+  material.setFloat('uBattle', 0);
+  material.setFloat('uDim', 1);
+  material.setFloat('uScar', 0);
+  material.setFloat('uOct', 7);
+  material.setFloat('uLava', planet.biome === 'magma' || planet.biome === 'volcanic' ? 1 : 0);
+  material.setFloat('uIce', planet.biome === 'ice' ? 1 : 0);
+  material.setFloat('uToxic', planet.biome === 'toxic' ? 1 : 0);
+  material.setTexture('uMask', mask.tex);
+  material.setFloat('uUseMask', mask.use);
+  material.setVector3('uSun', SUN_DIR);
 
-  // Рельефная геометрия из Blender: у мира появляется настоящий силуэт гор,
-  // кратеров и разломов. Издали её подменяет гладкая сфера (см. setRelief).
-  // Старт всегда с гладкой сферы: на общем плане галактики рельеф не читается,
-  // зато его нормали дают мерцание на планетах размером в десяток пикселей.
-  const relief = reliefGeometry(planet.biome, planet.seed);
-  // Тип геометрии — общий BufferGeometry: меш переключается между гладкой
-  // сферой и рельефным мешем из Blender (см. setRelief).
-  const surface: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> =
-    new THREE.Mesh(SPHERE_GEO, material);
-  surface.scale.setScalar(baseRadius);
-  surface.userData.planetId = planet.id;
+  const root = new TransformNode(`p_${planet.id}`, scene);
+
   // Наклон оси вынесен на родителя: если крутить сам меш по Y поверх поворота
   // по Z, полюс уходит конусом (прецессия) вместо честного вращения.
-  // Дополнительный поворот по X разворачивает рельеф — миры одного семейства
+  // Дополнительный поворот по Y разворачивает рельеф — миры одного семейства
   // показывают разные свои стороны и не выглядят копиями.
-  const axis = new THREE.Object3D();
-  axis.rotation.set(rand() * Math.PI * 2, 0, tilt);
-  axis.add(surface);
+  const axis = new TransformNode(`axis_${planet.id}`, scene);
+  axis.parent = root;
+  axis.rotation.set(0, rand() * Math.PI * 2, tilt);
+
+  // Гладкая сфера — основной вид с общего плана.
+  const surface = meshFrom(`surf_${planet.id}`, sphereData(), scene);
+  surface.material = material;
+  surface.scaling.setAll(baseRadius);
+  surface.parent = axis;
+  // Пикинг идёт по гладкой сфере: она есть всегда, у неё простая геометрия и
+  // ровно тот силуэт, по которому игрок целится.
+  surface.isPickable = true;
+  surface.metadata = { planetId: planet.id };
+
+  // Рельефная геометрия из Blender: у мира появляется настоящий силуэт гор,
+  // кратеров и разломов. Держится отдельным мешем и включается на подлёте —
+  // на общем плане рельеф не читается, зато его нормали дают мерцание на
+  // планетах размером в десяток пикселей.
+  const reliefVD = reliefShape(planet.biome, planet.seed);
+  let relief: Mesh | null = null;
+  if (reliefVD) {
+    relief = meshFrom(`relief_${planet.id}`, reliefVD, scene);
+    relief.material = material;
+    relief.scaling.setAll(baseRadius);
+    relief.parent = axis;
+    relief.setEnabled(false);
+  }
 
   // Кольца: у газовых гигантов почти всегда, у прочих крупных миров изредка.
   // Геометрия — набор концентрических полос из Blender (щели видны на просвет).
   const wantsRing = planet.biome === 'gas' ? rand() < 0.8 : rand() < 0.07;
-  const ringGeo = wantsRing ? ringGeometry() : null;
-  let ringMesh: THREE.Mesh | null = null;
-  if (ringGeo) {
-    const ringMat = new THREE.MeshLambertMaterial({
-      color: land.clone().lerp(new THREE.Color(0xffffff), 0.35),
-      transparent: true,
-      opacity: 0.5,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    ringMesh.scale.setScalar(baseRadius);
+  const ringVD = wantsRing ? ringShape() : null;
+  let ringMesh: Mesh | null = null;
+  if (ringVD) {
+    ringMesh = meshFrom(`ring_${planet.id}`, ringVD, scene);
+    const ringMat = new PBRMaterial(`ringMat_${planet.id}`, scene);
+    ringMat.albedoColor = mixColor(land, new Color3(1, 1, 1), 0.35);
+    ringMat.metallic = 0;
+    ringMat.roughness = 0.9;
+    ringMat.alpha = 0.5;
+    ringMat.backFaceCulling = false;
+    ringMat.disableDepthWrite = true;
+    ringMesh.material = ringMat;
+    ringMesh.scaling.setAll(baseRadius);
+    ringMesh.parent = root;
     // В glTF кольцо уже лежит горизонтально — нужен только лёгкий наклон.
     ringMesh.rotation.x = rand() * 0.44 - 0.22;
     ringMesh.rotation.z = rand() * 0.44 - 0.22;
     // Нормаль плоскости кольца в системе планеты — по ней шейдер поверхности
     // считает, куда ложится теневая полоса.
-    const ringNormal = new THREE.Vector3(0, 1, 0)
-      .applyEuler(new THREE.Euler(ringMesh.rotation.x, 0, ringMesh.rotation.z));
-    material.uniforms.uRingN.value.copy(ringNormal);
-    material.uniforms.uHasRing.value = 1;
+    const rn = new Vector3(0, 1, 0);
+    const cx = Math.cos(ringMesh.rotation.x), sx = Math.sin(ringMesh.rotation.x);
+    const cz = Math.cos(ringMesh.rotation.z), sz = Math.sin(ringMesh.rotation.z);
+    rn.set(-sz * cx, cz * cx, sx);
+    material.setVector3('uRingN', rn.normalize());
+    material.setFloat('uRingIn', 1.32);
+    material.setFloat('uRingOut', 2.18);
+    material.setFloat('uHasRing', 1);
+  } else {
+    material.setVector3('uRingN', new Vector3(0, 1, 0));
+    material.setFloat('uRingIn', 1.32);
+    material.setFloat('uRingOut', 2.18);
+    material.setFloat('uHasRing', 0);
   }
 
   // Луна: спутник-обломок у части крупных миров.
-  const moonGeo = planet.scale > 0.9 && rand() < 0.3 ? moonGeometry() : null;
-  let moonMesh: THREE.Mesh | null = null;
-  const moonOrbit = { r: baseRadius * (2.4 + rand() * 0.9), phase: rand() * Math.PI * 2, speed: 0.12 + rand() * 0.16, y: (rand() * 2 - 1) * baseRadius * 0.5 };
-  if (moonGeo) {
-    moonMesh = new THREE.Mesh(moonGeo, new THREE.MeshLambertMaterial({ color: 0x8d8577 }));
-    moonMesh.scale.setScalar(baseRadius * (0.16 + rand() * 0.1));
+  const moonVD = planet.scale > 0.9 && rand() < 0.3 ? moonShape() : null;
+  let moonMesh: Mesh | null = null;
+  const moonOrbit = {
+    r: baseRadius * (2.4 + rand() * 0.9), phase: rand() * Math.PI * 2,
+    speed: 0.12 + rand() * 0.16, y: (rand() * 2 - 1) * baseRadius * 0.5,
+  };
+  if (moonVD) {
+    moonMesh = meshFrom(`moon_${planet.id}`, moonVD, scene);
+    const mm = new PBRMaterial(`moonMat_${planet.id}`, scene);
+    mm.albedoColor = new Color3(0.55, 0.52, 0.47);
+    mm.metallic = 0;
+    mm.roughness = 0.95;
+    moonMesh.material = mm;
+    moonMesh.scaling.setAll(baseRadius * (0.16 + rand() * 0.1));
+    moonMesh.parent = root;
   }
 
   // Faction-coloured halo — ownership is always read from this one colour.
-  const atmoMat = new THREE.ShaderMaterial({
-    vertexShader: ATMO_VERT,
-    fragmentShader: ATMO_FRAG,
-    uniforms: {
-      uColor: { value: new THREE.Color(factionColor(planet.owner)) },
-      uSun: SUN_UNIFORM,
-    },
-    transparent: true,
-    side: THREE.BackSide,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
+  const atmoMat = new ShaderMaterial(`atmo_${planet.id}`, scene, 'planetAtmo', {
+    attributes: SURFACE_ATTRS,
+    uniforms: ATMO_UNIFORMS,
+    needAlphaBlending: true,
   });
-  const atmo = new THREE.Mesh(SHELL_GEO, atmoMat);
-  atmo.scale.setScalar(baseRadius * 1.045);
+  atmoMat.setColor3('uColor', ownerColor);
+  atmoMat.setVector3('uSun', SUN_DIR);
+  atmoMat.alphaMode = Constants.ALPHA_ADD;
+  atmoMat.disableDepthWrite = true;
+  const atmo = meshFrom(`atmoM_${planet.id}`, shellData(), scene);
+  atmo.material = atmoMat;
+  atmo.scaling.setAll(baseRadius * 1.045);
+  atmo.parent = root;
+  // Рисуется ТОЛЬКО ДАЛЬНЯЯ полусфера оболочки, и это принципиально.
+  //
+  // Френель на дальних гранях равен единице по всей их площади, так что нимб
+  // получается не из него, а из перекрытия: непрозрачная планета закрывает
+  // почти всю оболочку, и наружу торчит лишь узкое кольцо шириной в 4,5%
+  // радиуса. Если оставить и ближнюю полусферу, она добавит поверх свой
+  // френелевый ореол — аддитивно, вдвое ярче, — и вместо тонкой каймы у мира
+  // появляется молочный пузырь. Переворот обхода граней (нормали при этом
+  // не трогаются) отсекает именно ближнюю половину.
+  atmo.flipFaces(false);
 
   // Кольцо наведения (появляется только при hover/выборе, крутится вокруг оси).
-  const hoverRing = buildHoverRing();
-  hoverRing.scale.setScalar(baseRadius);
-  hoverRing.visible = false;
+  const hoverRing = new TransformNode(`hover_${planet.id}`, scene);
+  hoverRing.parent = root;
+  const hoverMat = shellMaterial(`hoverMat_${planet.id}`, scene, new Color3(1, 0.82, 0.29), 0.95, false);
+  hoverMat.backFaceCulling = false;
+  const hoverArcs: Mesh[] = [];
+  for (let i = 0; i < 3; i++) {
+    const start = (i * Math.PI * 2) / 3 + 0.19;
+    const arc = meshFrom(`arc_${planet.id}_${i}`, arcVertexData(1.42, 1.58, start, HOVER_ARC), scene);
+    arc.material = hoverMat;
+    arc.parent = hoverRing;
+    hoverArcs.push(arc);
+  }
+  hoverRing.scaling.setAll(baseRadius);
+  hoverRing.setEnabled(false);
 
   // Мрак: плотный клуб спорового дыма, скрывающий планету целиком,
   // плюс внешняя рваная дымка.
-  const gloomMat = new THREE.MeshBasicMaterial({
-    color: 0x8a742c,
-    transparent: true,
-    opacity: 0.9,
-    depthWrite: false,
-  });
-  const gloomShell = new THREE.Mesh(SHELL_GEO, gloomMat);
-  gloomShell.scale.setScalar(baseRadius * 1.28);
-  gloomShell.visible = false;
+  const gloomShell = meshFrom(`gloom_${planet.id}`, shellData(), scene);
+  gloomShell.material = shellMaterial(`gloomMat_${planet.id}`, scene, new Color3(0.54, 0.45, 0.17), 0.9, false);
+  gloomShell.scaling.setAll(baseRadius * 1.28);
+  gloomShell.parent = root;
+  gloomShell.setEnabled(false);
 
-  const gloomHazeMat = new THREE.MeshBasicMaterial({
-    color: 0xd8b32a,
-    transparent: true,
-    opacity: 0.22,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const gloomHaze = new THREE.Mesh(SHELL_GEO, gloomHazeMat);
-  gloomHaze.scale.set(baseRadius * 1.75, baseRadius * 1.45, baseRadius * 1.75);
-  gloomHaze.visible = false;
+  const gloomHaze = meshFrom(`haze_${planet.id}`, shellData(), scene);
+  gloomHaze.material = shellMaterial(`hazeMat_${planet.id}`, scene, new Color3(0.85, 0.70, 0.16), 0.22, true);
+  gloomHaze.scaling.set(baseRadius * 1.75, baseRadius * 1.45, baseRadius * 1.75);
+  gloomHaze.parent = root;
+  gloomHaze.setEnabled(false);
 
   // Пелена Бездны: почти чёрная воронка на месте исчезнувшей планеты.
-  const abyssMat = new THREE.MeshBasicMaterial({
-    color: 0x1a0630,
-    transparent: true,
-    opacity: 0.85,
-    depthWrite: false,
-  });
-  const abyssShell = new THREE.Mesh(SHELL_GEO, abyssMat);
-  abyssShell.scale.setScalar(baseRadius * 1.1);
-  abyssShell.visible = false;
+  const abyssShell = meshFrom(`abyss_${planet.id}`, shellData(), scene);
+  abyssShell.material = shellMaterial(`abyssMat_${planet.id}`, scene, new Color3(0.10, 0.02, 0.19), 0.85, false);
+  abyssShell.scaling.setAll(baseRadius * 1.1);
+  abyssShell.parent = root;
+  abyssShell.setEnabled(false);
 
   // Поле обломков — кольцо каменной крошки на месте уничтоженной планеты.
   const debrisCount = 70;
@@ -774,12 +445,14 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     debrisPos[i * 3 + 1] = (rand() - 0.5) * 0.16;
     debrisPos[i * 3 + 2] = Math.sin(a) * r;
   }
-  const debrisGeo = new THREE.BufferGeometry();
-  debrisGeo.setAttribute('position', new THREE.BufferAttribute(debrisPos, 3));
-  const debrisMat = new THREE.PointsMaterial({ color: 0x9a938a, size: 0.09, sizeAttenuation: true });
-  const debris = new THREE.Points(debrisGeo, debrisMat);
-  debris.scale.setScalar(baseRadius);
-  debris.visible = false;
+  const debris = pointCloud(`debris_${planet.id}`, debrisPos, scene);
+  const debrisMat = shellMaterial(`debrisMat_${planet.id}`, scene, new Color3(0.60, 0.58, 0.54), 1, false);
+  debrisMat.pointsCloud = true;
+  debrisMat.pointSize = 3;
+  debris.material = debrisMat;
+  debris.scaling.setAll(baseRadius);
+  debris.parent = root;
+  debris.setEnabled(false);
 
   // Обломки погибших флотов: редкое тёмное кольцо крошки над орбитой.
   // Появляется после сражений и тает вместе с запасом обломков в состоянии.
@@ -792,100 +465,95 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
     wreckPos[i * 3 + 1] = (rand() - 0.5) * 0.3;
     wreckPos[i * 3 + 2] = Math.sin(a) * r;
   }
-  const wreckGeo = new THREE.BufferGeometry();
-  wreckGeo.setAttribute('position', new THREE.BufferAttribute(wreckPos, 3));
-  const wreckMat = new THREE.PointsMaterial({
-    color: 0x8a827a,
-    size: 0.055,
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-  });
-  const wreck = new THREE.Points(wreckGeo, wreckMat);
-  wreck.scale.setScalar(baseRadius);
-  wreck.visible = false;
+  const wreck = pointCloud(`wreck_${planet.id}`, wreckPos, scene);
+  const wreckMat = shellMaterial(`wreckMat_${planet.id}`, scene, new Color3(0.54, 0.51, 0.48), 0, false);
+  wreckMat.pointsCloud = true;
+  wreckMat.pointSize = 2;
+  wreck.material = wreckMat;
+  wreck.scaling.setAll(baseRadius);
+  wreck.parent = root;
+  wreck.setEnabled(false);
 
   // Планетарный щит: полупрозрачная голубая сфера, при штурме — ярче и пульсирует.
-  const shieldMat = new THREE.MeshBasicMaterial({
-    color: 0x66c8ff,
-    transparent: true,
-    opacity: 0.07,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const shield = new THREE.Mesh(SHELL_GEO, shieldMat);
-  shield.scale.setScalar(baseRadius * 1.34);
-  shield.visible = false;
+  const shieldMat = shellMaterial(`shieldMat_${planet.id}`, scene, new Color3(0.40, 0.78, 1), 0.07, true);
+  shieldMat.backFaceCulling = false;
+  const shield = meshFrom(`shield_${planet.id}`, shellData(), scene);
+  shield.material = shieldMat;
+  shield.scaling.setAll(baseRadius * 1.34);
+  shield.parent = root;
+  shield.setEnabled(false);
 
   // Орбитальная боевая станция: корпус-октаэдр с кольцом, кружит над миром.
-  const stationGrp = new THREE.Group();
-  const stBody = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.055),
-    new THREE.MeshLambertMaterial({ color: 0x9aa4b0 })
-  );
-  const stRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.085, 0.008, 6, 18),
-    new THREE.MeshBasicMaterial({ color: 0x8fd0ff, transparent: true, opacity: 0.8 })
-  );
-  stRing.rotation.x = Math.PI / 2;
-  stationGrp.add(stBody, stRing);
-  stationGrp.visible = false;
-
-  const group = new THREE.Group();
-  group.add(axis, atmo, hoverRing, gloomShell, gloomHaze, abyssShell, debris, wreck, shield, stationGrp);
-  if (ringMesh) group.add(ringMesh);
-  if (moonMesh) group.add(moonMesh);
-  group.userData.planetId = planet.id;
+  const stationGrp = new TransformNode(`station_${planet.id}`, scene);
+  stationGrp.parent = root;
+  const stBody = CreatePolyhedron(`stBody_${planet.id}`, { type: 1, size: 0.055 }, scene);
+  const stBodyMat = new PBRMaterial(`stBodyMat_${planet.id}`, scene);
+  stBodyMat.albedoColor = new Color3(0.60, 0.64, 0.69);
+  stBodyMat.metallic = 0.4;
+  stBodyMat.roughness = 0.5;
+  stBody.material = stBodyMat;
+  stBody.parent = stationGrp;
+  stBody.isPickable = false;
+  const stRing = CreateTorus(`stRing_${planet.id}`, { diameter: 0.17, thickness: 0.016, tessellation: 18 }, scene);
+  stRing.material = shellMaterial(`stRingMat_${planet.id}`, scene, new Color3(0.56, 0.82, 1), 0.8, true);
+  stRing.parent = stationGrp;
+  stRing.isPickable = false;
+  stationGrp.setEnabled(false);
 
   let spin = rand() * Math.PI * 2;
   let hovered = false;
   let selected = false;
   let inAbyss = false;
   let shieldActive = false;
+  let reliefOn = false;
+  let surfaceShown = true;
   const stationPhase = rand() * Math.PI * 2;
 
-  const syncRing = () => {
-    hoverRing.visible = (hovered || selected) && !inAbyss;
-    for (const arc of hoverRing.children) {
-      ((arc as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(selected ? 0xffd24a : 0xdce6f5);
-    }
+  /** Поверхность — это либо гладкая сфера, либо рельеф: видна ровно одна. */
+  const syncSurface = (): void => {
+    surface.setEnabled(surfaceShown && !reliefOn);
+    relief?.setEnabled(surfaceShown && reliefOn);
+  };
+
+  const syncRing = (): void => {
+    hoverRing.setEnabled((hovered || selected) && !inAbyss);
+    hoverMat.emissiveColor = selected ? new Color3(1, 0.82, 0.29) : new Color3(0.86, 0.90, 0.96);
   };
 
   return {
-    group,
+    root,
     surface,
     material,
     planetId: planet.id,
     baseRadius,
     update(t: number, dt: number) {
-      material.uniforms.uTime.value = t;
+      material.setFloat('uTime', t);
       // Скорость вращения задана «на кадр при 60 Гц» — приводим к времени,
       // иначе на 144-герцовом мониторе миры крутятся вдвое быстрее.
       spin += spinSpeed * dt * 60;
       surface.rotation.y = spin;
-      if (hoverRing.visible) hoverRing.rotation.z += dt * 0.9;
-      if (gloomShell.visible) {
+      if (relief) relief.rotation.y = spin;
+      if (hoverRing.isEnabled()) hoverRing.rotation.y += dt * 0.9;
+      if (gloomShell.isEnabled()) {
         gloomShell.rotation.y += dt * 0.15;
         gloomHaze.rotation.y -= dt * 0.1;
         // дым «дышит»
         const puff = 1 + Math.sin(t * 0.7) * 0.04;
-        gloomShell.scale.setScalar(baseRadius * 1.28 * puff);
+        gloomShell.scaling.setAll(baseRadius * 1.28 * puff);
       }
-      if (abyssShell.visible) abyssShell.rotation.y -= dt * 0.4;
+      if (abyssShell.isEnabled()) abyssShell.rotation.y -= dt * 0.4;
       if (moonMesh) {
         const a = t * moonOrbit.speed + moonOrbit.phase;
         moonMesh.position.set(Math.cos(a) * moonOrbit.r, moonOrbit.y, Math.sin(a) * moonOrbit.r);
         moonMesh.rotation.y += dt * 0.25;
       }
-      if (debris.visible) debris.rotation.y += dt * 0.08;
-      if (wreck.visible) wreck.rotation.y += dt * 0.05;
-      if (shield.visible) {
-        shieldMat.opacity = shieldActive ? 0.16 + Math.sin(t * 6) * 0.07 : 0.07;
+      if (debris.isEnabled()) debris.rotation.y += dt * 0.08;
+      if (wreck.isEnabled()) wreck.rotation.y += dt * 0.05;
+      if (shield.isEnabled()) {
+        shieldMat.alpha = shieldActive ? 0.16 + Math.sin(t * 6) * 0.07 : 0.07;
         shield.rotation.y += dt * 0.2;
       }
-      if (stationGrp.visible) {
+      if (stationGrp.isEnabled()) {
         const a = t * 0.35 + stationPhase;
         const r = baseRadius * 2.1;
         stationGrp.position.set(Math.cos(a) * r, baseRadius * 0.45, Math.sin(a) * r);
@@ -894,8 +562,9 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       }
     },
     setOwner(hex: string) {
-      material.uniforms.uTint.value.set(hex);
-      (atmoMat.uniforms.uColor.value as THREE.Color).set(hex);
+      const c = hexColor(hex);
+      material.setColor3('uTint', c);
+      atmoMat.setColor3('uColor', c);
     },
     setSelected(on: boolean) {
       selected = on;
@@ -906,60 +575,65 @@ export function createPlanetVisual(planet: Planet, scale: number): PlanetVisual 
       syncRing();
     },
     setGloom(on: boolean) {
-      gloomShell.visible = on && !inAbyss;
-      gloomHaze.visible = on && !inAbyss;
+      gloomShell.setEnabled(on && !inAbyss);
+      gloomHaze.setEnabled(on && !inAbyss);
       // Дым скрывает саму планету.
-      surface.visible = !on && !inAbyss;
-      atmo.visible = !on && !inAbyss;
+      surfaceShown = !on && !inAbyss;
+      atmo.setEnabled(surfaceShown);
+      syncSurface();
     },
     setAbyss(on: boolean) {
       inAbyss = on;
       // Планета исчезает из реального пространства: видна лишь тёмная воронка.
-      surface.visible = !on;
-      atmo.visible = !on;
-      abyssShell.visible = on;
-      if (on) gloomShell.visible = false;
+      surfaceShown = !on;
+      atmo.setEnabled(!on);
+      abyssShell.setEnabled(on);
+      if (on) {
+        gloomShell.setEnabled(false);
+        gloomHaze.setEnabled(false);
+      }
+      syncSurface();
       syncRing();
     },
     setShattered(on: boolean) {
-      surface.visible = !on;
-      atmo.visible = !on;
-      debris.visible = on;
+      surfaceShown = !on;
+      atmo.setEnabled(!on);
+      debris.setEnabled(on);
       if (on) {
-        gloomShell.visible = false;
-        abyssShell.visible = false;
+        gloomShell.setEnabled(false);
+        gloomHaze.setEnabled(false);
+        abyssShell.setEnabled(false);
       }
+      syncSurface();
     },
     setBattle(on: boolean) {
-      material.uniforms.uBattle.value = on ? 1 : 0;
+      material.setFloat('uBattle', on ? 1 : 0);
     },
     setDim(v: number) {
-      material.uniforms.uDim.value = v;
+      material.setFloat('uDim', v);
     },
     setScar(on: boolean) {
-      material.uniforms.uScar.value = on ? 1 : 0;
+      material.setFloat('uScar', on ? 1 : 0);
     },
     setWreckage(amount: number) {
-      const on = amount > 0.5 && surface.visible;
-      wreck.visible = on;
-      wreckMat.opacity = on ? Math.min(0.85, 0.25 + amount / 30) : 0;
+      const on = amount > 0.5 && surfaceShown;
+      wreck.setEnabled(on);
+      wreckMat.alpha = on ? Math.min(0.85, 0.25 + amount / 30) : 0;
     },
     setLod(octaves: number) {
-      material.uniforms.uOct.value = octaves;
+      material.setFloat('uOct', octaves);
     },
     setRelief(on: boolean) {
-      // Вблизи — вытесненная геометрия (16 тыс. треугольников), издали общая
-      // гладкая сфера: на общем плане рельеф всё равно не читается.
       if (!relief) return;
-      const want: THREE.BufferGeometry = on ? relief : SPHERE_GEO;
-      if (surface.geometry !== want) surface.geometry = want;
+      reliefOn = on;
+      syncSurface();
     },
     setShield(on: boolean, active: boolean) {
-      shield.visible = on && surface.visible;
+      shield.setEnabled(on && surfaceShown);
       shieldActive = active;
     },
     setStation(on: boolean) {
-      stationGrp.visible = on && surface.visible;
+      stationGrp.setEnabled(on && surfaceShown);
     },
   };
 }

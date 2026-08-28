@@ -102,26 +102,26 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 
 // --- Планеты: ночная сторона ------------------------------------------------------
 {
-  const mesh = read('src', 'render', 'planetMesh.ts');
+  const mesh = read('src', 'render', 'planetShaders.ts');
   // Заворот света за терминатор был так широк, что ночной стороны не было.
   const wrap = Number(/const float WRAP = ([\d.]+);/.exec(mesh)?.[1]);
   ok(wrap > 0 && wrap <= 0.16, `заворот света узкий (${wrap})`);
   const amb = /vec3 skyAmb = vec3\(([\d.]+), ([\d.]+), ([\d.]+)\)/.exec(mesh);
   ok(!!amb && Number(amb[3]) <= 0.12, `ambient приглушён (${amb?.[3]})`);
   // Ореол атмосферы обязан зависеть от солнца, иначе планета — плоский круг.
-  const atmo = mesh.slice(mesh.indexOf('const ATMO_FRAG'), mesh.indexOf('const SPHERE_GEO'));
+  const atmo = mesh.slice(mesh.indexOf('const ATMO_FRAG'), mesh.indexOf("Effect.ShadersStore['planetSurfaceVertexShader']"));
   ok(atmo.includes('vec3 sun'), 'ореол знает направление на солнце');
   ok(atmo.includes('dot(nrm, sun)'), 'и гаснет на ночной стороне');
   ok(/0\.0\d+ \+ 0\.\d+ \* lit/.test(atmo), 'на ночной стороне остаётся слабый контур');
 
   const scene = read('src', 'render', 'scene.ts');
-  const exp = Number(/toneMappingExposure = ([\d.]+)/.exec(scene)?.[1]);
+  const exp = Number(/ip\.exposure = ([\d.]+)/.exec(scene)?.[1]);
   ok(exp > 0 && exp <= 1.0, `экспозиция не задрана (${exp})`);
   // Плиты секторов лежат ковром под всей картой — на прежней яркости они
   // превращали космос в цветной пол.
-  ok(/vis\.fillMat\.color\.set\(color\)\.multiplyScalar\(0\.[0-6]\d?\)/.test(scene),
+  ok(/vis\.fillMat\.emissiveColor = color\.scale\(0\.[0-6]\d?\)/.test(scene),
     'заливка сектора затемнена относительно цвета фракции');
-  const fill = /vis\.fillMat\.opacity = ([\d.]+);/.exec(scene);
+  const fill = /vis\.fillMat\.alpha = ([\d.]+);/.exec(scene);
   ok(!!fill && Number(fill[1]) <= 0.035, `заливка сектора слабая (${fill?.[1]})`);
 
   const sf = read('src', 'render', 'starfield.ts');

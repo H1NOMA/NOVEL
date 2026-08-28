@@ -109,8 +109,9 @@ const css = readFileSync(join(ROOT, 'src', 'style.css'), 'utf8');
 
 // --- Контур планет -------------------------------------------------------------
 {
-  const mesh = readFileSync(join(ROOT, 'src', 'render', 'planetMesh.ts'), 'utf8');
-  const shell = mesh.match(/atmo\.scale\.setScalar\(baseRadius \* ([\d.]+)\)/);
+  const mesh = readFileSync(join(ROOT, 'src', 'render', 'planetMesh.ts'), 'utf8')
+    + readFileSync(join(ROOT, 'src', 'render', 'planetShaders.ts'), 'utf8');
+  const shell = mesh.match(/atmo\.scaling\.setAll\(baseRadius \* ([\d.]+)\)/);
   ok(!!shell && Number(shell[1]) <= 1.06,
     `атмосферная оболочка ужата (${shell?.[1]})`);
   const rims = [...mesh.matchAll(/pow\(1\.0 - clamp\(dot\(nrm, vd\), 0\.0, 1\.0\), ([\d.]+)\)/g)]

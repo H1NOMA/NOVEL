@@ -1,164 +1,193 @@
-import * as THREE from 'three';
+import { Engine } from '@babylonjs/core/Engines/engine';
+import { Scene } from '@babylonjs/core/scene';
+import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { CreateLineSystem, CreateDashedLines, CreateLines } from '@babylonjs/core/Meshes/Builders/linesBuilder';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
+import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
+import { Vector3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.vector';
+import { Constants } from '@babylonjs/core/Engines/constants';
+import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
+import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
+import '@babylonjs/core/Meshes/thinInstanceMesh';
+import '@babylonjs/core/Rendering/depthRendererSceneComponent';
+import '@babylonjs/core/Culling/ray';
+
 import type { GameState } from '../game/state';
 import { factionColor } from '../data/factions';
 import { bus } from '../core/emitter';
-import { createPlanetVisual, SUN_UNIFORM, type PlanetVisual } from './planetMesh';
+import { createPlanetVisual, type PlanetVisual } from './planetMesh';
 import { createNebulaDisc, createNebulaField, createStarfield, type Starfield } from './starfield';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FleetLayer } from './fleets';
 import { emblemSprite } from './emblems';
 import { reconActive } from '../game/specops';
 import { QUALITY_PRESETS, type Quality } from '../ui/settings';
 import type { Hotkeys } from '../ui/hotkeys';
 import type { FactionId } from '../core/types';
+import { createEngine, hexColor, SUN_DIR } from './engine';
 
 export const GALAXY_SCALE = 0.03;
 
 /** Звёзды строятся один раз по максимуму; пресеты рисуют часть из них. */
 const STAR_MAX = 3200;
 
-const NEUTRAL_SECTOR = new THREE.Color('#33415e');
+const NEUTRAL_SECTOR = new Color3(0.2, 0.255, 0.369); // #33415e
 
 interface SectorVisual {
-  fill: THREE.Mesh;
-  fillMat: THREE.MeshBasicMaterial;
-  border: THREE.LineLoop;
-  borderMat: THREE.LineBasicMaterial;
+  fill: Mesh;
+  fillMat: StandardMaterial;
+  border: LinesMesh;
 }
 
 export class GalaxyScene {
-  readonly renderer: THREE.WebGLRenderer;
-  readonly scene = new THREE.Scene();
-  readonly camera: THREE.PerspectiveCamera;
+  readonly engine: Engine;
+  readonly scene: Scene;
+  readonly camera: UniversalCamera;
 
   private planets = new Map<string, PlanetVisual>();
-  private surfaces: THREE.Mesh[] = [];
   private fleets: FleetLayer;
-  private supplyColors!: THREE.BufferAttribute;
+  private supplyLines!: LinesMesh;
   private sectorVisuals = new Map<string, SectorVisual>();
   /** Фракция, подсвеченная на карте (окно фракции открыто). */
   private spotlight: FactionId | null = null;
 
   // camera controller
-  private target = new THREE.Vector3(0, 0, 0);
+  private target = new Vector3(0, 0, 0);
   private distance = 26;
   private yaw = 0;
   private pitch = 0.95;
   private readonly minDist = 3.5;
   private readonly maxDist = 62;
 
-  private raycaster = new THREE.Raycaster();
-  private clock = new THREE.Clock();
+  private elapsed = 0;
+  /** Отметка предыдущего кадра для собственного счёта времени. */
+  private last = 0;
   private radiusWorld: number;
 
-  // Постобработка: мягкое свечение ярких элементов (bloom).
-  private composer!: EffectComposer;
-  private bloom!: UnrealBloomPass;
+  // Постобработка: свечение ярких элементов, сглаживание, виньетка.
+  private pipeline!: DefaultRenderingPipeline;
+  private glow!: GlowLayer;
   private stars!: Starfield;
-  private nebulae!: THREE.Group;
+  private nebulae!: TransformNode;
   /** Текущий пресет качества — bloom-тумблер не должен его затирать. */
   private quality: Quality = 'high';
   private bloomOn = true;
 
   // Пульс захвата: расходящееся кольцо цвета нового владельца.
   private prevOwners = new Map<string, FactionId>();
-  private pulses: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number }[] = [];
+  private pulses: { mesh: Mesh; mat: StandardMaterial; life: number }[] = [];
 
   constructor(private canvas: HTMLCanvasElement, private state: GameState) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    this.renderer.setClearColor(0x000000, 1);
-    // Кинематографичный тон-маппинг — сочнее свет и глубже тени.
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // Экспозиция ниже единицы: с ней светлые миры перестают выбивать в белое,
-    // а тени на кораблях и станциях получают глубину.
-    this.renderer.toneMappingExposure = 0.98;
+    const host = createEngine(canvas);
+    this.engine = host.engine;
+    this.scene = host.scene;
 
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 2000);
+    // Камера ведётся вручную по yaw/pitch/distance: ArcRotateCamera считает
+    // свои углы в собственной системе, а вся карта и панорама с клавиатуры уже
+    // выведены из этих трёх чисел. Проще держать формулу, чем переучивать её.
+    this.camera = new UniversalCamera('cam', new Vector3(0, 26, 0), this.scene);
+    this.camera.fov = (46 * Math.PI) / 180;
+    this.camera.minZ = 0.1;
+    this.camera.maxZ = 2000;
+    this.scene.activeCamera = this.camera;
+
     this.radiusWorld = state.galaxy.radiusMax * GALAXY_SCALE;
-    this.fleets = new FleetLayer(GALAXY_SCALE);
+    this.fleets = new FleetLayer(this.scene, GALAXY_SCALE);
 
     this.buildBackground();
     this.buildSectors();
     this.buildSupplyLines();
     this.buildPlanets();
     this.buildHomeworldMarkers();
-    this.scene.add(this.fleets.group);
 
     // Стартовая карта владений — чтобы первый refreshOwners не дал ложных пульсов.
     for (const id of state.galaxy.order) {
       this.prevOwners.set(id, state.galaxy.planets.get(id)!.owner);
     }
 
-    // --- Постобработка -------------------------------------------------------
-    //
-    // Порядок обязателен: сцена → свечение → вывод. OutputPass делает
-    // тон-маппинг и перевод в sRGB ровно один раз, в самом конце цепочки, —
-    // без него каждый проход трактовал бы цвет по-своему.
-    //
-    // ВАЖНО про чёрную точку. Через композер тон-маппинг применяется и к ЦВЕТУ
-    // ОЧИСТКИ, а при прямом рендере — нет. Замер по пустому кадру: заливка
-    // 0x05070f выходила на экран как (19, 28, 53), вчетверо светлее заданной.
-    // Поднималась не только она: вместе с чёрной точкой выцветал весь кадр,
-    // тени переставали быть тенями, и карта выглядела затянутой молочной
-    // плёнкой — именно это и читалось как «мыло». Поэтому фон теперь ровно
-    // чёрный, а цвет космосу дают галактический диск и туманности, то есть
-    // настоящие объекты сцены, проходящие свет по общим правилам.
-    // Цель композера задаётся явно, и это важно вдвойне:
-    //  • colorSpace ЛИНЕЙНЫЙ — цепочка не имеет права кодировать кадр в sRGB
-    //    до OutputPass, иначе получается то самое двойное кодирование;
-    //  • samples: 4 — сглаживание. Флаг antialias у рендерера не действует,
-    //    когда кадр идёт через композер: сцена рисуется в свою цель, а у неё
-    //    своих сэмплов нет. Отсюда были рваные края у планет и линий.
-    const db = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const target = new THREE.WebGLRenderTarget(Math.max(1, db.x), Math.max(1, db.y), {
-      type: THREE.HalfFloatType,
-      colorSpace: THREE.LinearSRGBColorSpace,
-      samples: 4,
-    });
-    this.composer = new EffectComposer(this.renderer, target);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // Порог поднят и радиус срезан: раньше свечение цеплялось за облака и
-    // ледяные шапки двух сотен планет разом, и весь кадр затягивало ровной
-    // светлой дымкой — именно она и читалась как «мыло». Теперь светятся
-    // только по-настоящему яркие вещи: лава, залпы, взрывы.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.28, 1.05);
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
-
-    this.resize();
+    this.buildPost();
     this.attachInput();
     window.addEventListener('resize', () => this.resize());
+    this.resize();
+  }
+
+  // --- Постобработка ---------------------------------------------------------
+
+  private buildPost(): void {
+    // Слой свечения — то, чего в прежнем рендере не было вовсе.
+    //
+    // Раньше единственным источником сияния был общий bloom на весь кадр, и
+    // порог у него приходилось держать высоко: иначе свечение цеплялось за
+    // облака и ледяные шапки двух сотен планет разом и затягивало карту ровной
+    // светлой дымкой. Слой свечения работает иначе — он собирает ТОЛЬКО
+    // самосветящиеся материалы, поэтому ходовые огни кораблей, кольца
+    // выделения, опознавательные метки и трассеры светятся по-настоящему, а
+    // поверхность миров не участвует и дымки не даёт.
+    this.glow = new GlowLayer('glow', this.scene, { blurKernelSize: 40, mainTextureFixedSize: 512 });
+    this.glow.intensity = 0.85;
+
+    this.pipeline = new DefaultRenderingPipeline('post', true, this.scene, [this.camera]);
+    this.pipeline.samples = QUALITY_PRESETS[this.quality].samples;
+    // Сглаживание кадра идёт вместе с остальным сглаживанием: на низком
+    // пресете, где сэмплов нет вовсе, лишний полноэкранный проход не нужен.
+    this.pipeline.fxaaEnabled = QUALITY_PRESETS[this.quality].samples > 0;
+    this.pipeline.bloomEnabled = true;
+    this.pipeline.bloomThreshold = 0.62;
+    this.pipeline.bloomWeight = QUALITY_PRESETS[this.quality].bloomStrength;
+    this.pipeline.bloomKernel = 48;
+    this.pipeline.bloomScale = 0.5;
+
+    // Кинематографичный тон-маппинг — сочнее свет и глубже тени. Экспозиция
+    // ниже единицы: с ней светлые миры перестают выбивать в белое, а тени на
+    // кораблях и станциях получают глубину.
+    const ip = this.pipeline.imageProcessing;
+    ip.toneMappingEnabled = true;
+    ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
+    ip.exposure = 0.98;
+    ip.contrast = 1.06;
+    // Виньетка стала настоящей, а не CSS-накладкой поверх canvas: она считается
+    // до тон-маппинга и поэтому темнит края кадра, а не мажет их серым.
+    ip.vignetteEnabled = true;
+    ip.vignetteWeight = 2.2;
+    ip.vignetteStretch = 0.4;
+    ip.vignetteColor = new Color4(0, 0, 0, 0);
   }
 
   // --- construction --------------------------------------------------------
 
   private buildBackground(): void {
     // Звёзды строятся сразу по максимуму: пресеты качества не пересобирают
-    // геометрию, а просто рисуют меньше точек через setDrawRange.
-    this.stars = createStarfield(STAR_MAX, this.radiusWorld * 16);
-    this.scene.add(this.stars.points);
-    this.scene.add(createNebulaDisc(this.radiusWorld));
+    // геометрию, а просто рисуют меньше точек.
+    this.stars = createStarfield(this.scene, STAR_MAX, this.radiusWorld * 16);
+    createNebulaDisc(this.scene, this.radiusWorld);
     // Туманности — дальний фон: висят в девяти радиусах карты и рисуются
     // раньше всего, поэтому не лезут к планетам даже на подлёте к краю.
-    this.nebulae = createNebulaField(this.radiusWorld);
-    this.scene.add(this.nebulae);
+    this.nebulae = createNebulaField(this.scene, this.radiusWorld);
+
     // Свет карты мягкий и объёмный: вместо плоской подсветки — полусферный
     // источник (холодное небо сверху, тёплый отсвет галактического диска
     // снизу), ключ приглушён и слегка тёплый, плюс холодная подсветка сзади,
     // чтобы корпуса кораблей не тонули в чёрном силуэте.
-    const hemi = new THREE.HemisphereLight(0x7f97b8, 0x241f1a, 0.34);
+    const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
+    hemi.diffuse = new Color3(0.50, 0.59, 0.72);
+    hemi.groundColor = new Color3(0.14, 0.12, 0.10);
+    hemi.intensity = 0.34;
     // Ключ стоит ровно там, где светит солнце шейдера планет: корабль и мир
     // под ним обязаны быть освещены с одной стороны, иначе карта разваливается
     // на два несогласованных источника.
-    const key = new THREE.DirectionalLight(0xfff3e2, 1.05);
-    key.position.copy(SUN_UNIFORM.value).multiplyScalar(30);
-    const fill = new THREE.DirectionalLight(0x7f98d8, 0.20);
-    fill.position.set(-7, 4, -6);
-    this.scene.add(hemi, key, fill);
+    const key = new DirectionalLight('key', SUN_DIR.scale(-1), this.scene);
+    key.diffuse = new Color3(1, 0.95, 0.89);
+    key.intensity = 1.05;
+    const fill = new DirectionalLight('fill', new Vector3(7, -4, 6).normalize(), this.scene);
+    fill.diffuse = new Color3(0.50, 0.60, 0.85);
+    fill.intensity = 0.20;
   }
 
   /** Flat annulus-sector plates + borders under the planets, one per sector. */
@@ -166,115 +195,123 @@ export class GalaxyScene {
     const s = GALAXY_SCALE;
     const GAP = 0.018; // radians shaved off each side for visual separation
     for (const sector of this.state.galaxy.sectors.values()) {
-      const a0 = sector.a0 + (sector.a1 - sector.a0 > 6 ? 0 : GAP);
-      const a1 = sector.a1 - (sector.a1 - sector.a0 > 6 ? 0 : GAP);
+      const full = sector.a1 - sector.a0 > 6;
+      const a0 = sector.a0 + (full ? 0 : GAP);
+      const a1 = sector.a1 - (full ? 0 : GAP);
       const r0 = sector.r0 * s;
       const r1 = sector.r1 * s;
 
-      const shape = new THREE.Shape();
-      if (r0 <= 0.001) {
-        shape.absarc(0, 0, r1, 0, Math.PI * 2, false);
-      } else {
-        shape.absarc(0, 0, r1, a0, a1, false);
-        shape.absarc(0, 0, r0, a1, a0, true);
+      // Плита сектора — кольцевой сегмент прямо в галактической плоскости XZ.
+      const SEG = 28;
+      const positions: number[] = [];
+      const normals: number[] = [];
+      const indices: number[] = [];
+      const inner = Math.max(r0, 0.0001);
+      const span = full ? Math.PI * 2 : a1 - a0;
+      const start = full ? 0 : a0;
+      for (let i = 0; i <= SEG; i++) {
+        const a = start + (span * i) / SEG;
+        const c = Math.cos(a), sn = Math.sin(a);
+        // При сплошном круге внутренний радиус схлопывается в центр.
+        const ri = r0 <= 0.001 ? 0 : inner;
+        positions.push(c * ri, 0, sn * ri, c * r1, 0, sn * r1);
+        normals.push(0, 1, 0, 0, 1, 0);
       }
-      const geo = new THREE.ShapeGeometry(shape, 28);
-      const fillMat = new THREE.MeshBasicMaterial({
-        color: NEUTRAL_SECTOR.clone(),
-        transparent: true,
-        opacity: 0.03,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const fill = new THREE.Mesh(geo, fillMat);
-      fill.rotation.x = Math.PI / 2; // XY shape → XZ galactic plane (matches planet angles)
+      for (let i = 0; i < SEG; i++) {
+        const b = i * 2;
+        indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+      }
+      const vd = new VertexData();
+      vd.positions = positions;
+      vd.normals = normals;
+      vd.indices = indices;
+      const fill = new Mesh(`sector_${sector.id}`, this.scene);
+      vd.applyToMesh(fill, false);
+      const fillMat = new StandardMaterial(`sectorMat_${sector.id}`, this.scene);
+      fillMat.emissiveColor = NEUTRAL_SECTOR;
+      fillMat.diffuseColor = new Color3(0, 0, 0);
+      fillMat.specularColor = new Color3(0, 0, 0);
+      fillMat.disableLighting = true;
+      fillMat.alpha = 0.03;
+      fillMat.backFaceCulling = false;
+      fillMat.disableDepthWrite = true;
+      fill.material = fillMat;
       fill.position.y = -0.42;
+      fill.isPickable = false;
+      fill.alwaysSelectAsActiveMesh = true;
 
       // Border as an explicit line loop in world space.
-      const pts: THREE.Vector3[] = [];
-      const SEG = 26;
+      const pts: Vector3[] = [];
+      const BSEG = 26;
       const y = -0.4;
       if (r0 <= 0.001) {
-        for (let i = 0; i < SEG * 2; i++) {
-          const a = (Math.PI * 2 * i) / (SEG * 2);
-          pts.push(new THREE.Vector3(Math.cos(a) * r1, y, Math.sin(a) * r1));
+        for (let i = 0; i < BSEG * 2; i++) {
+          const a = (Math.PI * 2 * i) / (BSEG * 2);
+          pts.push(new Vector3(Math.cos(a) * r1, y, Math.sin(a) * r1));
         }
       } else {
-        for (let i = 0; i <= SEG; i++) {
-          const a = a0 + ((a1 - a0) * i) / SEG;
-          pts.push(new THREE.Vector3(Math.cos(a) * r1, y, Math.sin(a) * r1));
+        for (let i = 0; i <= BSEG; i++) {
+          const a = a0 + ((a1 - a0) * i) / BSEG;
+          pts.push(new Vector3(Math.cos(a) * r1, y, Math.sin(a) * r1));
         }
-        for (let i = SEG; i >= 0; i--) {
-          const a = a0 + ((a1 - a0) * i) / SEG;
-          pts.push(new THREE.Vector3(Math.cos(a) * r0, y, Math.sin(a) * r0));
+        for (let i = BSEG; i >= 0; i--) {
+          const a = a0 + ((a1 - a0) * i) / BSEG;
+          pts.push(new Vector3(Math.cos(a) * r0, y, Math.sin(a) * r0));
         }
       }
-      const borderGeo = new THREE.BufferGeometry().setFromPoints(pts);
-      const borderMat = new THREE.LineBasicMaterial({
-        color: NEUTRAL_SECTOR.clone(),
-        transparent: true,
-        opacity: 0.22,
-      });
-      const border = new THREE.LineLoop(borderGeo, borderMat);
+      pts.push(pts[0]!.clone()); // замкнуть контур
+      const border = CreateLines(`sectorEdge_${sector.id}`, { points: pts }, this.scene);
+      border.color = NEUTRAL_SECTOR;
+      border.alpha = 0.22;
+      border.isPickable = false;
+      border.alwaysSelectAsActiveMesh = true;
 
-      this.scene.add(fill, border);
-      this.sectorVisuals.set(sector.id, { fill, fillMat, border, borderMat });
+      this.sectorVisuals.set(sector.id, { fill, fillMat, border });
     }
   }
 
   private buildSupplyLines(): void {
     const lines = this.state.galaxy.lines;
-    const positions = new Float32Array(lines.length * 6);
-    const colors = new Float32Array(lines.length * 6);
-    lines.forEach((ln, i) => {
+    const points: Vector3[][] = [];
+    const colors: Color4[][] = [];
+    for (const ln of lines) {
       const a = this.state.galaxy.planets.get(ln.a)!;
       const b = this.state.galaxy.planets.get(ln.b)!;
-      positions[i * 6] = a.pos.x * GALAXY_SCALE;
-      positions[i * 6 + 1] = 0;
-      positions[i * 6 + 2] = a.pos.y * GALAXY_SCALE;
-      positions[i * 6 + 3] = b.pos.x * GALAXY_SCALE;
-      positions[i * 6 + 4] = 0;
-      positions[i * 6 + 5] = b.pos.y * GALAXY_SCALE;
-      for (let k = 0; k < 6; k++) colors[i * 6 + k] = 0.28;
-    });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.supplyColors = new THREE.BufferAttribute(colors, 3);
-    geo.setAttribute('color', this.supplyColors);
-    const mat = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.24,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    this.scene.add(new THREE.LineSegments(geo, mat));
+      points.push([
+        new Vector3(a.pos.x * GALAXY_SCALE, 0, a.pos.y * GALAXY_SCALE),
+        new Vector3(b.pos.x * GALAXY_SCALE, 0, b.pos.y * GALAXY_SCALE),
+      ]);
+      colors.push([new Color4(0.28, 0.28, 0.28, 1), new Color4(0.28, 0.28, 0.28, 1)]);
+    }
+    this.supplyLines = CreateLineSystem('supply', {
+      lines: points, colors, updatable: true, useVertexAlpha: true,
+    }, this.scene);
+    this.supplyLines.alpha = 0.24;
+    this.supplyLines.isPickable = false;
+    this.supplyLines.alwaysSelectAsActiveMesh = true;
   }
 
   private buildPlanets(): void {
     for (const id of this.state.galaxy.order) {
       const p = this.state.galaxy.planets.get(id)!;
-      const vis = createPlanetVisual(p, 1);
-      vis.group.position.set(p.pos.x * GALAXY_SCALE, 0, p.pos.y * GALAXY_SCALE);
+      const vis = createPlanetVisual(p, this.scene);
+      vis.root.position.set(p.pos.x * GALAXY_SCALE, 0, p.pos.y * GALAXY_SCALE);
       this.planets.set(id, vis);
-      this.surfaces.push(vis.surface);
-      this.scene.add(vis.group);
     }
     this.refreshOwners();
   }
 
   /** Эмблемы родных миров фракций, парящие над их планетами. */
-  private homeMarkers: { sprite: THREE.Sprite; baseY: number; phase: number }[] = [];
+  private homeMarkers: { node: Mesh; baseY: number; phase: number }[] = [];
   private fedMarkerPlaced = false;
 
   private addHomeMarker(planetId: string, faction: FactionId): void {
     const p = this.state.galaxy.planets.get(planetId);
     if (!p) return;
-    const sprite = emblemSprite(faction);
+    const node = emblemSprite(faction, this.scene);
     const baseY = 0.42 * p.scale + 0.62;
-    sprite.position.set(p.pos.x * GALAXY_SCALE, baseY, p.pos.y * GALAXY_SCALE);
-    this.scene.add(sprite);
-    this.homeMarkers.push({ sprite, baseY, phase: Math.random() * Math.PI * 2 });
+    node.position.set(p.pos.x * GALAXY_SCALE, baseY, p.pos.y * GALAXY_SCALE);
+    this.homeMarkers.push({ node, baseY, phase: Math.random() * Math.PI * 2 });
   }
 
   private buildHomeworldMarkers(): void {
@@ -290,18 +327,19 @@ export class GalaxyScene {
 
   /** Re-colour supply lines by the owner of their endpoints. */
   private refreshSupplyColors(): void {
-    const arr = this.supplyColors.array as Float32Array;
+    const arr = this.supplyLines.getVerticesData('color');
+    if (!arr) return;
     this.state.galaxy.lines.forEach((ln, li) => {
       const pa = this.state.galaxy.planets.get(ln.a)!;
       const pb = this.state.galaxy.planets.get(ln.b)!;
       const dim = pa.abyss || pb.abyss || pa.shattered || pb.shattered ? 0.12 : 1;
-      const ca = new THREE.Color(factionColor(pa.owner)).multiplyScalar(dim);
-      const cb = new THREE.Color(factionColor(pb.owner)).multiplyScalar(dim);
-      const base = li * 6;
-      arr[base] = ca.r * 0.5; arr[base + 1] = ca.g * 0.5; arr[base + 2] = ca.b * 0.5;
-      arr[base + 3] = cb.r * 0.5; arr[base + 4] = cb.g * 0.5; arr[base + 5] = cb.b * 0.5;
+      const ca = hexColor(factionColor(pa.owner)).scale(dim);
+      const cb = hexColor(factionColor(pb.owner)).scale(dim);
+      const base = li * 8;
+      arr[base] = ca.r * 0.5; arr[base + 1] = ca.g * 0.5; arr[base + 2] = ca.b * 0.5; arr[base + 3] = 1;
+      arr[base + 4] = cb.r * 0.5; arr[base + 5] = cb.g * 0.5; arr[base + 6] = cb.b * 0.5; arr[base + 7] = 1;
     });
-    this.supplyColors.needsUpdate = true;
+    this.supplyLines.updateVerticesData('color', arr);
   }
 
   /**
@@ -327,17 +365,17 @@ export class GalaxyScene {
       if (this.spotlight) {
         const held = alive.filter((p) => p.owner === this.spotlight).length;
         if (held > 0) {
-          const color = factionColor(this.spotlight);
+          const color = hexColor(factionColor(this.spotlight));
           const share = held / Math.max(1, alive.length);
-          vis.fillMat.color.set(color);
-          vis.fillMat.opacity = 0.09 + 0.15 * share;
-          vis.borderMat.color.set(color);
-          vis.borderMat.opacity = 0.30 + 0.35 * share;
+          vis.fillMat.emissiveColor = color;
+          vis.fillMat.alpha = 0.09 + 0.15 * share;
+          vis.border.color = color;
+          vis.border.alpha = 0.30 + 0.35 * share;
         } else {
-          vis.fillMat.color.copy(NEUTRAL_SECTOR);
-          vis.fillMat.opacity = 0.004;
-          vis.borderMat.color.copy(NEUTRAL_SECTOR);
-          vis.borderMat.opacity = 0.04;
+          vis.fillMat.emissiveColor = NEUTRAL_SECTOR;
+          vis.fillMat.alpha = 0.004;
+          vis.border.color = NEUTRAL_SECTOR;
+          vis.border.alpha = 0.04;
         }
         continue;
       }
@@ -348,19 +386,18 @@ export class GalaxyScene {
       // одного владельца превращала космос в ровный цветной пол — планеты на
       // нём теряли и тень, и глубину.
       if (owners.size === 1 && alive.length > 0) {
-        // Космос стал чёрным, и прежние значения заливки пропали вовсе.
         // Полностью занятый сектор обязан читаться как ЧЬЯ-ТО территория —
         // цветом, а не догадкой по цвету планет внутри.
-        const color = factionColor([...owners][0]!);
-        vis.fillMat.color.set(color).multiplyScalar(0.55);
-        vis.fillMat.opacity = 0.055;
-        vis.borderMat.color.set(color);
-        vis.borderMat.opacity = 0.60;
+        const color = hexColor(factionColor([...owners][0]!));
+        vis.fillMat.emissiveColor = color.scale(0.55);
+        vis.fillMat.alpha = 0.055;
+        vis.border.color = color;
+        vis.border.alpha = 0.60;
       } else {
-        vis.fillMat.color.copy(NEUTRAL_SECTOR);
-        vis.fillMat.opacity = 0.020;
-        vis.borderMat.color.copy(NEUTRAL_SECTOR);
-        vis.borderMat.opacity = 0.22;
+        vis.fillMat.emissiveColor = NEUTRAL_SECTOR;
+        vis.fillMat.alpha = 0.020;
+        vis.border.color = NEUTRAL_SECTOR;
+        vis.border.alpha = 0.22;
       }
     }
   }
@@ -405,20 +442,40 @@ export class GalaxyScene {
   }
 
   private spawnCapturePulse(x: number, z: number, hex: string): void {
-    const geo = new THREE.RingGeometry(0.86, 1.0, 48);
-    const mat = new THREE.MeshBasicMaterial({
-      color: hex,
-      transparent: true,
-      opacity: 0.9,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = -Math.PI / 2;
+    // Кольцо в плоскости карты: тонкий диск между двумя радиусами.
+    const SEG = 48;
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i <= SEG; i++) {
+      const a = (Math.PI * 2 * i) / SEG;
+      const c = Math.cos(a), s = Math.sin(a);
+      positions.push(c * 0.86, 0, s * 0.86, c * 1.0, 0, s * 1.0);
+      normals.push(0, 1, 0, 0, 1, 0);
+    }
+    for (let i = 0; i < SEG; i++) {
+      const b = i * 2;
+      indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+    }
+    const vd = new VertexData();
+    vd.positions = positions;
+    vd.normals = normals;
+    vd.indices = indices;
+    const mesh = new Mesh('pulse', this.scene);
+    vd.applyToMesh(mesh, false);
+    const mat = new StandardMaterial('pulseMat', this.scene);
+    mat.emissiveColor = hexColor(hex);
+    mat.diffuseColor = new Color3(0, 0, 0);
+    mat.specularColor = new Color3(0, 0, 0);
+    mat.disableLighting = true;
+    mat.alpha = 0.9;
+    mat.alphaMode = Constants.ALPHA_ADD;
+    mat.disableDepthWrite = true;
+    mat.backFaceCulling = false;
+    mesh.material = mat;
     mesh.position.set(x, 0.05, z);
-    mesh.scale.setScalar(0.2);
-    this.scene.add(mesh);
+    mesh.scaling.setAll(0.2);
+    mesh.isPickable = false;
     this.pulses.push({ mesh, mat, life: 0 });
   }
 
@@ -427,12 +484,10 @@ export class GalaxyScene {
       const p = this.pulses[i]!;
       p.life += dt;
       const k = p.life / 2.2; // полный цикл ~2.2 с
-      p.mesh.scale.setScalar(0.2 + k * 2.4);
-      p.mat.opacity = Math.max(0, 0.9 * (1 - k));
+      p.mesh.scaling.setAll(0.2 + k * 2.4);
+      p.mat.alpha = Math.max(0, 0.9 * (1 - k));
       if (k >= 1) {
-        this.scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
-        p.mat.dispose();
+        p.mesh.dispose(false, true);
         this.pulses.splice(i, 1);
       }
     }
@@ -471,14 +526,20 @@ export class GalaxyScene {
     const [minX, maxX] = x0 < x1 ? [x0, x1] : [x1, x0];
     const [minY, maxY] = y0 < y1 ? [y0, y1] : [y1, y0];
     const out: string[] = [];
-    const v = new THREE.Vector3();
+    const view = this.camera.getViewMatrix();
+    const proj = this.camera.getProjectionMatrix();
+    const vp = view.multiply(proj);
+    const tmp = new Vector3();
     for (const id of this.state.galaxy.order) {
       const p = this.state.galaxy.planets.get(id)!;
       if (p.abyss || p.shattered) continue;
-      v.set(p.pos.x * GALAXY_SCALE, 0, p.pos.y * GALAXY_SCALE).project(this.camera);
-      if (v.z > 1) continue; // за камерой
-      const sx = rect.left + ((v.x + 1) / 2) * rect.width;
-      const sy = rect.top + ((1 - v.y) / 2) * rect.height;
+      tmp.set(p.pos.x * GALAXY_SCALE, 0, p.pos.y * GALAXY_SCALE);
+      const clip = Vector3.TransformCoordinates(tmp, vp);
+      // За камерой: в правосторонней сцене такие точки уходят за дальнюю
+      // плоскость и в кадр попасть не могут.
+      if (clip.z > 1 || clip.z < -1) continue;
+      const sx = rect.left + ((clip.x + 1) / 2) * rect.width;
+      const sy = rect.top + ((1 - clip.y) / 2) * rect.height;
       if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) out.push(id);
     }
     return out;
@@ -522,7 +583,9 @@ export class GalaxyScene {
   setBloomEnabled(on: boolean): void {
     this.bloomOn = on;
     // На низком пресете свечения нет вовсе — тумблер тогда ничего не включает.
-    this.bloom.enabled = on && QUALITY_PRESETS[this.quality].bloomStrength > 0;
+    const want = on && QUALITY_PRESETS[this.quality].bloomStrength > 0;
+    this.pipeline.bloomEnabled = want;
+    this.glow.intensity = want ? 0.85 : 0;
   }
 
   /**
@@ -533,16 +596,15 @@ export class GalaxyScene {
   setQuality(q: Quality): void {
     this.quality = q;
     const p = QUALITY_PRESETS[q];
-    this.renderer.setPixelRatio(Math.min(p.pixelRatio, window.devicePixelRatio));
-    this.stars.points.geometry.setDrawRange(0, Math.min(STAR_MAX, p.stars));
-    this.nebulae.visible = p.nebulae;
-    this.bloom.strength = p.bloomStrength;
+    this.engine.setHardwareScalingLevel(1 / Math.min(p.pixelRatio, window.devicePixelRatio));
+    this.stars.setCount(Math.min(STAR_MAX, p.stars));
+    this.nebulae.setEnabled(p.nebulae);
+    this.pipeline.bloomWeight = p.bloomStrength;
+    this.pipeline.samples = p.samples;
+    this.pipeline.fxaaEnabled = p.samples > 0;
     this.setBloomEnabled(this.bloomOn);
-    // Смена пресета сразу меняет и потолок детализации поверхностей, и
-    // сглаживание внутри цепочки.
+    // Смена пресета сразу меняет и потолок детализации поверхностей.
     this.lodOct = -1;
-    this.composer.renderTarget1.samples = p.samples;
-    this.composer.renderTarget2.samples = p.samples;
     this.resize();
   }
 
@@ -562,14 +624,10 @@ export class GalaxyScene {
 
   private pick(clientX: number, clientY: number): string | null {
     const rect = this.canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObjects(this.surfaces, false);
-    if (!hits.length) return null;
-    const id = hits[0]!.object.userData.planetId as string;
+    const hit = this.scene.pick(clientX - rect.left, clientY - rect.top,
+      (m) => m.isPickable && !!(m.metadata as { planetId?: string } | null)?.planetId);
+    const id = (hit?.pickedMesh?.metadata as { planetId?: string } | undefined)?.planetId;
+    if (!id) return null;
     // Миры в Бездне невидимы и недоступны для выбора.
     if (this.state.galaxy.planets.get(id)?.abyss) return null;
     return id;
@@ -577,7 +635,6 @@ export class GalaxyScene {
 
   // --- input ---------------------------------------------------------------
 
-  /** Зажатые клавиши WASD (по e.code — не зависит от раскладки). */
   /** Диспетчер горячих клавиш; ставится интерфейсом сразу после запуска. */
   private hotkeys: Hotkeys | null = null;
   private boxEl: HTMLDivElement | null = null;
@@ -729,15 +786,14 @@ export class GalaxyScene {
       this.target.y + y,
       this.target.z + Math.cos(this.yaw) * h
     );
-    this.camera.lookAt(this.target);
+    this.camera.setTarget(this.target);
   }
 
   // --- Стрелки заготовленных атак: «эскалатор» вдоль линии снабжения ---
 
-  private arrowGroup: THREE.Group | null = null;
+  private arrowRoot: TransformNode | null = null;
   private arrowSig = '';
-  private arrowRuns: { from: THREE.Vector3; to: THREE.Vector3; meshes: THREE.Mesh[] }[] = [];
-  private static arrowGeo = new THREE.ConeGeometry(0.085, 0.24, 4);
+  private arrowRuns: { from: Vector3; to: Vector3; mesh: Mesh; n: number }[] = [];
 
   /** Все линии атак: планы игрока + видимые вражеские вторжения (с плацдармов). */
   private collectArrowRuns(): { from: string; to: string; color: string }[] {
@@ -775,61 +831,68 @@ export class GalaxyScene {
     const sig = runsData.map((r) => `${r.from}>${r.to}:${r.color}`).join('|');
     if (sig === this.arrowSig) return;
     this.arrowSig = sig;
-    if (this.arrowGroup) {
-      this.scene.remove(this.arrowGroup);
-      this.arrowGroup.traverse((o) => {
-        if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose();
-      });
-    }
+    this.arrowRoot?.dispose(false, true);
     this.arrowRuns = [];
-    this.arrowGroup = new THREE.Group();
+    this.arrowRoot = new TransformNode('arrows', this.scene);
     for (const plan of runsData) {
       const a = this.state.galaxy.planets.get(plan.from);
       const b = this.state.galaxy.planets.get(plan.to);
       if (!a || !b) continue;
-      const from = new THREE.Vector3(a.pos.x * GALAXY_SCALE, 0.1, a.pos.y * GALAXY_SCALE);
-      const to = new THREE.Vector3(b.pos.x * GALAXY_SCALE, 0.1, b.pos.y * GALAXY_SCALE);
-      const dir = to.clone().sub(from);
-      const len = dir.length();
-      dir.normalize();
+      const from = new Vector3(a.pos.x * GALAXY_SCALE, 0.1, a.pos.y * GALAXY_SCALE);
+      const to = new Vector3(b.pos.x * GALAXY_SCALE, 0.1, b.pos.y * GALAXY_SCALE);
+      const len = to.subtract(from).length();
       const n = Math.max(4, Math.floor(len / 0.42));
-      const meshes: THREE.Mesh[] = [];
-      // Стрелки атаки — в заглавном цвете атакующей фракции.
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(plan.color),
-        transparent: true,
-        opacity: 0.95,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      });
-      for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(GalaxyScene.arrowGeo, mat);
-        // остриё конуса (+Y) разворачиваем по направлению атаки
-        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-        this.arrowGroup.add(m);
-        meshes.push(m);
-      }
-      this.arrowRuns.push({ from, to, meshes });
+      // Все наконечники одной цепочки — тонкие инстансы ОДНОГО меша: раньше
+      // это были десятки отдельных объектов на каждую стрелку.
+      const mesh = CreateCylinder('arrow', {
+        diameterTop: 0, diameterBottom: 0.17, height: 0.24, tessellation: 4,
+      }, this.scene);
+      const mat = new StandardMaterial('arrowMat', this.scene);
+      mat.emissiveColor = hexColor(plan.color);
+      mat.diffuseColor = new Color3(0, 0, 0);
+      mat.specularColor = new Color3(0, 0, 0);
+      mat.disableLighting = true;
+      mat.alpha = 0.95;
+      mat.alphaMode = Constants.ALPHA_ADD;
+      mat.disableDepthWrite = true;
+      mesh.material = mat;
+      mesh.isPickable = false;
+      mesh.alwaysSelectAsActiveMesh = true;
+      mesh.parent = this.arrowRoot;
+      mesh.thinInstanceSetBuffer('matrix', new Float32Array(n * 16), 16, false);
+      this.arrowRuns.push({ from, to, mesh, n });
     }
-    this.scene.add(this.arrowGroup);
   }
 
   private animateAttackArrows(t: number): void {
+    const up = new Vector3(0, 1, 0);
     for (const run of this.arrowRuns) {
-      const n = run.meshes.length;
+      const n = run.n;
       const shift = (t * 0.22) % (1 / n);
-      run.meshes.forEach((m, i) => {
+      const dir = run.to.subtract(run.from).normalize();
+      // остриё конуса (+Y) разворачиваем по направлению атаки
+      const axis = Vector3.Cross(up, dir);
+      const dot = Math.max(-1, Math.min(1, Vector3.Dot(up, dir)));
+      const q = axis.lengthSquared() < 1e-8
+        ? (dot > 0 ? Quaternion.Identity() : Quaternion.RotationAxis(new Vector3(1, 0, 0), Math.PI))
+        : Quaternion.RotationAxis(axis.normalize(), Math.acos(dot));
+      const buf = new Float32Array(n * 16);
+      const pos = new Vector3();
+      for (let i = 0; i < n; i++) {
         const k = (i / n + shift) % 1;
         // не наезжаем на сами планеты — небольшой отступ с обеих сторон
         const kk = 0.08 + k * 0.84;
-        m.position.lerpVectors(run.from, run.to, kk);
-      });
+        Vector3.LerpToRef(run.from, run.to, kk, pos);
+        Matrix.ComposeToRef(Vector3.OneReadOnly, q, pos, tmpMatrix);
+        tmpMatrix.copyToArray(buf, i * 16);
+      }
+      run.mesh.thinInstanceSetBuffer('matrix', buf, 16, false);
     }
   }
 
   // --- Маршрут выбранного флота: пунктир через цель и очередь приказов -----
 
-  private routeLine: THREE.Line | null = null;
+  private routeLine: LinesMesh | null = null;
   private routeSig = '';
 
   private syncRoute(): void {
@@ -844,42 +907,48 @@ export class GalaxyScene {
     const sig = f && stops.length ? `${f.id}:${f.at}:${stops.join('>')}` : '';
     if (sig === this.routeSig) return;
     this.routeSig = sig;
-    if (this.routeLine) {
-      this.scene.remove(this.routeLine);
-      this.routeLine.geometry.dispose();
-      (this.routeLine.material as THREE.Material).dispose();
-      this.routeLine = null;
-    }
+    this.routeLine?.dispose();
+    this.routeLine = null;
     if (!f || !stops.length) return;
-    const pts: THREE.Vector3[] = [];
+    const pts: Vector3[] = [];
     const start = this.state.galaxy.planets.get(f.transit ? f.transit.from : f.at);
-    if (start) pts.push(new THREE.Vector3(start.pos.x * GALAXY_SCALE, 0.14, start.pos.y * GALAXY_SCALE));
+    if (start) pts.push(new Vector3(start.pos.x * GALAXY_SCALE, 0.14, start.pos.y * GALAXY_SCALE));
     for (const pid of stops) {
       const p = this.state.galaxy.planets.get(pid);
-      if (p) pts.push(new THREE.Vector3(p.pos.x * GALAXY_SCALE, 0.14, p.pos.y * GALAXY_SCALE));
+      if (p) pts.push(new Vector3(p.pos.x * GALAXY_SCALE, 0.14, p.pos.y * GALAXY_SCALE));
     }
     if (pts.length < 2) return;
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineDashedMaterial({
-      color: new THREE.Color(factionColor(f.faction)),
-      transparent: true,
-      opacity: 0.75,
-      dashSize: 0.22,
-      gapSize: 0.16,
-      depthWrite: false,
-    });
-    this.routeLine = new THREE.Line(geo, mat);
-    this.routeLine.computeLineDistances();
-    this.scene.add(this.routeLine);
+    // Длина штриха и просвета те же, что были: 0.22 и 0.16 мировых единиц.
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Vector3.Distance(pts[i - 1]!, pts[i]!);
+    const dashes = Math.max(2, Math.round(total / 0.38));
+    this.routeLine = CreateDashedLines('route', {
+      points: pts, dashSize: 0.22, gapSize: 0.16, dashNb: dashes,
+    }, this.scene);
+    this.routeLine.color = hexColor(factionColor(f.faction));
+    this.routeLine.alpha = 0.75;
+    this.routeLine.isPickable = false;
+    this.routeLine.alwaysSelectAsActiveMesh = true;
   }
 
   private lodOct = 5;
   private lodRelief = false;
 
   render(): void {
-    const dt = this.clock.getDelta();
-    const t = this.clock.elapsedTime;
-    this.stars.update(t, this.renderer.getPixelRatio());
+    // Время кадра игра меряет САМА, и это не прихоть.
+    //
+    // Счётчик кадров у движка ведёт beginFrame(), а его вызывает только
+    // собственный цикл отрисовки движка. Здесь цикл один на всю игру (сначала
+    // шаг мира, потом кадр — см. main.ts), поэтому engine.getDeltaTime()
+    // остаётся нулём, и на нуле замирает всё, что движется: вращение планет,
+    // облёты станций, выхлоп и следы флотов, пульс захвата. Кадр при этом
+    // рисуется исправно, и на неподвижной картинке подмену не видно.
+    const now = performance.now();
+    const dt = this.last === 0 ? 0 : Math.min(0.1, (now - this.last) / 1000);
+    this.last = now;
+    this.elapsed += dt;
+    const t = this.elapsed;
+    this.stars.update(t, 1 / this.engine.getHardwareScalingLevel());
     // LOD шейдера планет. Порог поднят: на общем плане галактики раньше
     // работали три октавы, и все миры выглядели размытыми пятнами именно
     // оттуда, откуда на них смотрят почти всё время. Теперь на общем плане
@@ -899,7 +968,7 @@ export class GalaxyScene {
     }
     for (const vis of this.planets.values()) vis.update(t, dt);
     for (const m of this.homeMarkers) {
-      m.sprite.position.y = m.baseY + Math.sin(t * 1.1 + m.phase) * 0.05;
+      m.node.position.y = m.baseY + Math.sin(t * 1.1 + m.phase) * 0.05;
     }
     this.fleets.update(this.state, dt);
     this.syncAttackArrows();
@@ -909,15 +978,17 @@ export class GalaxyScene {
     this.applyKeyPan(dt);
     this.updateCinema(dt);
     this.updateCamera();
-    this.composer.render();
+    // beginFrame/endFrame — то, что обычно делает собственный цикл движка:
+    // без них не ведутся ни счётчик кадров, ни статистика отрисовки.
+    this.engine.beginFrame();
+    this.scene.render();
+    this.engine.endFrame();
   }
 
   resize(): void {
-    const w = this.canvas.clientWidth || window.innerWidth;
-    const h = this.canvas.clientHeight || window.innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.composer?.setSize(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.engine.resize();
   }
 }
+
+/** Рабочая матрица для раскладки тонких инстансов — чтобы не плодить мусор. */
+const tmpMatrix = Matrix.Identity();

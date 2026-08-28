@@ -1,14 +1,22 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import type { Scene } from '@babylonjs/core/scene';
 import type { FactionId } from '../core/types';
 import type { ShipClass } from './ships';
+import { loadVertexData, type ShapePart } from './gltf';
+import { mixColor } from './engine';
 
 // ---------------------------------------------------------------------------
 // Настоящие 3D-модели флота, собранные в Blender (tools/blender/shipforge.py)
 // и встроенные в бандл как GLB. Загружаются один раз на старте; каждый флот
-// получает клон шаблона с фракционными материалами. Если модель по какой-то
+// получает свои меши с фракционными материалами. Если модель по какой-то
 // причине не загрузилась — рендер откатывается на процедурные силуэты.
+//
+// Материалы теперь PBR, а не приблизительный Standard: у корпусов появились
+// честная металличность и шероховатость, поэтому свет ложится на броню как на
+// металл, а не как на крашеный картон.
 // ---------------------------------------------------------------------------
 
 import seDestroyer from '../assets/ships/se_destroyer.glb?url';
@@ -34,39 +42,7 @@ const URLS: Record<ShipKind, Record<ShipClass, string>> = {
   trm: { destroyer: trmDestroyer, dreadnought: trmDreadnought, battleship: trmBattleship },
 };
 
-const templates = new Map<string, THREE.Group>();
-
-/**
- * Схлопнуть десятки деталей модели в ≤6 мешей — по одному на материал.
- * Иначе каждый флот стоил бы сотни draw-call'ов.
- */
-function consolidate(scene: THREE.Group): THREE.Group {
-  scene.updateMatrixWorld(true);
-  const byMat = new Map<string, THREE.BufferGeometry[]>();
-  scene.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
-    const name = ((o.material as THREE.Material)?.name ?? 'hull').replace(/\.\d+$/, '');
-    const g = (o.geometry as THREE.BufferGeometry).clone();
-    g.applyMatrix4(o.matrixWorld);
-    // Текстур нет — достаточно позиций и нормалей (и merge не споткнётся
-    // о несовпадающие наборы атрибутов).
-    for (const attr of Object.keys(g.attributes)) {
-      if (attr !== 'position' && attr !== 'normal') g.deleteAttribute(attr);
-    }
-    if (!byMat.has(name)) byMat.set(name, []);
-    byMat.get(name)!.push(g);
-  });
-  const root = new THREE.Group();
-  for (const [name, geos] of byMat) {
-    const merged = mergeGeometries(geos, false);
-    if (!merged) continue;
-    const mesh = new THREE.Mesh(merged, HULL);
-    mesh.userData.matName = name;
-    root.add(mesh);
-    geos.forEach((g) => g.dispose());
-  }
-  return root;
-}
+const templates = new Map<string, ShapePart[]>();
 
 export function factionKind(faction: FactionId): ShipKind {
   switch (faction) {
@@ -83,15 +59,14 @@ export function factionKind(faction: FactionId): ShipKind {
 }
 
 /** Однократная загрузка всех шаблонов (вызывается до старта сцены). */
-export function preloadShipModels(): Promise<void> {
-  const loader = new GLTFLoader();
+export async function preloadShipModels(): Promise<void> {
   const jobs: Promise<void>[] = [];
   const put = (key: string, url: string): void => {
-    jobs.push(loader.loadAsync(url).then((g) => {
-      templates.set(key, consolidate(g.scene));
-    }).catch((e) => {
-      console.warn(`Модель ${key} не загрузилась, останется процедурный силуэт:`, e);
-    }));
+    jobs.push(loadVertexData(url)
+      .then((parts) => { templates.set(key, parts); })
+      .catch((e) => {
+        console.warn(`Модель ${key} не загрузилась, останется процедурный силуэт:`, e);
+      }));
   };
   for (const kind of Object.keys(URLS) as ShipKind[]) {
     for (const cls of Object.keys(URLS[kind]) as ShipClass[]) {
@@ -99,77 +74,106 @@ export function preloadShipModels(): Promise<void> {
     }
   }
   put('station', stationGlb);
-  return Promise.all(jobs).then(() => undefined);
+  await Promise.all(jobs);
 }
 
 // --- Фракционные материалы --------------------------------------------------
 // Имена материалов в GLB — контракт с shipforge.py: hull / dark / accent /
-// glow / organic / organicDark. Базовые общие, акцентные кэшируются по цвету.
+// glow / organic / organicDark. Базовые общие, акцентные кэшируются по цвету:
+// иначе каждое соединение заводило бы свой материал и шейдер компилировался бы
+// заново на каждый новый флот.
 
-// Без env-карты высокая металличность чернит корпуса — держим её умеренной.
-const HULL = new THREE.MeshStandardMaterial({ color: 0xaeb7c2, metalness: 0.3, roughness: 0.5 });
-const DARK = new THREE.MeshStandardMaterial({ color: 0x59616d, metalness: 0.35, roughness: 0.6 });
-const ORGANIC = new THREE.MeshStandardMaterial({ color: 0xb59a4a, metalness: 0.05, roughness: 0.85 });
-const ORGANIC_DARK = new THREE.MeshStandardMaterial({ color: 0x6e5a22, metalness: 0.05, roughness: 0.75 });
+let baseMats: Record<string, PBRMaterial> | null = null;
 
-const accentCache = new Map<string, THREE.MeshStandardMaterial>();
-const glowCache = new Map<string, THREE.MeshStandardMaterial>();
+function pbr(scene: Scene, name: string, color: Color3, metallic: number, rough: number): PBRMaterial {
+  const m = new PBRMaterial(name, scene);
+  m.albedoColor = color;
+  m.metallic = metallic;
+  m.roughness = rough;
+  // Без карты окружения металл чернеет: подмешиваем ровный отражённый свет,
+  // иначе корпуса на чёрном космосе превращаются в силуэты.
+  m.ambientColor = new Color3(0.16, 0.18, 0.22);
+  m.environmentIntensity = 0.55;
+  return m;
+}
 
-function accentFor(color: THREE.Color): THREE.MeshStandardMaterial {
-  const key = color.getHexString();
+function bases(scene: Scene): Record<string, PBRMaterial> {
+  if (baseMats) return baseMats;
+  baseMats = {
+    hull: pbr(scene, 'shipHull', new Color3(0.68, 0.72, 0.76), 0.30, 0.50),
+    dark: pbr(scene, 'shipDark', new Color3(0.35, 0.38, 0.43), 0.35, 0.60),
+    organic: pbr(scene, 'shipOrganic', new Color3(0.71, 0.60, 0.29), 0.05, 0.85),
+    organicDark: pbr(scene, 'shipOrganicDark', new Color3(0.43, 0.35, 0.13), 0.05, 0.75),
+  };
+  return baseMats;
+}
+
+const accentCache = new Map<string, PBRMaterial>();
+const glowCache = new Map<string, PBRMaterial>();
+
+function accentFor(scene: Scene, color: Color3): PBRMaterial {
+  const key = color.toHexString();
   let m = accentCache.get(key);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: 0.55, metalness: 0.3, roughness: 0.5,
-    });
+    m = pbr(scene, `accent_${key}`, color, 0.30, 0.50);
+    m.emissiveColor = color.scale(0.55);
     accentCache.set(key, m);
   }
   return m;
 }
 
-function glowFor(color: THREE.Color): THREE.MeshStandardMaterial {
-  const key = color.getHexString();
+function glowFor(scene: Scene, color: Color3): PBRMaterial {
+  const key = color.toHexString();
   let m = glowCache.get(key);
   if (!m) {
-    const c = color.clone().lerp(new THREE.Color(0xffffff), 0.35);
-    m = new THREE.MeshStandardMaterial({
-      color: c, emissive: c, emissiveIntensity: 1.6, metalness: 0, roughness: 0.4,
-    });
+    const c = mixColor(color, new Color3(1, 1, 1), 0.35);
+    m = pbr(scene, `glow_${key}`, c, 0, 0.40);
+    // Ярче единицы намеренно: именно это подхватывает слой свечения и делает
+    // ходовые огни видимыми с общего плана.
+    m.emissiveColor = c.scale(1.6);
     glowCache.set(key, m);
   }
   return m;
 }
 
-function skin(root: THREE.Group, color: THREE.Color): void {
-  const accent = accentFor(color);
-  const glow = glowFor(color);
-  root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
-    const name = (o.userData.matName as string | undefined)
-      ?? (o.material as THREE.Material)?.name ?? '';
-    if (name.startsWith('accent')) o.material = accent;
-    else if (name.startsWith('glow')) o.material = glow;
-    else if (name.startsWith('organicDark')) o.material = ORGANIC_DARK;
-    else if (name.startsWith('organic')) o.material = ORGANIC;
-    else if (name.startsWith('dark')) o.material = DARK;
-    else o.material = HULL;
-  });
+function materialFor(scene: Scene, name: string, color: Color3): PBRMaterial {
+  const b = bases(scene);
+  if (name.startsWith('accent')) return accentFor(scene, color);
+  if (name.startsWith('glow')) return glowFor(scene, color);
+  if (name.startsWith('organicDark')) return b.organicDark!;
+  if (name.startsWith('organic')) return b.organic!;
+  if (name.startsWith('dark')) return b.dark!;
+  return b.hull!;
 }
 
-/** Клон загруженного шаблона в цветах фракции; null — модели нет (фолбэк). */
-export function shipAsset(faction: FactionId, color: THREE.Color, cls: ShipClass): THREE.Group | null {
-  const tpl = templates.get(`${factionKind(faction)}_${cls}`);
-  if (!tpl) return null;
-  const clone = tpl.clone(true);
-  skin(clone, color);
-  return clone;
+/** Собрать узел модели из заготовки в цветах фракции. */
+function build(scene: Scene, parts: ShapePart[], color: Color3, tag: string): TransformNode {
+  const root = new TransformNode(tag, scene);
+  for (const part of parts) {
+    const mesh = new Mesh(`${tag}_${part.name}`, scene);
+    part.data.applyToMesh(mesh);
+    mesh.material = materialFor(scene, part.name, color);
+    mesh.parent = root;
+    // Корабли мелкие и их много: отсечение по частям кадра стоит дороже, чем
+    // сама отрисовка.
+    mesh.alwaysSelectAsActiveMesh = true;
+    mesh.isPickable = false;
+    // Ходовые огни должны попадать в слой свечения, корпуса — нет.
+    if (part.name.startsWith('glow')) mesh.metadata = { glow: true };
+  }
+  return root;
 }
 
-/** Клон станции в цветах фракции; null — фолбэк на процедурную. */
-export function stationAsset(color: THREE.Color): THREE.Group | null {
-  const tpl = templates.get('station');
-  if (!tpl) return null;
-  const clone = tpl.clone(true);
-  skin(clone, color);
-  return clone;
+/** Модель корабля в цветах фракции; null — модели нет (фолбэк). */
+export function shipAsset(
+  scene: Scene, faction: FactionId, color: Color3, cls: ShipClass,
+): TransformNode | null {
+  const parts = templates.get(`${factionKind(faction)}_${cls}`);
+  return parts ? build(scene, parts, color, `ship_${cls}`) : null;
+}
+
+/** Модель станции в цветах фракции; null — фолбэк на процедурную. */
+export function stationAsset(scene: Scene, color: Color3): TransformNode | null {
+  const parts = templates.get('station');
+  return parts ? build(scene, parts, color, 'station') : null;
 }

@@ -186,7 +186,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 
 // --- Поверхности планет: детали вместо мыла -------------------------------------------
 {
-  const mesh = read('src', 'render', 'planetMesh.ts');
+  const mesh = read('src', 'render', 'planetShaders.ts');
   // Октав стало больше — именно их нехватка и читалась как размытие.
   const loop = /for\(int i=0;i<(\d+);i\+\+\)\{\s*if \(float\(i\) >= gOct\)/.exec(mesh);
   ok(!!loop && Number(loop[1]) >= 7, `у шума не меньше семи октав (${loop?.[1]})`);
@@ -196,7 +196,10 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(mesh.includes('float band(float freq, float fw)'), 'детали ограничены пределом различимости');
   ok(mesh.includes('fwidth('), 'предел считается по производной экранных координат');
   ok(mesh.includes('gOct = clamp(log2('), 'число октав тоже режется по размеру пикселя');
-  ok(mesh.includes('derivatives: true'), 'производные включены и для WebGL1');
+  // Производные (fwidth) — ядро языка на WebGL2, а движок поднимается именно
+  // на нём: отдельный флаг расширения больше не нужен.
+  ok(read('src', 'render', 'engine.ts').includes('new Engine(canvas, true,'),
+    'движок поднимается с WebGL2 — производные там в ядре языка');
   ok(mesh.includes('float mountains = ridged(') && mesh.includes('float valleys ='),
     'на суше есть и хребты, и эрозионные долины');
   ok(mesh.includes('uIce > 0.5') && mesh.includes('float plate ='), 'у ледяных миров поля плит');
@@ -209,7 +212,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
     'на низком качестве деталей меньше');
 
   // Разброс масштаба поверхности — иначе миры одного биома выглядят копиями.
-  const freq = /const freq = ([\d.]+) \+ rand\(\) \* ([\d.]+);/.exec(mesh);
+  const freq = /const freq = ([\d.]+) \+ rand\(\) \* ([\d.]+);/.exec(read('src', 'render', 'planetMesh.ts'));
   ok(!!freq && Number(freq[2]) >= 3, `разброс частоты рельефа широкий (±${freq?.[2]})`);
 }
 

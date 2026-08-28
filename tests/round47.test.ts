@@ -154,7 +154,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 
   const scene = read('src', 'render', 'scene.ts');
   ok(scene.includes('setQuality('), 'сцена умеет применять пресет');
-  ok(scene.includes('setDrawRange'), 'звёзды прореживаются без пересборки геометрии');
+  ok(scene.includes('this.stars.setCount('), 'звёзды прореживаются без пересборки геометрии');
   ok(scene.includes('Math.min(p.pixelRatio, window.devicePixelRatio)'),
     'плотность не задирается выше возможностей экрана');
   console.log('пресеты качества: OK');

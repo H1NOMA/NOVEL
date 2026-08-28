@@ -107,16 +107,16 @@ function parseGlbJson(buf: Buffer): { asset?: { version?: string }; meshes?: unk
   for (const f of meshFiles) {
     ok(assets.includes(`planets/${f}?url`), `меш подключён: ${f}`);
   }
-  ok(assets.includes('computeVertexNormals'), 'нормали считаются в рантайме');
+  ok(assets.includes('VertexData.ComputeNormals'), 'нормали считаются в рантайме');
 
   const mesh = readFileSync(join(ROOT, 'src', 'render', 'planetMesh.ts'), 'utf8');
-  ok(mesh.includes('reliefGeometry('), 'меш планеты берёт рельеф');
+  ok(mesh.includes('reliefShape('), 'меш планеты берёт рельеф');
   ok(mesh.includes('setRelief('), 'есть переключатель геометрического LOD');
-  ok(mesh.includes('new THREE.Mesh(SPHERE_GEO, material)'),
+  ok(/relief\.setEnabled\(false\)/.test(mesh) && mesh.includes('sphereData()'),
     'стартует с гладкой сферы — иначе на общем плане рельеф мерцает');
   ok(mesh.includes('spinSpeed * dt * 60'), 'вращение развязано с частотой кадров');
   ok(/axis\.rotation\.set\(/.test(mesh), 'наклон оси вынесен на родителя (нет прецессии)');
-  ok(mesh.includes('ringGeometry()') && mesh.includes('moonGeometry()'),
+  ok(mesh.includes('ringShape()') && mesh.includes('moonShape()'),
     'кольца и луны подключены');
 
   const scene = readFileSync(join(ROOT, 'src', 'render', 'scene.ts'), 'utf8');

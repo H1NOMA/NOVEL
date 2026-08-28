@@ -64,7 +64,22 @@ async function transport(): Promise<void> {
   ok((got[1] as { pad: string }).pad.length === 20000, 'сжатый крупный кадр разобран без потерь');
 
   // Кадр от хоста реально сжимается.
-  const payload = { k: 'snapshot', snapshot: read('package-lock.json').slice(0, 140 * 1024) };
+  //
+  // Срез генерируется здесь и имеет ФИКСИРОВАННЫЙ размер. Раньше его брали из
+  // package-lock.json, и тест незаметно зависел от веса этого файла: смена
+  // одной зависимости меняла срез на пару килобайт, сокет переставал
+  // захлёбываться, и падала проверка затора ниже — хотя сеть была ни при чём.
+  // Текст нарочно неоднородный: ровные повторы сжались бы почти в ноль, и
+  // затора снова не вышло бы.
+  const words = ['planet', 'fleet', 'supply', 'garrison', 'orbit', 'sector', 'invasion',
+    'superEarth', 'automatons', 'illuminate', 'terminids', 'shipyard', 'depot'];
+  let blob = '';
+  let seed = 20260828;
+  while (blob.length < 200 * 1024) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    blob += `${words[seed % words.length]}:${seed % 9973},`;
+  }
+  const payload = { k: 'snapshot', snapshot: blob };
   const raw = JSON.stringify(payload).length;
   const frameOut = gameNet.broadcastVolatile(payload);
   ok(frameOut.sent === 1, 'срез ушёл единственному клиенту');
@@ -151,22 +166,25 @@ async function transport(): Promise<void> {
 // --- Карта: чёрный космос, круглые звёзды, мировое солнце ---------------------------
 {
   const sky = read('src', 'render', 'starfield.ts');
-  ok(!sky.includes('new THREE.PointsMaterial'), 'квадратных точек больше нет');
+  ok(!sky.includes('PointsMaterial'), 'квадратных точек больше нет');
   ok(sky.includes('gl_PointCoord'), 'звезда рисуется по своей форме');
   ok(sky.includes('if (r > 1.0) discard;'), 'всё вне круга отсекается');
   ok(sky.includes('uPixelRatio'), 'размер звезды задан в пикселях');
   ok(sky.includes('aPhase'), 'мерцание у каждой звезды своё');
 
   const scene = read('src', 'render', 'scene.ts');
-  ok(scene.includes('setClearColor(0x000000'), 'космос чёрный');
-  ok(scene.includes('new OutputPass()'), 'вывод цепочки приведён в порядок');
-  ok(scene.includes('LinearSRGBColorSpace'), 'цель композера линейная');
-  ok(scene.includes('samples: 4') || scene.includes('samples,'), 'сглаживание внутри цепочки');
-  ok(scene.includes('key.position.copy(SUN_UNIFORM.value)'), 'корабли освещены тем же солнцем');
+  const eng = read('src', 'render', 'engine.ts');
+  ok(eng.includes('new Color4(0, 0, 0, 1)'), 'космос чёрный');
+  // Порядок вывода держит конвейер движка: тон-маппинг и перевод в sRGB он
+  // делает ровно один раз, в самом конце цепочки.
+  ok(scene.includes('ip.toneMappingEnabled = true')
+    && scene.includes('TONEMAPPING_ACES'), 'вывод цепочки приведён в порядок');
+  ok(scene.includes('this.pipeline.samples ='), 'сглаживание внутри цепочки');
+  ok(scene.includes("new DirectionalLight('key', SUN_DIR"), 'корабли освещены тем же солнцем');
 
-  const mesh = read('src', 'render', 'planetMesh.ts');
-  ok(mesh.includes('export const SUN_UNIFORM'), 'солнце карты — общий уникформ');
-  ok(mesh.includes('vWorldN') && mesh.includes('mat3(modelMatrix) * normal'),
+  const mesh = read('src', 'render', 'planetShaders.ts');
+  ok(eng.includes('export const SUN_DIR'), 'солнце карты — общее направление на всю карту');
+  ok(mesh.includes('vWorldN') && mesh.includes('mat3(world) * normal'),
     'свет считается в мировых координатах');
   ok(!mesh.includes('vec3 sun = normalize(vec3(0.55, 0.35, 0.75))'),
     'прибитого к камере солнца больше нет');
@@ -174,7 +192,7 @@ async function transport(): Promise<void> {
 
   const fleets = read('src', 'render', 'fleets.ts');
   ok(fleets.includes('function beaconTexture('), 'у соединений есть опознавательный огонь');
-  ok(fleets.includes('model.scale.multiplyScalar('), 'силуэт корабля укрупнён');
+  ok(fleets.includes('model.scaling.scaleInPlace('), 'силуэт корабля укрупнён');
 
   // Детализация и сглаживание платятся качеством, а не всегда.
   const st = read('src', 'ui', 'settings.ts');

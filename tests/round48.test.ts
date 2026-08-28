@@ -193,7 +193,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(pools.every((n) => n >= 3), 'у каждого биома минимум три варианта рельефа');
 
   // Мерцание лавы: общий множитель яркости по времени убран.
-  const mesh = read('src', 'render', 'planetMesh.ts');
+  const mesh = read('src', 'render', 'planetShaders.ts');
   ok(!mesh.includes('float flicker'), 'строб на пожарах убран');
   ok(!/pulse\s*=\s*0\.8\s*\+\s*0\.2\s*\*\s*sin\(uTime/.test(mesh), 'общая пульсация лавы убрана');
   ok(mesh.includes('float heat = fbm(flow)'), 'вместо мигания по поверхности течёт тепловой шум');
@@ -205,14 +205,14 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   const sf = read('src', 'render', 'starfield.ts');
   ok(sf.includes('export function createNebulaField('), 'фоновые туманности есть');
   const fn = sf.slice(sf.indexOf('export function createNebulaField('),
-    sf.indexOf('export interface CometLayer'));
+    sf.indexOf('/** Мягкий диск галактической пыли'));
   const far = /worldRadius \* (\d+)/.exec(fn);
   ok(!!far && Number(far[1]) >= 5, `облака вынесены далеко за карту (×${far?.[1]})`);
-  ok(fn.includes('depthTest: false'), 'туманности не спорят с планетами по глубине');
-  ok(fn.includes('renderOrder = -100'), 'рисуются раньше всего — всегда сзади');
+  ok(fn.includes('disableDepthWrite = true'), 'туманности не спорят с планетами по глубине');
+  ok(fn.includes('renderingGroupId = 0'), 'рисуются раньше всего — всегда сзади');
   const scene = read('src', 'render', 'scene.ts');
   ok(scene.includes('createNebulaField('), 'сцена их подключает');
-  ok(scene.includes('this.nebulae.visible'), 'на низком качестве гаснут');
+  ok(scene.includes('this.nebulae.setEnabled('), 'на низком качестве гаснут');
   console.log('туманности: OK');
 }
 

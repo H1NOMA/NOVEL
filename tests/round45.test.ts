@@ -186,14 +186,14 @@ function ok(cond: boolean, msg: string): void {
 
 // --- Мягкая подача: свет, цвет, звук ------------------------------------------------
 {
-  const mesh = readFileSync(join(process.cwd(), 'src', 'render', 'planetMesh.ts'), 'utf8');
+  const mesh = readFileSync(join(process.cwd(), 'src', 'render', 'planetShaders.ts'), 'utf8');
   ok(mesh.includes('WRAP'), 'свет заворачивается за терминатор');
   ok(mesh.includes('skyAmb') && mesh.includes('gndAmb'), 'полусферный ambient');
   ok(mesh.includes('ringShadow'), 'кольца отбрасывают тень');
   ok(mesh.includes('vRingN'), 'нормаль кольца приходит varying, а не из normalMatrix');
 
   const scene = readFileSync(join(process.cwd(), 'src', 'render', 'scene.ts'), 'utf8');
-  ok(scene.includes('HemisphereLight'), 'сцена освещена полусферным источником');
+  ok(scene.includes('HemisphericLight'), 'сцена освещена полусферным источником');
 
   const css = readFileSync(join(process.cwd(), 'src', 'style.css'), 'utf8');
   ok(!css.includes('--yel: #ffe11c'), 'сигнальный жёлтый смягчён');

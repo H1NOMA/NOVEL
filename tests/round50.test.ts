@@ -266,7 +266,7 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
     scene.indexOf('refreshOwners(): void'));
   ok(spot.includes('this.spotlight'), 'сектора знают о подсветке');
   ok(spot.includes("p.owner === this.spotlight"), 'сектор красится по присутствию фракции');
-  ok(/opacity = 0\.00\d/.test(spot), 'чужие сектора уходят в тень');
+  ok(/alpha = 0\.00\d/.test(spot), 'чужие сектора уходят в тень');
   ok(scene.includes('p.owner === this.spotlight ? 1 :'), 'чужие миры притухают');
 
   const css = read('src', 'style.css');
