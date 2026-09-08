@@ -26,7 +26,14 @@ const SEEDS = ${JSON.stringify(seedList)};
 
 for (const seed of SEEDS) {
   const s = createGame(seed);
-  s.player = 'superFederation'; // все основные фракции — под ИИ
+  // Все фракции под ИИ. Одного s.player мало: createGame кладёт humans:[player],
+  // а isHuman читает именно humans — при пустом humans человеком не считается
+  // никто. Раньше здесь менялся только player, из-за чего Супер-Земля во всех
+  // прогонах стояла столбом (за неё не работали runAI, autoPickFocus, aiBuild
+  // и aiDecisions) и её стирали до нуля-одного мира. Любой вывод о гегемоне,
+  // полученный до этой правки, недействителен.
+  s.player = 'superFederation';
+  s.humans = [];
   const timeline = [];
   for (let d = 0; d < DAYS && !s.winner; d++) {
     moveFleets(s, 1);
