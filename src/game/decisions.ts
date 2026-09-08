@@ -401,7 +401,7 @@ function aiDecisions(state: GameState): void {
   const ai = (f: FactionId): boolean => state.factions[f].alive && !isHuman(state, f);
 
   // Утраченное супероружие ИИ восстанавливает, как только накопит ресурсы.
-  for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
+  for (const faction of ['superEarth', 'automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
     const fs = state.factions[faction];
     if (ai(faction) && fs.lostSpecial && fs.production >= SPECIAL_REBUILD_COST + 60) {
       rebuildSpecial(state, faction);
@@ -446,7 +446,7 @@ function aiDecisions(state: GameState): void {
       }
     }
   }
-  for (const faction of ['automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
+  for (const faction of ['superEarth', 'automatons', 'illuminate', 'terminids', 'superFederation'] as const) {
     const fs = state.factions[faction];
     if (!ai(faction)) continue;
     if (fs.production >= 120) {

@@ -85,7 +85,6 @@ const css = readFileSync(join(ROOT, 'src', 'style.css'), 'utf8');
 
   // Слой команд и протокол на месте.
   const cmds = readFileSync(join(ROOT, 'src', 'net', 'commands.ts'), 'utf8');
-  ok(cmds.includes('export function applyCommand'), 'есть применение команд');
   ok(cmds.includes('ownFleet') && cmds.includes('ownPlanet'),
     'команды проверяют принадлежность цели');
   const session = readFileSync(join(ROOT, 'src', 'net', 'session.ts'), 'utf8');

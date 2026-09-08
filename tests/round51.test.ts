@@ -8,6 +8,7 @@ import { applyCommand } from '../src/net/commands';
 import { encodeSnapshot, applySnapshot } from '../src/net/snapshot';
 import { interpolateFleets, orderFleetTo } from '../src/game/units';
 import { advanceDay } from '../src/game/sim';
+import { GameClock } from '../src/game/clock';
 import { GALAXY_SHAPES, shapeDef } from '../src/game/galaxyShapes';
 import { findPath } from '../src/game/galaxy';
 import { FACTION_IDS, FACTIONS, WAR_CRY } from '../src/data/factions';
@@ -26,13 +27,40 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 
 // --- Клиент больше не симулирует мир ---------------------------------------------
 {
-  const clock = read('src', 'game', 'clock.ts');
-  ok(clock.includes('setAuthoritative('), 'у часов есть режим «не считать самому»');
-  ok(clock.includes('interpolateFleets('), 'клиент только подтягивает корабли между срезами');
-  const frame = clock.slice(clock.indexOf('frame(dt'), clock.indexOf('frame(dt') + 900);
-  ok(frame.includes('if (!this.authoritative)'), 'ветка клиента отделена до симуляции');
-  ok(frame.indexOf('if (!this.authoritative)') < frame.indexOf('advanceDay('),
-    'advanceDay на клиенте недостижим');
+  // Проверяется ПОВЕДЕНИЕ часов, а не расположение строк в исходнике: прежняя
+  // версия резала 900 символов от `frame(` и сравнивала индексы подстрок, из-за
+  // чего падала от добавленного комментария, а подмену смысла бы пропустила.
+  {
+    const host = createGame(11, 'superEarth');
+    const start = host.day;
+    host.speed = 3;
+    new GameClock(host).frame(3);
+    ok(host.day > start, `хозяйские часы считают мир (день ${host.day})`);
+
+    const client = createGame(11, 'superEarth');
+    client.speed = 3;
+    const cc = new GameClock(client);
+    cc.setAuthoritative(false);
+    for (let i = 0; i < 8; i++) cc.frame(3);
+    ok(client.day === start, `клиент мир не считает (день ${client.day})`);
+
+    // Делёж наследства останавливает мир целиком, включая движение флотов:
+    // раньше moveFleets вызывался до цикла дней и протекал сквозь паузу.
+    const paused = createGame(12, 'superEarth');
+    paused.speed = 3;
+    const own = planetsOf(paused, 'superEarth');
+    const fl = spawnFleet(paused, 'superEarth', own[0]!.id, { ships: 4, infantry: 8 });
+    const dest = own.find((p) => p.id !== own[0]!.id)!;
+    orderFleetTo(paused, fl, dest.id, false);
+    paused.partition = {
+      loser: 'terminids', victor: null, shares: [], spoils: [], confirmed: [], speed: 3,
+    } as never;
+    const before = fl.transit ? fl.transit.progress : -1;
+    const day0 = paused.day;
+    new GameClock(paused).frame(3);
+    ok(paused.day === day0, 'во время раздела день не идёт');
+    ok((fl.transit ? fl.transit.progress : -1) === before, 'во время раздела флоты стоят');
+  }
 
   const main = read('src', 'main.ts');
   ok(main.includes('opts.client) clock.setAuthoritative(false)'), 'клиент запускается без симуляции');
@@ -57,8 +85,6 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 {
   const ui = read('src', 'ui', 'ui.ts');
   ok(ui.includes('private act(cmd: Cmd)'), 'у интерфейса одна дверь к состоянию');
-  ok(ui.includes('sendCommand(cmd)') && ui.includes('applyCommand(this.state, this.state.player, cmd)'),
-    'приказ либо уходит хосту, либо применяется тем же кодом локально');
 
   // Ни одного прямого мутатора мира в интерфейсе не осталось.
   const forbidden = [

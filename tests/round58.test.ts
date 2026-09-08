@@ -118,14 +118,48 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
   ok(seDoctrine('superEarth', SE_MASS_HULLS, SE_MASS_TROOPS, 2.2) < 2.0,
     'у атаки порог — не полная сила');
 
-  const combat = read('src', 'game', 'combat.ts');
-  ok(combat.includes('const step = (ratio - 0.5) * 22'),
-    'множители штурма применяются отдельно от отката');
-  ok(combat.includes('const inBattle = landableInfantry(f)'),
-    'потери несёт только высаженная пехота');
-  ok(combat.includes('const boots ='), 'взятие мира требует наземных сил');
-  ok(combat.includes('const canLand ='), 'битва не заводится без десанта');
   console.log('исправления боёв: OK');
+}
+
+// --- Штурм проверяется поведением, а не текстом исходника -------------------------
+//
+// Раньше здесь стояло четыре проверки вида combat.includes('const step = ...'):
+// они фиксировали НАПИСАНИЕ формулы, а не её смысл, и переживали бы любую
+// подмену правил. Переписано на инварианты, которые обязаны держаться при любой
+// реализации наземного боя.
+{
+  // 1. Перевес ускоряет штурм. Одинаковая планета, разный десант — больший
+  //    десант обязан продвинуться дальше за те же сутки.
+  const progressWith = (troops: number): number => {
+    const s = createGame(77, 'superEarth');
+    declareWar(s, 'superEarth', 'automatons');
+    const target = planetsOf(s, 'automatons').find((p) => !p.isCapital)
+      ?? planetsOf(s, 'automatons')[0]!;
+    target.garrison = 40;
+    target.fortification = 1;
+    spawnFleet(s, 'superEarth', target.id, {
+      ships: 12, infantry: troops, transports: Math.ceil(troops / 12),
+    });
+    for (let i = 0; i < 12; i++) advanceDay(s);
+    const p = s.galaxy.planets.get(target.id)!;
+    return p.owner === 'superEarth' ? 100 : (p.battle?.liberation ?? 0);
+  };
+  const weak = progressWith(24);
+  const strong = progressWith(60);
+  ok(strong > weak, `перевес ускоряет штурм (${weak.toFixed(1)} против ${strong.toFixed(1)})`);
+
+  // 2. Пехота сверх аппарелей не воюет и не гибнет: без транспортов десант не
+  //    сходит на грунт, сколько бы его ни было на борту.
+  const s = createGame(78, 'superEarth');
+  declareWar(s, 'superEarth', 'automatons');
+  const target = planetsOf(s, 'automatons')[0]!;
+  target.garrison = 40;
+  spawnFleet(s, 'superEarth', target.id, { ships: 12, infantry: 60, transports: 0 });
+  for (let i = 0; i < 20; i++) advanceDay(s);
+  const after = s.galaxy.planets.get(target.id)!;
+  ok(after.owner !== 'superEarth', 'без аппарелей мир не взять');
+  ok((after.battle?.landed ?? 0) === 0, 'без аппарелей на грунт никто не сошёл');
+  console.log('штурм по поведению: OK');
 }
 
 // --- Пустой флот не заводит вечную ложную тревогу ---------------------------------

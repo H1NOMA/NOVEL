@@ -44,7 +44,12 @@ export class GameClock {
    */
   frame(dt: number): void {
     const { state } = this;
-    if (state.speed === 0 || state.winner) {
+    // Делёж наследства останавливает мир целиком. advanceDay это соблюдает
+    // (sim.ts), но одного гейта там мало: moveFleets вызывается отсюда ДО
+    // цикла дней, поэтому во время «остановленной» паузы флоты продолжали
+    // лететь, прибывать и подкреплять гарнизоны — то есть карта менялась,
+    // пока фракции делили миры по ней же.
+    if (state.speed === 0 || state.winner || state.partition) {
       bus.emit('tick', { day: state.day });
       return;
     }

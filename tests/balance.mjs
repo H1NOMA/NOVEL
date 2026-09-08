@@ -35,17 +35,37 @@ for (const seed of SEEDS) {
   s.player = 'superFederation';
   s.humans = [];
   const timeline = [];
+  // Дефициты: сколько ресурса фракция НЕ смогла потратить — главный показатель
+  // того, есть ли у экономики сток. Плюс темп войны: сколько миров реально
+  // меняет владельца и сколько битв идёт одновременно.
+  const owner = new Map();
+  for (const [id, p] of s.galaxy.planets) owner.set(id, p.owner);
+  let flips = 0, battleSum = 0;
+  const durations = [];
+  const started = new Map();
   for (let d = 0; d < DAYS && !s.winner; d++) {
     moveFleets(s, 1);
     advanceDay(s);
+    let live = 0;
+    for (const [id, p] of s.galaxy.planets) {
+      if (p.battle) { live++; if (!started.has(id)) started.set(id, s.day); }
+      else if (started.has(id)) { durations.push(s.day - started.get(id)); started.delete(id); }
+      if (owner.get(id) !== p.owner) { flips++; owner.set(id, p.owner); }
+    }
+    battleSum += live;
     if (s.day % 365 === 0) {
       const snap = {};
       for (const f of FACTION_IDS.concat(s.superFederationRisen ? ['superFederation'] : [])) {
         snap[f] = planetsOf(s, f).length;
       }
+      snap.__prod = FACTION_IDS.map((f) => Math.round(s.factions[f].production));
+      snap.__pp = FACTION_IDS.map((f) => Math.round(s.factions[f].politicalPower));
       timeline.push({ year: s.day / 365, ...snap });
     }
   }
+  durations.sort((a, b) => a - b);
+  const median = durations.length ? durations[Math.floor(durations.length / 2)] : 0;
+  const longWars = durations.filter((x) => x > 90).length;
   const final = {};
   for (const f of FACTION_IDS.concat(s.superFederationRisen ? ['superFederation'] : [])) {
     final[f] = planetsOf(s, f).length;
@@ -53,11 +73,23 @@ for (const seed of SEEDS) {
   console.log('=== сид ' + seed + ' → день ' + s.day +
     (s.winner ? ' · ПОБЕДИТЕЛЬ: ' + FACTIONS[s.winner].name : ' · война продолжается'));
   for (const t of timeline) {
-    console.log('  год ' + t.year + ':',
-      FACTION_IDS.map((f) => FACTIONS[f].short + ' ' + (t[f] ?? 0)).join(' · '),
+    console.log('  год ' + String(t.year).padStart(2) + ':',
+      FACTION_IDS.map((f) => FACTIONS[f].short + ' ' + String(t[f] ?? 0).padStart(3)).join(' · '),
       t.superFederation !== undefined ? '· ФЕД ' + t.superFederation : '');
   }
   console.log('  финал:', JSON.stringify(final));
+  // --- Таблица дефицитов -----------------------------------------------------
+  // Неизрасходованное — это диагноз: ресурс, который некуда деть, не является
+  // ресурсом. Приёмочный порог переработки — меньше 8000 производства к концу.
+  const last = timeline[timeline.length - 1] ?? { __prod: [], __pp: [] };
+  console.log('  не потрачено ⚒:',
+    FACTION_IDS.map((f, i) => FACTIONS[f].short + ' ' + (last.__prod[i] ?? 0)).join(' · '));
+  console.log('  не потрачено ⚖:',
+    FACTION_IDS.map((f, i) => FACTIONS[f].short + ' ' + (last.__pp[i] ?? 0)).join(' · '));
+  console.log('  темп войны: смен владельца ' + flips +
+    ', боёв/день ' + (battleSum / Math.max(1, s.day)).toFixed(2) +
+    ', медиана боя ' + median + ' сут, боёв длиннее 90 сут ' +
+    longWars + ' из ' + durations.length);
 }
 `;
 const entry = join(outDir, 'balance-entry.ts');
