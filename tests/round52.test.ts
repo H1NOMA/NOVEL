@@ -166,25 +166,22 @@ async function transport(): Promise<void> {
 // --- Карта: чёрный космос, круглые звёзды, мировое солнце ---------------------------
 {
   const sky = read('src', 'render', 'starfield.ts');
-  ok(!sky.includes('PointsMaterial'), 'квадратных точек больше нет');
+  ok(!sky.includes('new THREE.PointsMaterial'), 'квадратных точек больше нет');
   ok(sky.includes('gl_PointCoord'), 'звезда рисуется по своей форме');
   ok(sky.includes('if (r > 1.0) discard;'), 'всё вне круга отсекается');
   ok(sky.includes('uPixelRatio'), 'размер звезды задан в пикселях');
   ok(sky.includes('aPhase'), 'мерцание у каждой звезды своё');
 
   const scene = read('src', 'render', 'scene.ts');
-  const eng = read('src', 'render', 'engine.ts');
-  ok(eng.includes('new Color4(0, 0, 0, 1)'), 'космос чёрный');
-  // Порядок вывода держит конвейер движка: тон-маппинг и перевод в sRGB он
-  // делает ровно один раз, в самом конце цепочки.
-  ok(scene.includes('ip.toneMappingEnabled = true')
-    && scene.includes('TONEMAPPING_ACES'), 'вывод цепочки приведён в порядок');
-  ok(scene.includes('this.pipeline.samples ='), 'сглаживание внутри цепочки');
-  ok(scene.includes("new DirectionalLight('key', SUN_DIR"), 'корабли освещены тем же солнцем');
+  ok(scene.includes('setClearColor(0x000000'), 'космос чёрный');
+  ok(scene.includes('new OutputPass()'), 'вывод цепочки приведён в порядок');
+  ok(scene.includes('LinearSRGBColorSpace'), 'цель композера линейная');
+  ok(scene.includes('samples: 4') || scene.includes('samples,'), 'сглаживание внутри цепочки');
+  ok(scene.includes('key.position.copy(SUN_UNIFORM.value)'), 'корабли освещены тем же солнцем');
 
-  const mesh = read('src', 'render', 'planetShaders.ts');
-  ok(eng.includes('export const SUN_DIR'), 'солнце карты — общее направление на всю карту');
-  ok(mesh.includes('vWorldN') && mesh.includes('mat3(world) * normal'),
+  const mesh = read('src', 'render', 'planetMesh.ts');
+  ok(mesh.includes('export const SUN_UNIFORM'), 'солнце карты — общий уникформ');
+  ok(mesh.includes('vWorldN') && mesh.includes('mat3(modelMatrix) * normal'),
     'свет считается в мировых координатах');
   ok(!mesh.includes('vec3 sun = normalize(vec3(0.55, 0.35, 0.75))'),
     'прибитого к камере солнца больше нет');
@@ -192,7 +189,7 @@ async function transport(): Promise<void> {
 
   const fleets = read('src', 'render', 'fleets.ts');
   ok(fleets.includes('function beaconTexture('), 'у соединений есть опознавательный огонь');
-  ok(fleets.includes('model.scaling.scaleInPlace('), 'силуэт корабля укрупнён');
+  ok(fleets.includes('model.scale.multiplyScalar('), 'силуэт корабля укрупнён');
 
   // Детализация и сглаживание платятся качеством, а не всегда.
   const st = read('src', 'ui', 'settings.ts');

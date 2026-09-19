@@ -1,6 +1,6 @@
-import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { BiomeId } from '../core/types';
-import { loadVertexData } from './gltf';
 
 // ---------------------------------------------------------------------------
 // Рельефная геометрия миров, вытесненная в Blender (tools/blender/planetforge.py).
@@ -13,9 +13,6 @@ import { loadVertexData } from './gltf';
 // Вариативность не страдает: цвет по-прежнему считает шейдер из seed планеты
 // (он берёт направление normalize(vObj), поэтому не зависит от вытеснения),
 // а семейство рельефа подбирается по биому и seed'у.
-//
-// Хранятся именно VertexData, а не готовые меши: одна и та же горная порода
-// достаётся десяткам миров, и каждый лепит из неё свой меш со своим материалом.
 // ---------------------------------------------------------------------------
 
 import mountainUrl from '../assets/planets/mountain.glb?url';
@@ -56,27 +53,27 @@ const URLS: Record<string, string> = {
   storm: stormUrl,
 };
 
-const shapes = new Map<string, VertexData>();
+const geoms = new Map<string, THREE.BufferGeometry>();
 
 /** Загрузка всех мешей миров; вызывается на экране загрузки до старта сцены. */
-export async function preloadPlanetModels(): Promise<void> {
-  await Promise.all(Object.entries(URLS).map(async ([key, url]) => {
-    try {
-      const parts = await loadVertexData(url);
-      // В glb мира одна оболочка: берём первую и считаем нормали — в файл они
-      // не пишутся ради веса.
-      const vd = parts[0]?.data;
-      if (vd?.positions && vd.indices) {
-        // Нормали в GLB не пишутся ради веса — считаем их здесь.
-        const normals: number[] = [];
-        VertexData.ComputeNormals(vd.positions, vd.indices, normals);
-        vd.normals = normals;
-        shapes.set(key, vd);
+export function preloadPlanetModels(): Promise<void> {
+  const loader = new GLTFLoader();
+  const jobs = Object.entries(URLS).map(([key, url]) =>
+    loader.loadAsync(url).then((g) => {
+      let found: THREE.BufferGeometry | null = null;
+      g.scene.traverse((o) => {
+        if (!found && o instanceof THREE.Mesh) found = o.geometry as THREE.BufferGeometry;
+      });
+      if (found) {
+        const geo = found as THREE.BufferGeometry;
+        // Нормали в GLB не пишутся (экономия веса) — считаем их здесь.
+        geo.computeVertexNormals();
+        geoms.set(key, geo);
       }
-    } catch (e) {
+    }).catch((e) => {
       console.warn(`Меш мира ${key} не загрузился, останется гладкая сфера:`, e);
-    }
-  }));
+    }));
+  return Promise.all(jobs).then(() => undefined);
 }
 
 /** Какое семейство рельефа носит биом. Часть биомов делит два варианта —
@@ -96,16 +93,17 @@ const BIOME_RELIEF: Record<BiomeId, ReliefId[]> = {
 };
 
 /** Геометрия рельефа мира; null — модели нет (откат на гладкую сферу). */
-export function reliefShape(biome: BiomeId, seed: number): VertexData | null {
+export function reliefGeometry(biome: BiomeId, seed: number): THREE.BufferGeometry | null {
   const pool = BIOME_RELIEF[biome] ?? ['mountain'];
   const id = pool[Math.abs(seed) % pool.length]!;
-  return shapes.get(id) ?? null;
+  return geoms.get(id) ?? null;
 }
 
-export function ringShape(): VertexData | null {
-  return shapes.get('ring') ?? null;
+export function ringGeometry(): THREE.BufferGeometry | null {
+  return geoms.get('ring') ?? null;
 }
 
-export function moonShape(): VertexData | null {
-  return shapes.get('moon') ?? null;
+export function moonGeometry(): THREE.BufferGeometry | null {
+  return geoms.get('moon') ?? null;
 }
+

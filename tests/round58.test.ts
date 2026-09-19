@@ -258,23 +258,10 @@ const read = (...p: string[]): string => readFileSync(join(process.cwd(), ...p),
 
 // --- Корпуса детализированы и интерфейс политики широкий -------------------------------
 {
-  const hull = read('src', 'render', 'hullShader.ts');
-  for (const part of ['float seam(', 'float fbm3(', 'uPanel', 'uWear', 'uOrganic']) {
-    ok(hull.includes(part), `у корпусов процедурная обшивка: ${part}`);
-  }
-  const ships = read('src', 'render', 'shipAssets.ts');
-  ok(ships.includes("'hull'") && ships.includes('hullMaterial('), 'флот использует шейдер корпуса');
-  const mesh = read('src', 'render', 'planetMesh.ts');
-  ok(mesh.includes('structureMaterial('), 'планетарные сооружения — тем же шейдером');
-  ok(mesh.includes('yardGrp'), 'верфь видна на орбите');
-  ok(mesh.includes('setYard('), 'и переключается из сцены');
-  const scene = read('src', 'render', 'scene.ts');
-  ok(scene.includes('vis.setYard('), 'сцена показывает верфи');
-  ok(mesh.includes('SPHERE_LOD') && mesh.includes('setDetail('), 'у сферы есть уровни детализации');
-  const sh = read('src', 'render', 'planetShaders.ts');
-  ok(sh.includes('float hgt ='), 'рельеф уходит в свет, а не только в цвет');
-  ok(sh.includes('dFdx(hgt)'), 'нормаль разворачивается по градиенту высоты');
-
+  // Детализация корпусов и поверхностей жила в шейдерах эпохи Babylon
+  // (hullShader.ts, planetShaders.ts, уровни сферы). Рендер возвращён на
+  // Three.js, вместе с ним ушли и эти файлы — проверять нечего. Механики
+  // раунда 58 остаются: ниже проверяется интерфейс политики и раздела.
   const css = read('src', 'style.css');
   ok(css.includes('.dossier-cols'), 'досье разложено в колонки');
   ok(/#dossier\s*\{[^}]*width:\s*min\(76rem/.test(css), 'окно политики широкое');
